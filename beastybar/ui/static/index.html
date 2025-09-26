@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Beasty Bar Simulator</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 2rem; background: #f5f5f5; }
+      h1 { margin-bottom: 0.5rem; }
+      button { margin: 0.25rem; padding: 0.5rem 0.75rem; }
+      .zone, .hand { margin-bottom: 1rem; background: white; padding: 1rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+      .cards { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+      .card { padding: 0.5rem 0.75rem; border: 1px solid #ddd; border-radius: 6px; background: #fff; }
+      .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+      .status { font-weight: 600; margin-bottom: 1rem; }
+    </style>
+  </head>
+  <body>
+    <h1>Beasty Bar</h1>
+    <div class="controls">
+      <button id="new-game">New Game</button>
+      <button id="new-seeded">New Seeded Game</button>
+      <input id="seed-input" type="number" placeholder="Seed" />
+    </div>
+    <div id="status" class="status">Loading…</div>
+    <div class="zone">
+      <h2>Queue</h2>
+      <div id="queue" class="cards"></div>
+    </div>
+    <div class="zone">
+      <h2>Zones</h2>
+      <div><strong>Beasty Bar</strong></div>
+      <div id="beasty" class="cards"></div>
+      <div><strong>Bounced</strong></div>
+      <div id="bounced" class="cards"></div>
+      <div><strong>THAT'S IT</strong></div>
+      <div id="thats-it" class="cards"></div>
+    </div>
+    <div class="hands">
+      <div class="hand">
+        <h2>Player 0 Hand</h2>
+        <div id="hand-0" class="cards"></div>
+      </div>
+      <div class="hand">
+        <h2>Player 1 Hand</h2>
+        <div id="hand-1" class="cards"></div>
+      </div>
+    </div>
+    <div class="zone">
+      <h2>Legal Actions</h2>
+      <div id="actions" class="actions"></div>
+    </div>
+    <script>
+      let currentState = null;
+
+      const statusEl = document.getElementById("status");
+      const queueEl = document.getElementById("queue");
+      const beastyEl = document.getElementById("beasty");
+      const bouncedEl = document.getElementById("bounced");
+      const thatsItEl = document.getElementById("thats-it");
+      const actionsEl = document.getElementById("actions");
+      const newGameBtn = document.getElementById("new-game");
+      const newSeedBtn = document.getElementById("new-seeded");
+      const seedInput = document.getElementById("seed-input");
+
+      newGameBtn.addEventListener("click", async () => {
+        await fetch("/api/new-game", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
+        await refreshState();
+      });
+
+      newSeedBtn.addEventListener("click", async () => {
+        const value = seedInput.value ? Number(seedInput.value) : null;
+        await fetch("/api/new-game", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ seed: value }) });
+        await refreshState();
+      });
+
+      async function refreshState() {
+        const response = await fetch("/api/state");
+        if (response.ok) {
+          currentState = await response.json();
+          render();
+        } else {
+          statusEl.textContent = "Create a game to begin.";
+          clearRender();
+        }
+      }
+
+      function renderCard(card) {
+        const div = document.createElement("div");
+        div.className = "card";
+        div.textContent = `${card.species} (P${card.owner})`;
+        return div;
+      }
+
+      function render() {
+        if (!currentState) return;
+        const { turn, activePlayer, isTerminal, score } = currentState;
+        statusEl.textContent = isTerminal
+          ? `Game over · Score P0 ${score[0]} – P1 ${score[1]}`
+          : `Turn ${turn} · Player ${activePlayer} to play`;
+
+        renderList(queueEl, currentState.queue.map(renderCard));
+        renderList(beastyEl, currentState.zones.beastyBar.map(renderCard));
+        renderList(bouncedEl, currentState.zones.bounced.map(renderCard));
+        renderList(thatsItEl, currentState.zones.thatsIt.map(renderCard));
+
+        renderList(
+          document.getElementById("hand-0"),
+          currentState.hands[0].map(renderCard)
+        );
+        renderList(
+          document.getElementById("hand-1"),
+          currentState.hands[1].map(renderCard)
+        );
+
+        actionsEl.innerHTML = "";
+        if (!isTerminal) {
+          currentState.legalActions.forEach((action) => {
+            const button = document.createElement("button");
+            button.textContent = action.label;
+            button.addEventListener("click", () => sendAction(action));
+            actionsEl.appendChild(button);
+          });
+        }
+      }
+
+      function clearRender() {
+        [queueEl, beastyEl, bouncedEl, thatsItEl, actionsEl].forEach((el) => (el.innerHTML = ""));
+        document.getElementById("hand-0").innerHTML = "";
+        document.getElementById("hand-1").innerHTML = "";
+      }
+
+      function renderList(container, items) {
+        container.innerHTML = "";
+        items.forEach((item) => container.appendChild(item));
+      }
+
+      async function sendAction(action) {
+        await fetch("/api/action", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(action),
+        });
+        await refreshState();
+      }
+
+      // bootstrap
+      refreshState();
+    </script>
+  </body>
+</html>

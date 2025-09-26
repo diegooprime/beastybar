@@ -19,7 +19,7 @@
 ## Phase 3 – Interfaces
 - [x] Expose batch API functions
 - [ ] Create CLI debug harness
-- [ ] Scaffold web UI shell
+- [x] Scaffold web UI shell
 
 ## Phase 4 – QA & Tooling
 - [ ] Golden replay fixtures
