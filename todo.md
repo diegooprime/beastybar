@@ -11,7 +11,7 @@
 
 ## Phase 2 – Rule Engine
 - [ ] Implement `step`, `legal_actions`, recurring resolution
-- [ ] Add unit tests per animal ability
+- [x] Add unit tests per animal ability
 - [x] Implement scoring and terminal checks
 
 ## Phase 3 – Interfaces
@@ -25,5 +25,6 @@
 - [ ] Developer workflow notes
 
 ### Active Focus
-- [x] Build initial package skeleton and constants
-- [x] Draft state dataclass and helpers
+- [ ] Flesh out `legal_actions` to surface parameterised choices
+- [ ] Build negative tests for invalid action parameters
+- [ ] Document card behaviours and assumptions (seal swap, chameleon params)
