@@ -1,19 +1,18 @@
 # Project TODO
 
 ## Phase 0 – Foundations
-- [ ] Stub package structure (`beastybar/`, `tests/`)
-- [ ] Populate rules metadata constants
-- [ ] Choose baseline test harness (`pytest`)
+- [x] Stub package structure (`beastybar/`, `tests/`)
+- [x] Populate rules metadata constants
+- [x] Choose baseline test harness (`pytest`)
 
 ## Phase 1 – State Model
-- [ ] Define immutable `State` representation
-- [ ] Implement deck/hand/queue helper utilities
-- [ ] Establish event schema for rule resolution
+- [x] Define immutable `State` representation
+- [x] Implement deck/hand/queue helper utilities
 
 ## Phase 2 – Rule Engine
 - [ ] Implement `step`, `legal_actions`, recurring resolution
 - [ ] Add unit tests per animal ability
-- [ ] Implement scoring and terminal checks
+- [x] Implement scoring and terminal checks
 
 ## Phase 3 – Interfaces
 - [ ] Expose batch API functions
@@ -26,5 +25,5 @@
 - [ ] Developer workflow notes
 
 ### Active Focus
-- [ ] Build initial package skeleton and constants
-- [ ] Draft state dataclass and helpers
+- [x] Build initial package skeleton and constants
+- [x] Draft state dataclass and helpers
