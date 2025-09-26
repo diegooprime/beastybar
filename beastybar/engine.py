@@ -12,8 +12,25 @@ def legal_actions(game_state: state.State, player: int) -> Iterable[actions.Acti
     _validate_player_index(player)
     if player != game_state.active_player:
         return []
+
     player_state = game_state.players[player]
-    return [actions.Action(hand_index=i) for i in range(len(player_state.hand))]
+    queue = game_state.zones.queue
+    for idx, card in enumerate(player_state.hand):
+        species = card.species
+        if species == "parrot":
+            for target in range(len(queue)):
+                yield actions.Action(hand_index=idx, params=(target,))
+        elif species == "chameleon":
+            if not queue:
+                continue
+            for target in range(len(queue)):
+                if queue[target] is card:
+                    continue
+                # Allow additional params for the copied species to consume.
+                for extra in _chameleon_params(queue[target], len(queue)):
+                    yield actions.Action(hand_index=idx, params=(target,) + extra)
+        else:
+            yield actions.Action(hand_index=idx)
 
 
 def step(game_state: state.State, action: actions.Action) -> state.State:
@@ -83,6 +100,53 @@ def _validate_action(game_state: state.State, player: int, action: actions.Actio
     player_state = game_state.players[player]
     if not (0 <= action.hand_index < len(player_state.hand)):
         raise ValueError("Hand index out of range for player")
+
+    card = player_state.hand[action.hand_index]
+    queue = game_state.zones.queue
+    species = card.species
+
+    if species == "parrot":
+        if len(action.params) != 1:
+            raise ValueError("Parrot requires exactly one target parameter")
+        target = action.params[0]
+        if not (0 <= target < len(queue)):
+            raise ValueError("Parrot target index out of range")
+    elif species == "chameleon":
+        if not action.params:
+            raise ValueError("Chameleon requires target index to copy")
+        target_index = action.params[0]
+        if not (0 <= target_index < len(queue)):
+            raise ValueError("Chameleon target index out of range")
+        target_card = queue[target_index]
+        if target_card is card:
+            raise ValueError("Chameleon must copy another card")
+
+        extra_params = action.params[1:]
+        _validate_chameleon_params(target_card, extra_params, queue)
+    else:
+        if action.params:
+            raise ValueError("This card does not accept parameters")
+
+
+def _chameleon_params(target_card: state.Card, queue_len: int):
+    species = target_card.species
+    if species == "parrot":
+        for target in range(queue_len):
+            yield (target,)
+    else:
+        yield ()
+
+
+def _validate_chameleon_params(target_card: state.Card, params: tuple[int, ...], queue: tuple[state.Card, ...]) -> None:
+    species = target_card.species
+    if species == "parrot":
+        if len(params) != 1:
+            raise ValueError("Chameleon-as-parrot requires one target parameter")
+        if not (0 <= params[0] < len(queue)):
+            raise ValueError("Chameleon-as-parrot target out of range")
+    else:
+        if params:
+            raise ValueError("Chameleon-as-%s should not have extra parameters" % species)
 
 
 __all__ = [

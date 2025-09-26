@@ -10,12 +10,14 @@
 - [x] Implement deck/hand/queue helper utilities
 
 ## Phase 2 – Rule Engine
-- [ ] Implement `step`, `legal_actions`, recurring resolution
+- [x] Implement turn step pipeline and recurring resolution
+- [x] Flesh out `legal_actions` parameter handling and validation
+- [x] Validate action parameter errors
 - [x] Add unit tests per animal ability
 - [x] Implement scoring and terminal checks
 
 ## Phase 3 – Interfaces
-- [ ] Expose batch API functions
+- [x] Expose batch API functions
 - [ ] Create CLI debug harness
 - [ ] Scaffold web UI shell
 
@@ -25,6 +27,6 @@
 - [ ] Developer workflow notes
 
 ### Active Focus
-- [ ] Flesh out `legal_actions` to surface parameterised choices
-- [ ] Build negative tests for invalid action parameters
-- [ ] Document card behaviours and assumptions (seal swap, chameleon params)
+- [x] Capture golden two-turn replay (regression fixture)
+- [x] Draft batch API scaffolding (`simulate.py`, agent hooks)
+- [x] Document card behaviours and assumptions (seal swap, chameleon params)
