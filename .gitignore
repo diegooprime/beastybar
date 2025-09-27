@@ -4,4 +4,4 @@ logs/round_robin_actions/
 __pycache__/
 *.pyc
 *.tar.gz
-logs/
+logs

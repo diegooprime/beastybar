@@ -365,3 +365,33 @@ def test_killer_falls_back_when_no_opponent_loss():
     chosen = agent.select_action(game, legal)
 
     assert chosen == legal[0]
+
+
+def test_should_stop_early_when_wilson_confident():
+    config = tournament.EarlyStopConfig(min_games=5)
+    assert tournament._should_stop_early(wins_a=5, wins_b=0, ties=0, config=config)
+    assert not tournament._should_stop_early(wins_a=3, wins_b=2, ties=0, config=config)
+
+
+def test_play_series_respects_early_stop(monkeypatch):
+    triggered_at = 3
+
+    def fake_should_stop(*, wins_a: int, wins_b: int, ties: int, config):
+        total = wins_a + wins_b + ties
+        return total >= triggered_at
+
+    monkeypatch.setattr(tournament, "_should_stop_early", fake_should_stop)
+
+    config = tournament.SeriesConfig(
+        games=20,
+        seed=11,
+        agent_a=FirstLegalAgent(),
+        agent_b=RandomAgent(seed=99),
+        alternate_start=False,
+        early_stop=tournament.EarlyStopConfig(min_games=1),
+    )
+
+    result = tournament.play_series(config)
+
+    assert len(result.records) == triggered_at
+    assert result.summary.games == triggered_at

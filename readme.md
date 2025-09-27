@@ -1,65 +1,21 @@
-## Overview
+Beasty Bar is a board game I like a lot. It's fun, simple, easy to learn and requires strategy. 
+I played a ton with friends and wanted the “best” strategy. I searched online. Nothing.
+So I’m building a simulator to test strategies until I find the best one. Then I’ll use the engine to sharpen my intuition and win more games.
+First project of this type for me.
+Purpose: Have the best Beasty Bar strategy in the world.
 
-This project has **three layers**:
+### Project stucture:
+simulator: full game rules and state
 
-1. **Simulator** — the official Beasty Bar rules. 
-   * **Engine + UI** for humans to play the game.
-   * **Batch interface** for agents to play millions of games automatically.
-2. **Agents** — algorithms that use the simulator to make decisions (random, greedy, search, learning).
-3. **Training and evaluation** — experiments to find strong strategies against baselines and humans.
+agents: each strategy as an agent
 
-We are currently focused only on **(1) the simulator**.
+training: tournaments, telemetry, logs, Elo
 
----
+ui: basic CLI and a small viewer
 
-## Simulator specification
+other: utilities and docs
 
-The simulator has **two parts**:
 
-### 1. Engine + UI (for humans)
-
-* Pure rule engine implementing every animal action, turn order, and point-based scoring.
-* Lightweight web UI to let a human play against bots.
-* Explanations panel: shows legal moves, what happened in a turn.
-* Deterministic, seeded shuffles for reproducibility.
-
-### 2. Batch simulation (for agents)
-
-* Same rule engine, but exposed as a fast API:
-
-  * `new_game(seed)`
-  * `legal_actions(state, player)`
-  * `apply(state, action)`
-  * `is_terminal(state)`
-  * `score(state)`
-* Allows agents to run **millions of games** with fixed seeds for training or evaluation.
-* Supports structured logs and replay serialization.
-
----
-
-## After the simulator
-
-Once the simulator is stable and tested:
-
-* Build baseline agents (Random, Greedy).
-* Add interpretable search (Information-Set MCTS with heuristic rollouts).
-* Run tournaments and human playtests to measure strength.
-* Optimize for both **strength** and **explainability**.
-
----
-
-## Project layout
-
-* `rules.md` — full rules, point table, pseudo-code.
-* `beastybar/`
-
-  * `rules.py` — constants, species, strengths, points.
-  * `state.py` — immutable state model.
-  * `cards.py` — animal actions.
-  * `engine.py` — step function, legal moves, scoring.
-  * `ui/` — human-play interface.
-  * `agents/` — agent code (later).
-  * `simulate.py` — batch simulation entry point.
-* `tests/` — unit tests + golden replays.
-
----
+### Misc
+Built in Python. Fast to build. I want to get better at it.
+- Beasty Bar intro: https://tesera.ru/images/items/1525203/BeastyBar_EN-online.pdf

@@ -64,6 +64,30 @@
         background: var(--surface);
       }
 
+      select {
+        font: inherit;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        padding: 0.45rem 0.9rem;
+        background: var(--surface);
+      }
+
+      #opponent-select {
+        min-width: 180px;
+      }
+
+      .control-label {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        font-size: 0.85rem;
+        color: var(--subtle-text);
+      }
+
+      .control-label select {
+        min-width: 120px;
+      }
+
       .top-bar {
         position: sticky;
         top: 0;
@@ -383,6 +407,31 @@
         gap: 0.35rem;
       }
 
+      .card--hidden {
+        background: repeating-linear-gradient(
+          135deg,
+          rgba(15, 23, 42, 0.05),
+          rgba(15, 23, 42, 0.05) 12px,
+          rgba(148, 163, 184, 0.08) 12px,
+          rgba(148, 163, 184, 0.08) 24px
+        );
+        border-style: dashed;
+        color: var(--subtle-text);
+        pointer-events: none;
+        cursor: default;
+      }
+
+      .card--hidden .card-top,
+      .card--hidden .card-species,
+      .card--hidden .card-actions {
+        opacity: 0.5;
+      }
+
+      .card--hidden .card-points {
+        background: rgba(148, 163, 184, 0.75);
+        color: #fff;
+      }
+
       .card--playable {
         box-shadow: 0 26px 52px rgba(37, 99, 235, 0.25);
         transform: translateY(-6px);
@@ -511,6 +560,10 @@
       .hand-active {
         box-shadow: 0 28px 55px rgba(37, 99, 235, 0.25);
         transform: translateY(-6px);
+      }
+
+      .hand.hand-hidden {
+        opacity: 0.85;
       }
 
       .hand-header {
@@ -718,6 +771,26 @@
           <button id="new-game" type="button">New Game</button>
           <button id="new-seeded" type="button">New Seeded Game</button>
           <input id="seed-input" type="number" placeholder="Seed" />
+          <label class="control-label">
+            Opponent
+            <select id="opponent-select">
+              <option value="">Human vs Human</option>
+            </select>
+          </label>
+          <label class="control-label">
+            You play as
+            <select id="human-player-select">
+              <option value="0">Player 0 (Blue)</option>
+              <option value="1">Player 1 (Orange)</option>
+            </select>
+          </label>
+          <label class="control-label">
+            Starting player
+            <select id="starting-player-select">
+              <option value="0">Player 0</option>
+              <option value="1">Player 1</option>
+            </select>
+          </label>
         </div>
         <div class="status-block">
           <div id="status" class="turn-indicator">Loading…</div>
@@ -795,19 +868,25 @@
       let pileContents = { beastyBar: [], thatsIt: [] };
       let eventLog = [];
       let pendingSelection = null;
+      let availableAgents = [];
 
       const statusEl = document.getElementById("status");
       const scoreEl = document.getElementById("score");
       const scoreCardEls = [document.getElementById("score-card-0"), document.getElementById("score-card-1")];
       const scoreValueEls = [document.getElementById("score-player-0"), document.getElementById("score-player-1")];
+      const scoreNameEls = scoreCardEls.map((card) => card.querySelector(".score-card__name"));
       const queueEl = document.getElementById("queue");
       const handWrappers = [document.getElementById("player-0"), document.getElementById("player-1")];
       const handContainers = [document.getElementById("hand-0"), document.getElementById("hand-1")];
+      const handNameEls = handWrappers.map((wrapper) => wrapper.querySelector(".hand-name"));
       const hintEl = document.getElementById("hint");
 
       const newGameBtn = document.getElementById("new-game");
       const newSeedBtn = document.getElementById("new-seeded");
       const seedInput = document.getElementById("seed-input");
+      const opponentSelect = document.getElementById("opponent-select");
+      const humanPlayerSelect = document.getElementById("human-player-select");
+      const startingPlayerSelect = document.getElementById("starting-player-select");
 
       const gatePileBtn = document.getElementById("gate-pile");
       const thatsPileBtn = document.getElementById("thats-it-pile");
@@ -832,16 +911,23 @@
         if (pendingSelection) {
           clearSelection();
         }
-        startNewGame({});
+        startNewGame();
       });
       newSeedBtn.addEventListener("click", () => {
-        const value = seedInput.value ? Number(seedInput.value) : null;
+        const raw = seedInput.value.trim();
+        const overrides = {};
+        if (raw !== "") {
+          const parsed = Number(raw);
+          if (!Number.isNaN(parsed)) {
+            overrides.seed = parsed;
+          }
+        }
         eventLog = [];
         renderLog();
         if (pendingSelection) {
           clearSelection();
         }
-        startNewGame({ seed: value ?? undefined });
+        startNewGame(overrides);
       });
 
       gatePileBtn.addEventListener("click", () => openPileModal("Heaven's Gate", pileContents.beastyBar));
@@ -867,14 +953,54 @@
         logToggleBtn.setAttribute("aria-expanded", String(!collapsed));
       });
 
-      async function startNewGame(payload) {
-        await fetch("/api/new-game", {
+      async function startNewGame(overrides = {}) {
+        const payload = {
+          startingPlayer: Number(startingPlayerSelect.value),
+          humanPlayer: Number(humanPlayerSelect.value),
+        };
+        const opponent = opponentSelect.value;
+        if (opponent) {
+          payload.opponent = opponent;
+        }
+        if (overrides && typeof overrides === "object") {
+          Object.assign(payload, overrides);
+        }
+        if (payload.seed === undefined || payload.seed === null || Number.isNaN(payload.seed)) {
+          delete payload.seed;
+        }
+
+        const response = await fetch("/api/new-game", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload ?? {}),
+          body: JSON.stringify(payload),
         });
+
+        if (!response.ok) {
+          let message = "Failed to start new game";
+          try {
+            const data = await response.json();
+            if (data?.detail) {
+              message = data.detail;
+            }
+          } catch (error) {
+            // ignore json parse issues
+          }
+          hintEl.textContent = message;
+          addLogEntry(`Error · ${message}`);
+          return;
+        }
+
         bootstrapped = true;
-        addLogEntry(`New game started${payload?.seed ? ` · Seed ${payload.seed}` : ""}`);
+        const details = [];
+        if (payload.seed !== undefined) {
+          details.push(`Seed ${payload.seed}`);
+        }
+        details.push(`start P${payload.startingPlayer}`);
+        if (opponent) {
+          details.push(`vs ${opponent}`);
+          details.push(`you as P${payload.humanPlayer}`);
+        }
+        addLogEntry(`New game started${details.length ? ` · ${details.join(" · ")}` : ""}`);
         await refreshState();
       }
 
@@ -884,19 +1010,47 @@
           currentState = await response.json();
           render();
         } else if (!bootstrapped) {
-          await startNewGame({});
+          await startNewGame();
         } else {
+          currentState = null;
           statusEl.textContent = "Create a game to begin.";
           clearRender();
         }
       }
 
+      function playerLabel(playerIndex) {
+        if (currentState && currentState.opponent) {
+          const { humanPlayer, agentPlayer, opponent } = currentState;
+          if (typeof humanPlayer === "number" && playerIndex === humanPlayer) {
+            return "You";
+          }
+          if (opponent && typeof agentPlayer === "number" && playerIndex === agentPlayer) {
+            return opponent;
+          }
+        }
+        return `Player ${playerIndex}`;
+      }
+
+      function updatePlayerNames() {
+        scoreNameEls.forEach((el, idx) => {
+          if (el) {
+            el.textContent = playerLabel(idx);
+          }
+        });
+        handNameEls.forEach((el, idx) => {
+          if (el) {
+            el.textContent = playerLabel(idx);
+          }
+        });
+      }
+
       function render() {
         if (!currentState) {
+          updatePlayerNames();
           updateHint();
           return;
         }
-        const { turn, activePlayer, isTerminal, seed, score, zones, queue, hands } = currentState;
+        const { turn, activePlayer, isTerminal, score, zones, queue, hands, seed } = currentState;
         const runningScore = [0, 0];
         zones.beastyBar.forEach((card) => {
           runningScore[card.owner] += card.points;
@@ -904,9 +1058,12 @@
         const scoreLine = isTerminal && score ? score : runningScore;
 
         const displayedTurn = isTerminal ? turn : turn + 1;
+        const activeLabel = playerLabel(activePlayer);
         statusEl.textContent = isTerminal
           ? winnerMessage(scoreLine)
-          : `Turn ${displayedTurn} · Player ${activePlayer} to play`;
+          : `Turn ${displayedTurn} · ${activeLabel} to play`;
+
+        updatePlayerNames();
 
         scoreValueEls.forEach((el, idx) => {
           el.textContent = scoreLine[idx];
@@ -925,7 +1082,7 @@
           }
         });
 
-        const scoreSummary = `P0 ${scoreLine[0]} – P1 ${scoreLine[1]}`;
+        const scoreSummary = `${playerLabel(0)} ${scoreLine[0]} – ${playerLabel(1)} ${scoreLine[1]}`;
 
         if (scoreLine[0] === scoreLine[1]) {
           scoreCardEls.forEach((cardEl) => cardEl.classList.add("score-card--tied"));
@@ -982,26 +1139,44 @@
 
         hands.forEach((hand, playerIndex) => {
           const wrapper = handWrappers[playerIndex];
-          wrapper.classList.toggle("hand-active", playerIndex === activePlayer);
+          const isAgentHand =
+            Boolean(currentState.opponent) &&
+            typeof currentState.agentPlayer === "number" &&
+            playerIndex === currentState.agentPlayer;
+          wrapper.classList.toggle("hand-active", playerIndex === activePlayer && !isAgentHand);
+          wrapper.classList.toggle("hand-hidden", isAgentHand);
+
           const nodes = hand.map((card, handIndex) => {
-            const actions = playerIndex === activePlayer ? legalByHand.get(handIndex) ?? [] : [];
+            const hidden = isAgentHand;
+            const actions = hidden ? [] : playerIndex === activePlayer ? legalByHand.get(handIndex) ?? [] : [];
             const isSelected =
+              !hidden &&
               pendingSelection &&
               pendingSelection.handIndex === handIndex &&
               playerIndex === activePlayer;
             const inlineOptions =
-              isSelected && pendingSelection.type === "kangaroo"
+              !hidden && isSelected && pendingSelection.type === "kangaroo"
                 ? pendingSelection.actions.map((action) => ({
                     label: kangarooLabel(action),
                     onSelect: () => sendSelectedAction(action),
                   }))
                 : null;
-            return createCard(card, {
-              highlight: actions.length > 0 && playerIndex === activePlayer,
+            const displayCard = hidden
+              ? {
+                  owner: card.owner,
+                  species: "Hidden",
+                  strength: "?",
+                  points: "?",
+                }
+              : card;
+            return createCard(displayCard, {
+              originalCard: card,
+              hidden,
+              highlight: !hidden && actions.length > 0 && playerIndex === activePlayer,
               selected: isSelected,
               handIndex,
               onClick:
-                playerIndex === activePlayer && actions.length > 0
+                !hidden && playerIndex === activePlayer && actions.length > 0
                   ? () => handleHandCardClick(card, handIndex, actions)
                   : null,
               inlineOptions,
@@ -1027,10 +1202,13 @@
           handIndex = null,
           queueIndex = null,
           inlineOptions = null,
+          hidden = false,
+          originalCard = null,
         } = options;
+        const sourceCard = originalCard ?? card;
         const div = document.createElement("div");
         div.className = "card";
-        div.classList.add(`player-${card.owner}`);
+        div.classList.add(`player-${sourceCard.owner}`);
         if (queue) div.classList.add("card--queue");
         if (subtle) {
           div.classList.add("card--subtle");
@@ -1046,6 +1224,9 @@
         }
         if (dimmed) {
           div.classList.add("card--dimmed");
+        }
+        if (hidden) {
+          div.classList.add("card--hidden");
         }
         if (tooltip) {
           div.title = tooltip;
@@ -1079,9 +1260,13 @@
         strength.textContent = card.strength;
         const points = document.createElement("span");
         points.className = "card-points";
-        points.textContent = `${card.points >= 0 ? "+" : ""}${card.points}`;
-        if (card.points < 0) {
-          points.classList.add("negative");
+        if (hidden) {
+          points.textContent = "?";
+        } else {
+          points.textContent = `${sourceCard.points >= 0 ? "+" : ""}${sourceCard.points}`;
+          if (sourceCard.points < 0) {
+            points.classList.add("negative");
+          }
         }
         top.appendChild(strength);
         top.appendChild(points);
@@ -1089,8 +1274,8 @@
 
         const species = document.createElement("div");
         species.className = "card-species";
-       species.textContent = card.species;
-       div.appendChild(species);
+        species.textContent = card.species;
+        div.appendChild(species);
 
         if (inlineOptions?.length) {
           const actionsEl = document.createElement("div");
@@ -1293,7 +1478,8 @@
         const winner = scores[0] > scores[1] ? 0 : 1;
         const diff = Math.abs(scores[0] - scores[1]);
         const margin = diff === 1 ? "by 1 point" : `by ${diff} points`;
-        return `Game over · Player ${winner} wins ${margin}`;
+        const winnerLabel = playerLabel(winner);
+        return `Game over · ${winnerLabel} wins ${margin}`;
       }
 
       function updateHint() {
@@ -1339,7 +1525,15 @@
           return;
         }
 
-        hintEl.textContent = `Player ${currentState.activePlayer}: click a card in your hand to play it.`;
+        const active = currentState.activePlayer;
+        const label = playerLabel(active);
+        if (currentState.opponent && active !== currentState.humanPlayer) {
+          hintEl.textContent = `${label} is thinking…`;
+          return;
+        }
+
+        const prefix = label === "You" ? "Your turn" : label;
+        hintEl.textContent = `${prefix}: click a card in your hand to play it.`;
       }
 
       function clearRender() {
@@ -1349,17 +1543,32 @@
         updatePilePreview(beastyPreview, beastyCount, []);
         updatePilePreview(thatsPreview, thatsCount, []);
         pendingSelection = null;
+        updatePlayerNames();
         updateHint();
       }
 
       async function sendAction(action) {
         if (!currentState) return;
-        addLogEntry(`Player ${currentState.activePlayer} · ${action.label}`);
-        await fetch("/api/action", {
+        const actor = playerLabel(currentState.activePlayer);
+        addLogEntry(`${actor} · ${action.label}`);
+        const response = await fetch("/api/action", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(action),
         });
+        if (!response.ok) {
+          let message = "Move rejected";
+          try {
+            const data = await response.json();
+            if (data?.detail) {
+              message = data.detail;
+            }
+          } catch (error) {
+            // ignore
+          }
+          hintEl.textContent = message;
+          addLogEntry(`Error · ${message}`);
+        }
         await refreshState();
       }
 
@@ -1418,6 +1627,39 @@
         modalEl.setAttribute("aria-hidden", "true");
       }
 
+      function populateOpponentOptions() {
+        const previous = opponentSelect.value;
+        opponentSelect.innerHTML = "";
+        const baseOption = document.createElement("option");
+        baseOption.value = "";
+        baseOption.textContent = "Human vs Human";
+        opponentSelect.appendChild(baseOption);
+        availableAgents.forEach((name) => {
+          const option = document.createElement("option");
+          option.value = name;
+          option.textContent = name;
+          opponentSelect.appendChild(option);
+        });
+        if (availableAgents.includes(previous)) {
+          opponentSelect.value = previous;
+        }
+      }
+
+      async function loadAgents() {
+        try {
+          const response = await fetch("/api/agents");
+          if (!response.ok) {
+            return;
+          }
+          const data = await response.json();
+          const names = Array.isArray(data?.agents) ? data.agents : [];
+          availableAgents = names.slice().sort();
+          populateOpponentOptions();
+        } catch (error) {
+          // ignore network issues for optional list
+        }
+      }
+
       function makeId() {
         if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
           return crypto.randomUUID();
@@ -1425,6 +1667,7 @@
         return `log-${Date.now()}-${Math.random().toString(16).slice(2)}`;
       }
 
+      loadAgents();
       refreshState();
     </script>
   </body>

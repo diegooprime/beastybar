@@ -4,9 +4,11 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-from dataclasses import dataclass
 import itertools
+import math
+from dataclasses import dataclass, field
 from pathlib import Path
+from statistics import NormalDist
 from typing import Iterable, Sequence, Tuple
 
 from .. import actions, simulate, state
@@ -24,6 +26,31 @@ class SeriesConfig:
     agent_b: Agent
     alternate_start: bool = True
     collect_actions: bool = False
+    early_stop: EarlyStopConfig | None = None
+
+
+@dataclass
+class EarlyStopConfig:
+    """Parameters governing early termination based on Wilson confidence interval."""
+
+    confidence_level: float = 0.95
+    min_games: int = 10
+    threshold: float = 0.5
+    ties_as_half: bool = True
+    _z_value: float = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        if not (0.0 < self.confidence_level < 1.0):
+            raise ValueError("confidence_level must be between 0 and 1")
+        if self.min_games < 1:
+            raise ValueError("min_games must be at least 1")
+        if not (0.0 < self.threshold < 1.0):
+            raise ValueError("threshold must be between 0 and 1")
+        object.__setattr__(
+            self,
+            "_z_value",
+            NormalDist().inv_cdf(0.5 + self.confidence_level / 2.0),
+        )
 
 
 @dataclass(frozen=True)
@@ -78,6 +105,76 @@ class SeriesResult:
     records: list[GameRecord]
 
 
+def _wilson_score_interval(successes: float, total: int, z_value: float) -> tuple[float, float]:
+    """Return the Wilson score interval for a binomial proportion."""
+
+    if total <= 0:
+        raise ValueError("total must be positive for Wilson interval")
+
+    if successes < 0 or successes > total:
+        raise ValueError("successes must be between 0 and total")
+
+    denom = 1.0 + (z_value * z_value) / total
+    adjusted = successes + 0.5 * z_value * z_value
+    center = (adjusted / total) / denom
+    variance = (successes * (total - successes)) / total + 0.25 * z_value * z_value
+    margin = z_value * math.sqrt(variance) / (total * denom)
+
+    lower = max(0.0, center - margin)
+    upper = min(1.0, center + margin)
+    return lower, upper
+
+
+def _should_stop_early(
+    *,
+    wins_a: int,
+    wins_b: int,
+    ties: int,
+    config: EarlyStopConfig,
+) -> bool:
+    """Return True when the Wilson CI indicates a decisive result."""
+
+    games = wins_a + wins_b + ties
+    if games < config.min_games:
+        return False
+
+    if games == 0:
+        return False
+
+    if config.ties_as_half:
+        successes_a = wins_a + 0.5 * ties
+    else:
+        successes_a = wins_a
+
+    if successes_a < 0:
+        successes_a = 0.0
+    if successes_a > games:
+        successes_a = float(games)
+
+    lower_a, upper_a = _wilson_score_interval(successes_a, games, config._z_value)
+
+    if lower_a > config.threshold:
+        return True
+    if upper_a < config.threshold:
+        return True
+
+    return False
+
+
+@dataclass
+class LeaderboardEntry:
+    """Aggregated ranking information for an agent."""
+
+    name: str
+    rating: float
+    wins: int
+    losses: int
+    ties: int
+    games: int
+    win_rate: float
+    average_score: float
+
+
 def play_series(config: SeriesConfig) -> SeriesResult:
     """Play a block of games and collect telemetry."""
 
@@ -85,6 +182,8 @@ def play_series(config: SeriesConfig) -> SeriesResult:
         raise ValueError("games must be at least 1")
 
     records: list[GameRecord] = []
+    wins = [0, 0]
+    ties = 0
     agents: Sequence[Agent] = (config.agent_a, config.agent_b)
 
     for offset in range(config.games):
@@ -126,6 +225,10 @@ def play_series(config: SeriesConfig) -> SeriesResult:
 
         scores = simulate.score(current)
         winner = _winner(scores)
+        if winner is None:
+            ties += 1
+        else:
+            wins[winner] += 1
         records.append(
             GameRecord(
                 index=offset,
@@ -137,6 +240,14 @@ def play_series(config: SeriesConfig) -> SeriesResult:
                 actions=tuple(action_events) if action_events is not None else None,
             )
         )
+
+        if config.early_stop and _should_stop_early(
+            wins_a=wins[0],
+            wins_b=wins[1],
+            ties=ties,
+            config=config.early_stop,
+        ):
+            break
 
     summary = summarize(records)
     return SeriesResult(summary=summary, records=records)
@@ -328,8 +439,12 @@ _AGENT_LOOKUP = {
     "greedy": greedy.GreedyAgent,
     "frontrunner": frontrunner.FrontRunnerAgent,
     "diego": diego.DiegoAgent,
+    "heuristic50k": heuristic50k.Heuristic50kAgent,
     "killer": killer.KillerAgent,
 }
+
+_DEFAULT_ELO_BASE = 1500.0
+_DEFAULT_ELO_K = 32.0
 
 
 def _agent_from_name(name: str) -> Agent:
@@ -345,12 +460,12 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "agent_a",
         nargs="?",
-        help="Name of the first agent (first, random, greedy, frontrunner, diego, killer)",
+        help="Name of the first agent (first, random, greedy, frontrunner, diego, heuristic50k, killer)",
     )
     parser.add_argument(
         "agent_b",
         nargs="?",
-        help="Name of the second agent (first, random, greedy, frontrunner, diego, killer)",
+        help="Name of the second agent (first, random, greedy, frontrunner, diego, heuristic50k, killer)",
     )
     parser.add_argument("--games", type=int, default=1000, help="Number of games to play")
     parser.add_argument("--seed", type=int, default=2025, help="Base seed for the series")
@@ -368,12 +483,68 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=Path,
         help="Directory to write JSON telemetry for each matchup when using round robin",
     )
+    parser.add_argument(
+        "--early-stop",
+        action="store_true",
+        help="Stop the series early when a Wilson confidence interval shows a decisive winner",
+    )
+    parser.add_argument(
+        "--early-stop-min-games",
+        type=int,
+        default=None,
+        help="Minimum games required before performing early stop checks",
+    )
+    parser.add_argument(
+        "--early-stop-threshold",
+        type=float,
+        default=None,
+        help="Win-rate threshold considered decisive for early stopping (default: 0.5)",
+    )
+    parser.add_argument(
+        "--early-stop-confidence",
+        type=float,
+        default=None,
+        help="Confidence level to use for the Wilson interval (default: 0.95)",
+    )
+    parser.add_argument(
+        "--elo-base",
+        type=float,
+        default=_DEFAULT_ELO_BASE,
+        help="Starting rating for Elo leaderboard (default: 1500)",
+    )
+    parser.add_argument(
+        "--elo-k",
+        type=float,
+        default=_DEFAULT_ELO_K,
+        help="K-factor used for Elo updates (default: 32)",
+    )
+    parser.add_argument(
+        "--leaderboard-json",
+        type=Path,
+        help="Optional path to export the Elo leaderboard as JSON",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: Sequence[str] | None = None) -> SeriesResult:
     args = _parse_args(argv)
     log_actions = args.log_actions or args.round_robin
+
+    early_stop_config: EarlyStopConfig | None = None
+    if (
+        args.early_stop
+        or args.early_stop_min_games is not None
+        or args.early_stop_threshold is not None
+        or args.early_stop_confidence is not None
+    ):
+        kwargs = {}
+        if args.early_stop_min_games is not None:
+            kwargs["min_games"] = args.early_stop_min_games
+        if args.early_stop_threshold is not None:
+            kwargs["threshold"] = args.early_stop_threshold
+        if args.early_stop_confidence is not None:
+            kwargs["confidence_level"] = args.early_stop_confidence
+        early_stop_config = EarlyStopConfig(**kwargs)
 
     if args.round_robin:
         results = _run_round_robin(
@@ -382,6 +553,10 @@ def main(argv: Sequence[str] | None = None) -> SeriesResult:
             alternate_start=not args.no_alternate_start,
             collect_actions=log_actions,
             log_dir=args.log_dir,
+            elo_base=args.elo_base,
+            elo_k=args.elo_k,
+            leaderboard_path=args.leaderboard_json,
+            early_stop=early_stop_config,
         )
         return results
 
@@ -398,6 +573,7 @@ def main(argv: Sequence[str] | None = None) -> SeriesResult:
         agent_b=agent_b,
         alternate_start=not args.no_alternate_start,
         collect_actions=log_actions,
+        early_stop=early_stop_config,
     )
 
     result = play_series(config)
@@ -421,6 +597,10 @@ def _run_round_robin(
     alternate_start: bool,
     collect_actions: bool,
     log_dir: Path | None,
+    elo_base: float,
+    elo_k: float,
+    leaderboard_path: Path | None,
+    early_stop: EarlyStopConfig | None,
 ) -> SeriesResult:
     agent_names = sorted(_AGENT_LOOKUP.keys())
     pairings = list(itertools.combinations(agent_names, 2))
@@ -434,8 +614,13 @@ def _run_round_robin(
     combined_wins = {name: 0 for name in agent_names}
     combined_scores = {name: 0.0 for name in agent_names}
     games_per_agent = {name: 0 for name in agent_names}
+    combined_stats = {
+        name: {"wins": 0, "losses": 0, "ties": 0, "games": 0}
+        for name in agent_names
+    }
     combined_turns = 0
     total_games = 0
+    ratings = {name: float(elo_base) for name in agent_names}
 
     for idx, (name_a, name_b) in enumerate(pairings):
         agent_a = _agent_from_name(name_a)
@@ -448,6 +633,7 @@ def _run_round_robin(
             agent_b=agent_b,
             alternate_start=alternate_start,
             collect_actions=collect_actions,
+            early_stop=early_stop,
         )
         result = play_series(config)
         _print_summary(result.summary, label_a=name_a, label_b=name_b)
@@ -466,8 +652,26 @@ def _run_round_robin(
         combined_scores[name_b] += result.summary.average_scores[1] * result.summary.games
         games_per_agent[name_a] += result.summary.games
         games_per_agent[name_b] += result.summary.games
+        combined_stats[name_a]["wins"] += wins_a
+        combined_stats[name_a]["losses"] += wins_b
+        combined_stats[name_a]["ties"] += result.summary.ties
+        combined_stats[name_a]["games"] += result.summary.games
+        combined_stats[name_b]["wins"] += wins_b
+        combined_stats[name_b]["losses"] += wins_a
+        combined_stats[name_b]["ties"] += result.summary.ties
+        combined_stats[name_b]["games"] += result.summary.games
         combined_turns += result.summary.average_turns * result.summary.games
         total_games += result.summary.games
+
+        _apply_elo_update(
+            ratings,
+            name_a,
+            name_b,
+            wins_a=wins_a,
+            wins_b=wins_b,
+            ties=result.summary.ties,
+            k_factor=elo_k,
+        )
 
     overall_summary = summarize(aggregated_records)
     print("\n=== Aggregate Round Robin Summary ===")
@@ -484,6 +688,20 @@ def _run_round_robin(
 
     print(f"\nAverage turns across all games: {combined_turns / max(total_games, 1):.2f}")
 
+    leaderboard = _build_leaderboard(
+        agent_names,
+        ratings,
+        combined_stats,
+        combined_scores,
+        games_per_agent,
+    )
+    print("\n=== Elo Leaderboard ===")
+    _print_leaderboard(leaderboard)
+
+    if leaderboard_path:
+        _export_leaderboard(leaderboard_path, leaderboard)
+        print(f"Wrote Elo leaderboard to {leaderboard_path}")
+
     return SeriesResult(summary=overall_summary, records=aggregated_records)
 
 
@@ -494,6 +712,100 @@ def _print_summary(summary: SeriesSummary, *, label_a: str, label_b: str) -> Non
         f"Average scores: {label_a}={summary.average_scores[0]:.2f} {label_b}={summary.average_scores[1]:.2f}\n"
         f"Average turns: {summary.average_turns:.2f}"
     )
+
+
+def _expected_score(rating_a: float, rating_b: float) -> float:
+    return 1.0 / (1.0 + 10 ** ((rating_b - rating_a) / 400))
+
+
+def _apply_elo_update(
+    ratings: dict[str, float],
+    name_a: str,
+    name_b: str,
+    *,
+    wins_a: int,
+    wins_b: int,
+    ties: int,
+    k_factor: float,
+) -> None:
+    games = wins_a + wins_b + ties
+    if games == 0:
+        return
+
+    score_a = wins_a + 0.5 * ties
+    score_b = wins_b + 0.5 * ties
+
+    rating_a = ratings[name_a]
+    rating_b = ratings[name_b]
+
+    expected_a = _expected_score(rating_a, rating_b) * games
+    expected_b = games - expected_a
+
+    ratings[name_a] = rating_a + k_factor * (score_a - expected_a)
+    ratings[name_b] = rating_b + k_factor * (score_b - expected_b)
+
+
+def _build_leaderboard(
+    agent_names: Sequence[str],
+    ratings: dict[str, float],
+    stats: dict[str, dict[str, int]],
+    combined_scores: dict[str, float],
+    games_per_agent: dict[str, int],
+) -> list[LeaderboardEntry]:
+    entries: list[LeaderboardEntry] = []
+    for name in agent_names:
+        games = stats[name]["games"]
+        wins = stats[name]["wins"]
+        losses = stats[name]["losses"]
+        ties = stats[name]["ties"]
+        win_rate = wins / games if games else 0.0
+        avg_score = combined_scores[name] / games if games else 0.0
+        entries.append(
+            LeaderboardEntry(
+                name=name,
+                rating=ratings[name],
+                wins=wins,
+                losses=losses,
+                ties=ties,
+                games=games,
+                win_rate=win_rate,
+                average_score=avg_score,
+            )
+        )
+
+    entries.sort(key=lambda entry: entry.rating, reverse=True)
+    return entries
+
+
+def _print_leaderboard(leaderboard: Sequence[LeaderboardEntry]) -> None:
+    if not leaderboard:
+        print("No leaderboard entries")
+        return
+
+    print(f"{'Rank':>4s} {'Agent':12s} {'Rating':>8s} {'Record':>18s} {'WinRate':>8s} {'AvgScore':>9s}")
+    for idx, entry in enumerate(leaderboard, start=1):
+        record = f"{entry.wins}-{entry.losses}-{entry.ties}"
+        print(
+            f"{idx:>4d} {entry.name:12s} {entry.rating:8.1f} {record:>18s} "
+            f"{entry.win_rate:8.3f} {entry.average_score:9.2f}"
+        )
+
+
+def _export_leaderboard(path: Path, leaderboard: Sequence[LeaderboardEntry]) -> None:
+    payload = [
+        {
+            "agent": entry.name,
+            "rating": entry.rating,
+            "wins": entry.wins,
+            "losses": entry.losses,
+            "ties": entry.ties,
+            "games": entry.games,
+            "winRate": entry.win_rate,
+            "averageScore": entry.average_score,
+        }
+        for entry in leaderboard
+    ]
+    path.write_text(json.dumps(payload, indent=2))
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI support

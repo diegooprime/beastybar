@@ -1,0 +1,8 @@
+Metadata-Version: 2.4
+Name: beastybar-sim
+Version: 0.0.1
+Summary: Beasty Bar simulator
+Requires-Python: >=3.10
+Requires-Dist: fastapi<1.0,>=0.111
+Requires-Dist: uvicorn<0.31,>=0.30
+Requires-Dist: httpx<0.28,>=0.27
