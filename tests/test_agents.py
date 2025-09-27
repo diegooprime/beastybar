@@ -5,8 +5,11 @@ import pytest
 
 from beastybar import engine, state
 from beastybar.agents import (
+    DiegoAgent,
     FirstLegalAgent,
+    FrontRunnerAgent,
     GreedyAgent,
+    KillerAgent,
     RandomAgent,
     ensure_legal,
 )
@@ -112,6 +115,108 @@ def test_best_action_returns_highest_scoring_move():
     assert action in legal
 
 
+def test_diego_skunk_skips_low_value_removal():
+    skunk = make_card(0, "skunk")
+    lion = make_card(0, "lion")
+    opponent_monkey = make_card(1, "monkey")
+    game = make_state([skunk, lion], [opponent_monkey])
+    legal = tuple(engine.legal_actions(game, 0))
+
+    agent = DiegoAgent()
+    action = agent.select_action(game, legal)
+
+    chosen_species = game.players[0].hand[action.hand_index].species
+    assert chosen_species == "lion"
+
+
+def test_diego_skunk_takes_high_value_removal():
+    skunk = make_card(0, "skunk")
+    lion = make_card(0, "lion")
+    opponent_zebra = make_card(1, "zebra")
+    game = make_state([skunk, lion], [opponent_zebra])
+    legal = tuple(engine.legal_actions(game, 0))
+
+    agent = DiegoAgent()
+    action = agent.select_action(game, legal)
+
+    chosen_species = game.players[0].hand[action.hand_index].species
+    assert chosen_species == "skunk"
+
+
+def test_diego_parrot_targets_high_value_card():
+    parrot = make_card(0, "parrot")
+    low_target = make_card(1, "monkey")
+    high_target = make_card(1, "zebra")
+    game = make_state([parrot], [low_target, high_target])
+    legal = tuple(engine.legal_actions(game, 0))
+
+    agent = DiegoAgent()
+    action = agent.select_action(game, legal)
+
+    assert action.params == (1,)
+
+
+def test_diego_crocodile_prefers_threshold_removal():
+    agent = DiegoAgent()
+
+    crocodile_a = make_card(0, "crocodile")
+    lion_a = make_card(0, "lion")
+    queue_high = [make_card(1, "seal"), make_card(1, "monkey")]
+    game_high = make_state([crocodile_a, lion_a], queue_high)
+    legal_high = tuple(engine.legal_actions(game_high, 0))
+    action_high = agent.select_action(game_high, legal_high)
+    chosen_high = game_high.players[0].hand[action_high.hand_index].species
+    assert chosen_high == "crocodile"
+
+    crocodile_b = make_card(0, "crocodile")
+    lion_b = make_card(0, "lion")
+    queue_low = [make_card(1, "monkey")]
+    game_low = make_state([crocodile_b, lion_b], queue_low)
+    legal_low = tuple(engine.legal_actions(game_low, 0))
+    action_low = agent.select_action(game_low, legal_low)
+    chosen_low = game_low.players[0].hand[action_low.hand_index].species
+    assert chosen_low == "lion"
+
+
+def test_diego_seal_requires_value_delivery():
+    agent = DiegoAgent()
+
+    seal_a = make_card(0, "seal")
+    lion_a = make_card(0, "lion")
+    queue_value = [
+        make_card(1, "monkey"),
+        make_card(1, "zebra"),
+        make_card(1, "snake"),
+        make_card(0, "kangaroo"),
+    ]
+    game_value = make_state([seal_a, lion_a], queue_value)
+    legal_value = tuple(engine.legal_actions(game_value, 0))
+    action_value = agent.select_action(game_value, legal_value)
+    chosen_value = game_value.players[0].hand[action_value.hand_index].species
+    assert chosen_value == "seal"
+
+    seal_b = make_card(0, "seal")
+    lion_b = make_card(0, "lion")
+    queue_neutral = [make_card(1, "monkey"), make_card(1, "snake")]
+    game_neutral = make_state([seal_b, lion_b], queue_neutral)
+    legal_neutral = tuple(engine.legal_actions(game_neutral, 0))
+    action_neutral = agent.select_action(game_neutral, legal_neutral)
+    chosen_neutral = game_neutral.players[0].hand[action_neutral.hand_index].species
+    assert chosen_neutral == "lion"
+
+
+def test_diego_zebra_falls_back_when_blocked():
+    zebra = make_card(0, "zebra")
+    opponent_hippo = make_card(1, "hippo")
+    game = make_state([zebra], [opponent_hippo])
+    legal = tuple(engine.legal_actions(game, 0))
+
+    agent = DiegoAgent()
+    action = agent.select_action(game, legal)
+
+    assert action == legal[0]
+
+
 def test_play_series_collects_summary(tmp_path: Path):
     config = tournament.SeriesConfig(
         games=4,
@@ -141,3 +246,88 @@ def test_play_series_collects_summary(tmp_path: Path):
 def test_summarize_rejects_empty_records():
     with pytest.raises(ValueError):
         tournament.summarize([])
+
+
+def test_frontrunner_prefers_queue_control():
+    crocodile = make_card(0, "crocodile")
+    kangaroo = make_card(0, "kangaroo")
+    monkey = make_card(1, "monkey")
+    snake = make_card(1, "snake")
+    game = make_state([crocodile, kangaroo], [monkey, snake])
+    legal = tuple(engine.legal_actions(game, 0))
+
+    agent = FrontRunnerAgent()
+    chosen = agent.select_action(game, legal)
+
+    species = game.players[0].hand[chosen.hand_index].species
+    assert species == "crocodile"
+
+
+def test_frontrunner_rejects_lion_when_blocked():
+    lion = make_card(0, "lion")
+    snake = make_card(0, "snake")
+    opposing_lion = make_card(1, "lion")
+    game = make_state([lion, snake], [opposing_lion])
+    legal = tuple(engine.legal_actions(game, 0))
+
+    agent = FrontRunnerAgent()
+    chosen = agent.select_action(game, legal)
+
+    species = game.players[0].hand[chosen.hand_index].species
+    assert species != "lion"
+
+
+def test_frontrunner_falls_back_to_first_legal_when_all_rejected():
+    lion = make_card(0, "lion")
+    opposing_lion = make_card(1, "lion")
+    game = make_state([lion], [opposing_lion])
+    legal = tuple(engine.legal_actions(game, 0))
+
+    agent = FrontRunnerAgent()
+    chosen = agent.select_action(game, legal)
+
+    fallback = FirstLegalAgent().select_action(game, legal)
+    assert chosen == fallback
+
+
+def test_killer_prioritizes_high_point_removal():
+    skunk = make_card(0, "skunk")
+    parrot = make_card(0, "parrot")
+    opponent_zebra = make_card(1, "zebra")
+    opponent_parrot = make_card(1, "parrot")
+    game = make_state([skunk, parrot], [opponent_zebra, opponent_parrot])
+    legal = tuple(engine.legal_actions(game, 0))
+
+    agent = KillerAgent()
+    action = agent.select_action(game, legal)
+
+    chosen_species = game.players[0].hand[action.hand_index].species
+    assert chosen_species == "skunk"
+
+
+def test_killer_ignores_own_losses():
+    skunk = make_card(0, "skunk")
+    kangaroo = make_card(0, "kangaroo")
+    our_seal = make_card(0, "seal")
+    opponent_zebra = make_card(1, "zebra")
+    opponent_monkey = make_card(1, "monkey")
+    game = make_state([skunk, kangaroo], [our_seal, opponent_zebra, opponent_monkey])
+    legal = tuple(engine.legal_actions(game, 0))
+
+    agent = KillerAgent()
+    action = agent.select_action(game, legal)
+
+    chosen_species = game.players[0].hand[action.hand_index].species
+    assert chosen_species == "skunk"
+
+
+def test_killer_falls_back_when_no_opponent_loss():
+    lion = make_card(0, "lion")
+    snake = make_card(0, "snake")
+    game = make_state([lion, snake], [])
+    legal = tuple(engine.legal_actions(game, 0))
+
+    agent = KillerAgent()
+    chosen = agent.select_action(game, legal)
+
+    assert chosen == legal[0]

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 from .. import actions, simulate, state
-from . import baselines, greedy
+from . import baselines, diego, frontrunner, greedy, killer
 from .base import Agent
 
 
@@ -181,6 +181,9 @@ def _agent_from_name(name: str) -> Agent:
         "first": baselines.FirstLegalAgent,
         "random": baselines.RandomAgent,
         "greedy": greedy.GreedyAgent,
+        "frontrunner": frontrunner.FrontRunnerAgent,
+        "diego": diego.DiegoAgent,
+        "killer": killer.KillerAgent,
     }
     try:
         factory = lookup[name]
@@ -191,8 +194,14 @@ def _agent_from_name(name: str) -> Agent:
 
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run agent tournaments and export telemetry")
-    parser.add_argument("agent_a", help="Name of the first agent (first, random, greedy)")
-    parser.add_argument("agent_b", help="Name of the second agent (first, random, greedy)")
+    parser.add_argument(
+        "agent_a",
+        help="Name of the first agent (first, random, greedy, frontrunner, diego, killer)",
+    )
+    parser.add_argument(
+        "agent_b",
+        help="Name of the second agent (first, random, greedy, frontrunner, diego, killer)",
+    )
     parser.add_argument("--games", type=int, default=1000, help="Number of games to play")
     parser.add_argument("--seed", type=int, default=2025, help="Base seed for the series")
     parser.add_argument("--no-alternate-start", action="store_true", help="Disable alternating starting player")
