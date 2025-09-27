@@ -4,133 +4,869 @@
     <meta charset="utf-8" />
     <title>Beasty Bar Simulator</title>
     <style>
-      body { font-family: system-ui, sans-serif; margin: 2rem; background: #f5f5f5; }
-      h1 { margin-bottom: 0.5rem; }
-      button { margin: 0.25rem; padding: 0.5rem 0.75rem; }
-      .zone, .hand { margin-bottom: 1rem; background: white; padding: 1rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-      .cards { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-      .card { padding: 0.5rem 0.75rem; border: 1px solid #ddd; border-radius: 6px; background: #fff; }
-      .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-      .status { font-weight: 600; margin-bottom: 1rem; }
+      :root {
+        color-scheme: light;
+        --surface: #ffffff;
+        --surface-muted: #f5f7fa;
+        --surface-strong: #111827;
+        --border: #d0d7de;
+        --text: #111827;
+        --subtle-text: #64748b;
+        --accent-blue: #2563eb;
+        --accent-orange: #f97316;
+        --queue-gradient: linear-gradient(90deg, rgba(37, 99, 235, 0.08), rgba(249, 115, 22, 0.08));
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: var(--surface-muted);
+        color: var(--text);
+        min-height: 100vh;
+      }
+
+      .app {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+
+      button {
+        font: inherit;
+        cursor: pointer;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        padding: 0.45rem 0.95rem;
+        transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+      }
+
+      button:hover {
+        background: #eef2ff;
+        box-shadow: 0 6px 14px rgba(37, 99, 235, 0.15);
+      }
+
+      button:focus-visible {
+        outline: 3px solid rgba(37, 99, 235, 0.35);
+        outline-offset: 2px;
+      }
+
+      input[type="number"] {
+        font: inherit;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        padding: 0.45rem 0.9rem;
+        width: 140px;
+        background: var(--surface);
+      }
+
+      .top-bar {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        align-items: center;
+        gap: 1rem;
+        padding: 1.25rem 1.75rem 1rem;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.65));
+        backdrop-filter: blur(12px);
+        border-bottom: 1px solid rgba(209, 213, 219, 0.6);
+      }
+
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.65rem;
+      }
+
+      .status-block {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 0.25rem;
+        min-width: 200px;
+      }
+
+      .turn-indicator {
+        font-weight: 600;
+        letter-spacing: 0.01em;
+      }
+
+      .score-line {
+        color: var(--subtle-text);
+        font-size: 0.95rem;
+      }
+
+      .main {
+        flex: 1;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: stretch;
+        justify-content: center;
+        gap: 1.5rem;
+        padding: 1.5rem 1.75rem 2.25rem;
+      }
+
+      .board {
+        flex: 1 1 640px;
+        display: grid;
+        grid-template-columns: 220px minmax(0, 1fr) 220px;
+        gap: 1.5rem;
+        align-items: stretch;
+      }
+
+      .pile {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 0.65rem;
+        padding: 1.2rem 1rem;
+        border-radius: 18px;
+        border: 1px solid rgba(148, 163, 184, 0.45);
+        background: var(--surface);
+        box-shadow: 0 18px 35px rgba(15, 23, 42, 0.08);
+        transition: transform 0.18s ease, box-shadow 0.18s ease;
+        min-height: 260px;
+      }
+
+      .pile:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 30px 60px rgba(30, 64, 175, 0.25);
+      }
+
+      .pile-label {
+        font-weight: 650;
+        font-size: 1.05rem;
+        letter-spacing: 0.015em;
+        text-transform: uppercase;
+      }
+
+      .pile-count {
+        font-size: 0.85rem;
+        color: var(--subtle-text);
+      }
+
+      .pile-preview {
+        position: relative;
+        width: 150px;
+        height: 180px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .pile-mini-card {
+        position: absolute;
+        width: 120px;
+        height: 160px;
+        border-radius: 14px;
+        border: 2px solid rgba(148, 163, 184, 0.55);
+        background: linear-gradient(180deg, rgba(148, 163, 184, 0.12), rgba(148, 163, 184, 0.02));
+        box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 600;
+        color: var(--subtle-text);
+        text-align: center;
+      }
+
+      .queue-area {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.75rem;
+      }
+
+      .queue-label {
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        color: var(--subtle-text);
+      }
+
+      .queue-track {
+        flex: 1;
+        min-height: 260px;
+        border-radius: 22px;
+        border: 1px dashed rgba(148, 163, 184, 0.6);
+        background: var(--queue-gradient);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 1rem;
+        padding: 1.25rem 1rem;
+        position: relative;
+      }
+
+      .queue-track::before {
+        content: "";
+        position: absolute;
+        top: 50%;
+        left: 1.1rem;
+        right: 1.1rem;
+        height: 4px;
+        background: linear-gradient(90deg, rgba(37, 99, 235, 0.25), rgba(249, 115, 22, 0.25));
+        border-radius: 999px;
+        transform: translateY(-50%);
+        pointer-events: none;
+      }
+
+      .queue-cards {
+        display: flex;
+        gap: 1.25rem;
+        align-items: flex-start;
+        justify-content: center;
+        z-index: 1;
+      }
+
+      .cards-empty {
+        padding: 0.65rem 1rem;
+        border-radius: 12px;
+        border: 1px dashed rgba(148, 163, 184, 0.65);
+        background: rgba(255, 255, 255, 0.64);
+        color: var(--subtle-text);
+        font-size: 0.9rem;
+      }
+
+      .card {
+        position: relative;
+        width: 148px;
+        min-height: 190px;
+        border-radius: 18px;
+        border: 2px solid rgba(148, 163, 184, 0.45);
+        background: var(--surface);
+        padding: 0.75rem 0.85rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.55rem;
+        box-shadow: 0 18px 35px rgba(15, 23, 42, 0.08);
+        transition: transform 0.18s ease, box-shadow 0.18s ease;
+      }
+
+      .card.player-0 {
+        border-color: rgba(37, 99, 235, 0.6);
+        box-shadow: 0 18px 35px rgba(37, 99, 235, 0.15);
+      }
+
+      .card.player-1 {
+        border-color: rgba(249, 115, 22, 0.6);
+        box-shadow: 0 18px 35px rgba(249, 115, 22, 0.15);
+      }
+
+      .card--queue {
+        min-height: 170px;
+        width: 140px;
+      }
+
+      .card--subtle {
+        background: rgba(248, 250, 252, 0.9);
+        border-style: dashed;
+        color: var(--subtle-text);
+        align-items: center;
+        justify-content: center;
+        gap: 0.35rem;
+      }
+
+      .card--playable {
+        box-shadow: 0 26px 52px rgba(37, 99, 235, 0.25);
+        transform: translateY(-6px);
+      }
+
+      .card--playable:hover {
+        transform: translateY(-8px);
+      }
+
+      .card:hover {
+        transform: translateY(-4px);
+      }
+
+      .card-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+      }
+
+      .card-strength {
+        font-size: 2.4rem;
+        font-weight: 700;
+        line-height: 1;
+      }
+
+      .card-points {
+        min-width: 48px;
+        padding: 0.2rem 0.5rem;
+        border-radius: 999px;
+        background: rgba(17, 24, 39, 0.85);
+        color: #f8fafc;
+        font-size: 0.85rem;
+        text-align: center;
+        font-weight: 600;
+      }
+
+      .card-points.negative {
+        background: rgba(220, 38, 38, 0.85);
+      }
+
+      .card-species {
+        font-weight: 650;
+        font-size: 1.05rem;
+        text-transform: capitalize;
+      }
+
+      .card-actions {
+        margin-top: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 0.45rem;
+      }
+
+      .card-actions button {
+        width: 100%;
+        margin: 0;
+        border-radius: 12px;
+        padding: 0.4rem 0.5rem;
+        font-size: 0.85rem;
+      }
+
+      .hands {
+        position: sticky;
+        bottom: 0;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 1rem;
+        padding: 1.25rem 1.75rem 1.75rem;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.85));
+        backdrop-filter: blur(18px);
+        border-top: 1px solid rgba(209, 213, 219, 0.6);
+      }
+
+      .hand {
+        background: var(--surface);
+        border-radius: 16px;
+        border: 1px solid rgba(148, 163, 184, 0.4);
+        padding: 1rem 1.1rem;
+        box-shadow: 0 15px 32px rgba(15, 23, 42, 0.08);
+        display: flex;
+        flex-direction: column;
+        gap: 0.65rem;
+        transition: box-shadow 0.2s ease, transform 0.2s ease;
+      }
+
+      .hand-active {
+        box-shadow: 0 28px 55px rgba(37, 99, 235, 0.25);
+        transform: translateY(-6px);
+      }
+
+      .hand-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-weight: 600;
+        color: var(--subtle-text);
+      }
+
+      .hand-cards {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.85rem;
+      }
+
+      .log {
+        flex: 0 0 260px;
+        display: flex;
+        flex-direction: column;
+        background: var(--surface);
+        border-radius: 18px;
+        border: 1px solid rgba(148, 163, 184, 0.4);
+        box-shadow: 0 18px 35px rgba(15, 23, 42, 0.08);
+        max-height: 100%;
+        overflow: hidden;
+      }
+
+      .log-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 1rem 1.25rem;
+        border-bottom: 1px solid rgba(148, 163, 184, 0.28);
+      }
+
+      .log h2 {
+        margin: 0;
+        font-size: 1rem;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        color: var(--subtle-text);
+      }
+
+      .log-toggle {
+        padding: 0.35rem 0.8rem;
+        border-radius: 12px;
+        font-size: 0.8rem;
+      }
+
+      .log-list {
+        list-style: none;
+        margin: 0;
+        padding: 1.2rem 1.25rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.8rem;
+        overflow-y: auto;
+      }
+
+      .log-item {
+        font-size: 0.9rem;
+        color: var(--text);
+        line-height: 1.35;
+      }
+
+      .log-item time {
+        display: block;
+        font-size: 0.75rem;
+        color: var(--subtle-text);
+        margin-bottom: 0.15rem;
+      }
+
+      .log-empty {
+        color: var(--subtle-text);
+        font-size: 0.85rem;
+      }
+
+      .log-collapsed {
+        max-height: 3.25rem;
+      }
+
+      .log.log-collapsed .log-list {
+        display: none;
+      }
+
+      .modal {
+        position: fixed;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 40;
+      }
+
+      .modal-backdrop {
+        position: absolute;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.45);
+        backdrop-filter: blur(2px);
+      }
+
+      .modal-panel {
+        position: relative;
+        z-index: 1;
+        width: min(720px, 90vw);
+        max-height: 80vh;
+        background: var(--surface);
+        border-radius: 18px;
+        border: 1px solid rgba(148, 163, 184, 0.4);
+        box-shadow: 0 40px 80px rgba(15, 23, 42, 0.35);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+
+      .modal-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 1rem 1.25rem;
+        border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+      }
+
+      .modal-title {
+        margin: 0;
+        font-size: 1.1rem;
+      }
+
+      .modal-body {
+        padding: 1.25rem;
+        overflow-y: auto;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+      }
+
+      .modal-close {
+        border-radius: 50%;
+        width: 32px;
+        height: 32px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.1rem;
+      }
+
+      .modal--open {
+        display: flex;
+      }
+
+      @media (max-width: 1080px) {
+        .board {
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        .pile,
+        .queue-track {
+          min-height: 220px;
+        }
+
+        .queue-track {
+          flex-wrap: wrap;
+        }
+
+        .log {
+          flex: 1 1 100%;
+          min-height: 240px;
+          order: 2;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .top-bar {
+          padding-inline: 1.1rem;
+        }
+
+        .hint {
+          margin-inline: 1.1rem;
+        }
+
+        .main {
+          padding-inline: 1.1rem;
+        }
+
+        .hands {
+          padding-inline: 1.1rem;
+        }
+
+        .card {
+          width: 140px;
+        }
+      }
     </style>
   </head>
   <body>
-    <h1>Beasty Bar</h1>
-    <div class="controls">
-      <button id="new-game">New Game</button>
-      <button id="new-seeded">New Seeded Game</button>
-      <input id="seed-input" type="number" placeholder="Seed" />
-    </div>
-    <div id="status" class="status">Loading…</div>
-    <div class="zone">
-      <h2>Queue</h2>
-      <div id="queue" class="cards"></div>
-    </div>
-    <div class="zone">
-      <h2>Zones</h2>
-      <div><strong>Beasty Bar</strong></div>
-      <div id="beasty" class="cards"></div>
-      <div><strong>THAT'S IT</strong></div>
-      <div id="thats-it" class="cards"></div>
-    </div>
-    <div class="hands">
-      <div class="hand">
-        <h2>Player 0 Hand</h2>
-        <div id="hand-0" class="cards"></div>
+    <div class="app">
+      <header class="top-bar">
+        <div class="controls">
+          <button id="new-game" type="button">New Game</button>
+          <button id="new-seeded" type="button">New Seeded Game</button>
+          <input id="seed-input" type="number" placeholder="Seed" />
+        </div>
+        <div class="status-block">
+          <div id="status" class="turn-indicator">Loading…</div>
+          <div id="score" class="score-line"></div>
+        </div>
+      </header>
+      <div class="main">
+        <section class="board">
+          <button id="gate-pile" class="pile" type="button" data-pile="beastyBar">
+            <div class="pile-label">Heaven's Gate</div>
+            <div id="beasty-preview" class="pile-preview"></div>
+            <div id="beasty-count" class="pile-count"></div>
+          </button>
+          <div class="queue-area">
+            <div class="queue-label">Line to the Bar</div>
+            <div class="queue-track">
+              <div id="queue" class="queue-cards"></div>
+            </div>
+          </div>
+          <button id="thats-it-pile" class="pile" type="button" data-pile="thatsIt">
+            <div class="pile-label">THAT'S IT</div>
+            <div id="thats-preview" class="pile-preview"></div>
+            <div id="thats-count" class="pile-count"></div>
+          </button>
+        </section>
+        <aside id="log" class="log">
+          <div class="log-header">
+            <h2>Turn Log</h2>
+            <button id="log-toggle" type="button" class="log-toggle" aria-expanded="true">Collapse</button>
+          </div>
+          <ol id="log-list" class="log-list">
+            <li class="log-empty">No turns yet</li>
+          </ol>
+        </aside>
       </div>
-      <div class="hand">
-        <h2>Player 1 Hand</h2>
-        <div id="hand-1" class="cards"></div>
-      </div>
+      <section class="hands">
+        <div id="player-0" class="hand">
+          <div class="hand-header">
+            <span class="hand-name">Player 0</span>
+          </div>
+          <div id="hand-0" class="hand-cards"></div>
+        </div>
+        <div id="player-1" class="hand">
+          <div class="hand-header">
+            <span class="hand-name">Player 1</span>
+          </div>
+          <div id="hand-1" class="hand-cards"></div>
+        </div>
+      </section>
     </div>
-    <div class="zone">
-      <h2>Legal Actions</h2>
-      <div id="actions" class="actions"></div>
+    <div id="modal" class="modal" aria-hidden="true">
+      <div id="modal-backdrop" class="modal-backdrop"></div>
+      <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <div class="modal-header">
+          <h3 id="modal-title" class="modal-title">Pile</h3>
+          <button id="modal-close" type="button" class="modal-close" aria-label="Close">×</button>
+        </div>
+        <div id="modal-body" class="modal-body"></div>
+      </div>
     </div>
     <script>
       let currentState = null;
+      let bootstrapped = false;
+      let pileContents = { beastyBar: [], thatsIt: [] };
+      let eventLog = [];
 
       const statusEl = document.getElementById("status");
+      const scoreEl = document.getElementById("score");
       const queueEl = document.getElementById("queue");
-      const beastyEl = document.getElementById("beasty");
-      const thatsItEl = document.getElementById("thats-it");
-      const actionsEl = document.getElementById("actions");
+      const handWrappers = [document.getElementById("player-0"), document.getElementById("player-1")];
+      const handContainers = [document.getElementById("hand-0"), document.getElementById("hand-1")];
+
       const newGameBtn = document.getElementById("new-game");
       const newSeedBtn = document.getElementById("new-seeded");
       const seedInput = document.getElementById("seed-input");
 
-      newGameBtn.addEventListener("click", async () => {
-        await fetch("/api/new-game", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
-        await refreshState();
+      const gatePileBtn = document.getElementById("gate-pile");
+      const thatsPileBtn = document.getElementById("thats-it-pile");
+      const beastyPreview = document.getElementById("beasty-preview");
+      const thatsPreview = document.getElementById("thats-preview");
+      const beastyCount = document.getElementById("beasty-count");
+      const thatsCount = document.getElementById("thats-count");
+
+      const logEl = document.getElementById("log");
+      const logToggleBtn = document.getElementById("log-toggle");
+      const logList = document.getElementById("log-list");
+
+      const modalEl = document.getElementById("modal");
+      const modalTitle = document.getElementById("modal-title");
+      const modalBody = document.getElementById("modal-body");
+      const modalClose = document.getElementById("modal-close");
+      const modalBackdrop = document.getElementById("modal-backdrop");
+
+      newGameBtn.addEventListener("click", () => {
+        eventLog = [];
+        renderLog();
+        startNewGame({});
+      });
+      newSeedBtn.addEventListener("click", () => {
+        const value = seedInput.value ? Number(seedInput.value) : null;
+        eventLog = [];
+        renderLog();
+        startNewGame({ seed: value ?? undefined });
       });
 
-      newSeedBtn.addEventListener("click", async () => {
-        const value = seedInput.value ? Number(seedInput.value) : null;
-        await fetch("/api/new-game", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ seed: value }) });
-        await refreshState();
+      gatePileBtn.addEventListener("click", () => openPileModal("Heaven's Gate", pileContents.beastyBar));
+      thatsPileBtn.addEventListener("click", () => openPileModal("THAT'S IT", pileContents.thatsIt));
+      modalClose.addEventListener("click", closeModal);
+      modalBackdrop.addEventListener("click", closeModal);
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && modalEl.classList.contains("modal--open")) {
+          closeModal();
+        }
       });
+
+      logToggleBtn.addEventListener("click", () => {
+        const collapsed = logEl.classList.toggle("log-collapsed");
+        logToggleBtn.textContent = collapsed ? "Expand" : "Collapse";
+        logToggleBtn.setAttribute("aria-expanded", String(!collapsed));
+      });
+
+      async function startNewGame(payload) {
+        await fetch("/api/new-game", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload ?? {}),
+        });
+        bootstrapped = true;
+        addLogEntry(`New game started${payload?.seed ? ` · Seed ${payload.seed}` : ""}`);
+        await refreshState();
+      }
 
       async function refreshState() {
         const response = await fetch("/api/state");
         if (response.ok) {
           currentState = await response.json();
           render();
+        } else if (!bootstrapped) {
+          await startNewGame({});
         } else {
           statusEl.textContent = "Create a game to begin.";
           clearRender();
         }
       }
 
-      function renderCard(card) {
+      function render() {
+        if (!currentState) return;
+        const { turn, activePlayer, isTerminal, seed, score, zones, queue, hands } = currentState;
+        const displayedTurn = isTerminal ? turn : turn + 1;
+        statusEl.textContent = isTerminal
+          ? "Game over"
+          : `Turn ${displayedTurn} · Player ${activePlayer} to play`;
+
+        const runningScore = [0, 0];
+        zones.beastyBar.forEach((card) => {
+          runningScore[card.owner] += card.points;
+        });
+        const scoreLine = isTerminal && score ? score : runningScore;
+        const parts = `P0 ${scoreLine[0]} – P1 ${scoreLine[1]}`;
+        scoreEl.textContent = seed ? `Score ${parts} · Seed ${seed}` : `Score ${parts}`;
+
+        const legalByHand = new Map();
+        currentState.legalActions.forEach((action) => {
+          if (!legalByHand.has(action.handIndex)) {
+            legalByHand.set(action.handIndex, []);
+          }
+          legalByHand.get(action.handIndex).push(action);
+        });
+
+        const queueNodes = queue.map((card) => {
+          const tooltip = `Strength ${card.strength} · Points ${card.points} · Player ${card.owner}`;
+          return createCard(card, { queue: true, tooltip });
+        });
+        renderNodes(queueEl, queueNodes, { emptyText: "Queue empty" });
+
+        pileContents = {
+          beastyBar: zones.beastyBar,
+          thatsIt: zones.thatsIt,
+        };
+        updatePilePreview(beastyPreview, beastyCount, zones.beastyBar);
+        updatePilePreview(thatsPreview, thatsCount, zones.thatsIt);
+
+        hands.forEach((hand, playerIndex) => {
+          const wrapper = handWrappers[playerIndex];
+          wrapper.classList.toggle("hand-active", playerIndex === activePlayer);
+          const nodes = hand.map((card, handIndex) => {
+            const actions = playerIndex === activePlayer ? legalByHand.get(handIndex) ?? [] : [];
+            return createCard(card, {
+              actions,
+              highlight: actions.length > 0,
+            });
+          });
+          renderNodes(handContainers[playerIndex], nodes, { emptyText: "No cards in hand" });
+        });
+
+      }
+
+      function createCard(card, options = {}) {
+        const { actions = [], subtle = false, highlight = false, queue = false, tooltip = "" } = options;
         const div = document.createElement("div");
         div.className = "card";
-        div.textContent = `${card.species} (P${card.owner})`;
+        div.classList.add(`player-${card.owner}`);
+        if (queue) div.classList.add("card--queue");
+        if (subtle) {
+          div.classList.add("card--subtle");
+        }
+        if (highlight && actions.length) {
+          div.classList.add("card--playable");
+        }
+        if (tooltip) {
+          div.title = tooltip;
+        }
+
+        const top = document.createElement("div");
+        top.className = "card-top";
+        const strength = document.createElement("div");
+        strength.className = "card-strength";
+        strength.textContent = card.strength;
+        const points = document.createElement("span");
+        points.className = "card-points";
+        points.textContent = `${card.points >= 0 ? "+" : ""}${card.points}`;
+        if (card.points < 0) {
+          points.classList.add("negative");
+        }
+        top.appendChild(strength);
+        top.appendChild(points);
+        div.appendChild(top);
+
+        const species = document.createElement("div");
+        species.className = "card-species";
+        species.textContent = card.species;
+        div.appendChild(species);
+
+        if (actions.length) {
+          const actionsEl = document.createElement("div");
+          actionsEl.className = "card-actions";
+          actions.forEach((action) => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.textContent = action.label;
+            button.addEventListener("click", (event) => {
+              event.stopPropagation();
+              sendAction(action);
+            });
+            actionsEl.appendChild(button);
+          });
+          div.appendChild(actionsEl);
+        }
+
         return div;
       }
 
-      function render() {
-        if (!currentState) return;
-        const { turn, activePlayer, isTerminal, score } = currentState;
-        statusEl.textContent = isTerminal
-          ? `Game over · Score P0 ${score[0]} – P1 ${score[1]}`
-          : `Turn ${turn} · Player ${activePlayer} to play`;
-
-        renderList(queueEl, currentState.queue.map(renderCard));
-        renderList(beastyEl, currentState.zones.beastyBar.map(renderCard));
-        renderList(thatsItEl, currentState.zones.thatsIt.map(renderCard));
-
-        renderList(
-          document.getElementById("hand-0"),
-          currentState.hands[0].map(renderCard)
-        );
-        renderList(
-          document.getElementById("hand-1"),
-          currentState.hands[1].map(renderCard)
-        );
-
-        actionsEl.innerHTML = "";
-        if (!isTerminal) {
-          currentState.legalActions.forEach((action) => {
-            const button = document.createElement("button");
-            button.textContent = action.label;
-            button.addEventListener("click", () => sendAction(action));
-            actionsEl.appendChild(button);
-          });
+      function renderNodes(container, nodes, options = {}) {
+        const { emptyText = "Empty" } = options;
+        container.innerHTML = "";
+        nodes.forEach((node) => container.appendChild(node));
+        if (!nodes.length) {
+          const empty = document.createElement("div");
+          empty.className = "cards-empty";
+          empty.textContent = emptyText;
+          container.appendChild(empty);
         }
       }
 
-      function clearRender() {
-        [queueEl, beastyEl, thatsItEl, actionsEl].forEach((el) => (el.innerHTML = ""));
-        document.getElementById("hand-0").innerHTML = "";
-        document.getElementById("hand-1").innerHTML = "";
+      function updatePilePreview(previewEl, countEl, cards, options = {}) {
+        const { emptyText = "Empty" } = options;
+        previewEl.innerHTML = "";
+        if (!cards.length) {
+          const placeholder = document.createElement("div");
+          placeholder.className = "pile-mini-card";
+          placeholder.textContent = emptyText;
+          previewEl.appendChild(placeholder);
+          countEl.textContent = "";
+          return;
+        }
+
+        const display = cards.slice(-3);
+        display.forEach((card, index) => {
+          const mini = document.createElement("div");
+          mini.className = "pile-mini-card";
+          mini.style.transform = `translateY(${index * -12}px) scale(${1 - index * 0.05})`;
+          mini.style.borderColor = card.owner === 0 ? "rgba(37, 99, 235, 0.6)" : "rgba(249, 115, 22, 0.6)";
+          mini.textContent = card.species;
+          previewEl.appendChild(mini);
+        });
+        countEl.textContent = `${cards.length} card${cards.length === 1 ? "" : "s"}`;
       }
 
-      function renderList(container, items) {
-        container.innerHTML = "";
-        items.forEach((item) => container.appendChild(item));
+      function clearRender() {
+        queueEl.innerHTML = "";
+        handContainers.forEach((el) => (el.innerHTML = ""));
+        handWrappers.forEach((wrapper) => wrapper.classList.remove("hand-active"));
+        updatePilePreview(beastyPreview, beastyCount, []);
+        updatePilePreview(thatsPreview, thatsCount, []);
       }
 
       async function sendAction(action) {
+        if (!currentState) return;
+        addLogEntry(`Player ${currentState.activePlayer} · ${action.label}`);
         await fetch("/api/action", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -139,7 +875,68 @@
         await refreshState();
       }
 
-      // bootstrap
+      function addLogEntry(message) {
+        const entry = {
+          id: makeId(),
+          message,
+          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        };
+        eventLog = [entry, ...eventLog].slice(0, 30);
+        renderLog();
+      }
+
+      function renderLog() {
+        logList.innerHTML = "";
+        if (!eventLog.length) {
+          const empty = document.createElement("li");
+          empty.className = "log-empty";
+          empty.textContent = "No turns yet";
+          logList.appendChild(empty);
+          return;
+        }
+
+        eventLog.forEach((entry) => {
+          const item = document.createElement("li");
+          item.className = "log-item";
+          const time = document.createElement("time");
+          time.dateTime = entry.timestamp;
+          time.textContent = entry.timestamp;
+          const text = document.createElement("span");
+          text.textContent = entry.message;
+          item.appendChild(time);
+          item.appendChild(text);
+          logList.appendChild(item);
+        });
+      }
+
+      function openPileModal(title, cards) {
+        modalTitle.textContent = title;
+        modalBody.innerHTML = "";
+        const nodes = cards.map((card) => createCard(card));
+        if (!nodes.length) {
+          const empty = document.createElement("div");
+          empty.className = "cards-empty";
+          empty.textContent = "Pile empty";
+          modalBody.appendChild(empty);
+        } else {
+          nodes.forEach((node) => modalBody.appendChild(node));
+        }
+        modalEl.classList.add("modal--open");
+        modalEl.setAttribute("aria-hidden", "false");
+      }
+
+      function closeModal() {
+        modalEl.classList.remove("modal--open");
+        modalEl.setAttribute("aria-hidden", "true");
+      }
+
+      function makeId() {
+        if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+          return crypto.randomUUID();
+        }
+        return `log-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      }
+
       refreshState();
     </script>
   </body>

@@ -121,7 +121,12 @@ def _serialize_action(game_state: state.State, action: actions.Action) -> dict:
 
 
 def _card_view(card: state.Card) -> dict:
-    return {"owner": card.owner, "species": card.species, "strength": card.strength}
+    return {
+        "owner": card.owner,
+        "species": card.species,
+        "strength": card.strength,
+        "points": card.points,
+    }
 
 
 def _action_label(card: state.Card, action: actions.Action) -> str:
