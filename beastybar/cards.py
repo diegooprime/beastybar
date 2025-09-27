@@ -95,7 +95,7 @@ def _resolve_monkey(game_state: state.State, card: state.Card, action: actions.A
     survivors: List[state.Card] = []
     for c in queue:
         if c.species in {"hippo", "crocodile"}:
-            game_state = state.push_to_zone(game_state, rules.ZONE_BOUNCED, c)
+            game_state = state.push_to_zone(game_state, rules.ZONE_THATS_IT, c)
         else:
             survivors.append(c)
 
@@ -124,9 +124,8 @@ def _resolve_parrot(game_state: state.State, card: state.Card, action: actions.A
 
 
 def _resolve_seal(game_state: state.State, card: state.Card, action: actions.Action) -> state.State:
-    zones = game_state.zones
-    swapped = dc_replace(zones, beasty_bar=zones.bounced, bounced=zones.beasty_bar)
-    return dc_replace(game_state, zones=swapped)
+    queue = tuple(reversed(game_state.zones.queue))
+    return state.replace_queue(game_state, queue)
 
 
 def _resolve_chameleon(game_state: state.State, card: state.Card, action: actions.Action) -> state.State:
@@ -189,7 +188,6 @@ def _swap_card_reference(game_state: state.State, old: state.Card, new: state.Ca
         zones,
         queue=_swap_tuple(zones.queue),
         beasty_bar=_swap_tuple(zones.beasty_bar),
-        bounced=_swap_tuple(zones.bounced),
         thats_it=_swap_tuple(zones.thats_it),
     )
     return dc_replace(game_state, zones=swapped_zones)

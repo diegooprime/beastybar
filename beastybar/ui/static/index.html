@@ -30,8 +30,6 @@
       <h2>Zones</h2>
       <div><strong>Beasty Bar</strong></div>
       <div id="beasty" class="cards"></div>
-      <div><strong>Bounced</strong></div>
-      <div id="bounced" class="cards"></div>
       <div><strong>THAT'S IT</strong></div>
       <div id="thats-it" class="cards"></div>
     </div>
@@ -55,7 +53,6 @@
       const statusEl = document.getElementById("status");
       const queueEl = document.getElementById("queue");
       const beastyEl = document.getElementById("beasty");
-      const bouncedEl = document.getElementById("bounced");
       const thatsItEl = document.getElementById("thats-it");
       const actionsEl = document.getElementById("actions");
       const newGameBtn = document.getElementById("new-game");
@@ -100,7 +97,6 @@
 
         renderList(queueEl, currentState.queue.map(renderCard));
         renderList(beastyEl, currentState.zones.beastyBar.map(renderCard));
-        renderList(bouncedEl, currentState.zones.bounced.map(renderCard));
         renderList(thatsItEl, currentState.zones.thatsIt.map(renderCard));
 
         renderList(
@@ -124,7 +120,7 @@
       }
 
       function clearRender() {
-        [queueEl, beastyEl, bouncedEl, thatsItEl, actionsEl].forEach((el) => (el.innerHTML = ""));
+        [queueEl, beastyEl, thatsItEl, actionsEl].forEach((el) => (el.innerHTML = ""));
         document.getElementById("hand-0").innerHTML = "";
         document.getElementById("hand-1").innerHTML = "";
       }

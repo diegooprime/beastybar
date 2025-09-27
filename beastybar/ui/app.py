@@ -99,7 +99,6 @@ def _serialize(game_state: state.State, seed: Optional[int]) -> dict:
         "queue": [_card_view(card) for card in game_state.zones.queue],
         "zones": {
             "beastyBar": [_card_view(card) for card in game_state.zones.beasty_bar],
-            "bounced": [_card_view(card) for card in game_state.zones.bounced],
             "thatsIt": [_card_view(card) for card in game_state.zones.thats_it],
         },
         "hands": [

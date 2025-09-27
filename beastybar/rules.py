@@ -5,9 +5,7 @@ from dataclasses import dataclass
 from typing import Dict, Tuple
 
 # Zone identifiers used across the engine and UI layers.
-ZONE_HEAVENS_GATE = "heavens_gate"
 ZONE_QUEUE = "queue"
-ZONE_BOUNCED = "bounced"
 ZONE_BEASTY_BAR = "beasty_bar"
 ZONE_THATS_IT = "thats_it"
 
@@ -52,9 +50,7 @@ __all__ = [
     "Species",
     "SPECIES",
     "BASE_DECK",
-    "ZONE_HEAVENS_GATE",
     "ZONE_QUEUE",
-    "ZONE_BOUNCED",
     "ZONE_BEASTY_BAR",
     "ZONE_THATS_IT",
     "MAX_QUEUE_LENGTH",

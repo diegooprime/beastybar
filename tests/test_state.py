@@ -14,5 +14,4 @@ def test_initial_state_setup():
 
     assert game_state.zones.queue == ()
     assert game_state.zones.beasty_bar == ()
-    assert game_state.zones.bounced == ()
     assert game_state.zones.thats_it == ()

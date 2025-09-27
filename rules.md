@@ -8,6 +8,7 @@
 
 * Per player: 12‑card animal deck.
 * Shared: Heaven’s Gate, Bounced, Beasty Bar, THAT’S IT; space for a 5‑card queue (“Jostling area”). 
+* Bounced is only a marker for the back of the queue; expelled animals always go to THAT’S IT. 
 
 ### Setup
 
@@ -30,7 +31,7 @@
 * **9 Snake**: **Sort** the entire line **by strength** descending; ties keep relative order. 
 * **8 Giraffe** (**recurring**): **Jump** over **one** directly preceding **weaker** animal. Max **once per turn**. 
 * **7 Zebra** (**permanent**): **Blocks** hippos from passing and crocs from passing/eating itself or anyone **in front of it**. Protection is continuous. 
-* **6 Seal**: **Swap** Heaven’s Gate and Bounced. After swap, if unshielded by a zebra and in front of crocs/hippos, it may be **eaten/passed** by their recurrences. 
+* **6 Seal**: **Flip** the queue by swapping the Heaven’s Gate and Bounced markers; the entire line reverses order before recurring effects. 
 * **5 Chameleon**: **Imitate** another species **present** this turn; take that species’ **strength** for the copied action **only**, then revert to **5** before any recurrences. 
 * **4 Monkey**: If **two or more** monkeys are in line after play, **bounce all hippos and crocodiles**, then the **just‑played monkey** moves to **front**, gathering its monkey mates **behind it** in **reversed order**. A single monkey does nothing. 
 * **3 Kangaroo**: **Jump** over the **last one or two** animals in line. 

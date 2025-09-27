@@ -5,13 +5,12 @@ def make_card(owner: int, species: str) -> state.Card:
     return state.Card(owner=owner, species=species)
 
 
-def make_state(active_hand, queue, *, beasty=None, bounced=None, thats_it=None):
+def make_state(active_hand, queue, *, beasty=None, thats_it=None):
     player0 = state.PlayerState(deck=(), hand=tuple(active_hand))
     player1 = state.PlayerState(deck=(), hand=())
     zones = state.Zones(
         queue=tuple(queue),
         beasty_bar=tuple(beasty or ()),
-        bounced=tuple(bounced or ()),
         thats_it=tuple(thats_it or ()),
     )
     return state.State(seed=0, turn=0, active_player=0, players=(player0, player1), zones=zones)
@@ -140,7 +139,7 @@ def test_monkey_bounces_hippos_and_crocs():
     next_state = engine.step(game_state, actions.Action(hand_index=0))
 
     assert next_state.zones.queue == (monkey_new, monkey_old, zebra)
-    assert next_state.zones.bounced == (hippo, crocodile)
+    assert tuple(next_state.zones.thats_it[-2:]) == (hippo, crocodile)
 
 
 def test_parrot_bounces_selected_target():
@@ -155,17 +154,17 @@ def test_parrot_bounces_selected_target():
     assert next_state.zones.thats_it[-1] is lion
 
 
-def test_seal_swaps_beasty_bar_and_bounced():
+def test_seal_reverses_queue():
     seal = make_card(0, "seal")
-    bar_card = make_card(1, "lion")
-    bounced_card = make_card(1, "crocodile")
+    parrot = make_card(1, "parrot")
+    zebra = make_card(1, "zebra")
 
-    game_state = make_state([seal], [], beasty=[bar_card], bounced=[bounced_card])
+    game_state = make_state([seal], [parrot, zebra])
 
     next_state = engine.step(game_state, actions.Action(hand_index=0))
 
-    assert next_state.zones.beasty_bar == (bounced_card,)
-    assert next_state.zones.bounced == (bar_card,)
+    assert next_state.zones.queue == (seal, zebra, parrot)
+    assert next_state.zones.thats_it == ()
 
 
 def test_skunk_expels_top_two_strength_bands():

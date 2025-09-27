@@ -24,10 +24,11 @@ def legal_actions(game_state: state.State, player: int) -> Iterable[actions.Acti
             if not queue:
                 continue
             for target in range(len(queue)):
-                if queue[target] is card:
+                target_card = queue[target]
+                if target_card is card or target_card.species == "chameleon":
                     continue
                 # Allow additional params for the copied species to consume.
-                for extra in _chameleon_params(queue[target], len(queue)):
+                for extra in _chameleon_params(target_card, len(queue)):
                     yield actions.Action(hand_index=idx, params=(target,) + extra)
         else:
             yield actions.Action(hand_index=idx)
@@ -120,6 +121,8 @@ def _validate_action(game_state: state.State, player: int, action: actions.Actio
         target_card = queue[target_index]
         if target_card is card:
             raise ValueError("Chameleon must copy another card")
+        if target_card.species == "chameleon":
+            raise ValueError("Chameleon cannot copy another chameleon")
 
         extra_params = action.params[1:]
         _validate_chameleon_params(target_card, extra_params, queue)

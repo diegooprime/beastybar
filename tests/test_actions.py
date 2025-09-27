@@ -98,3 +98,58 @@ def test_validate_rejects_extra_params_for_non_param_cards():
 
     with pytest.raises(ValueError):
         engine.step(game, actions.Action(hand_index=0, params=(1,)))
+
+
+def test_validate_rejects_parrot_target_out_of_range():
+    parrot = make_card(0, "parrot")
+    queue = [make_card(1, "lion")]
+    game = make_game([parrot], queue)
+
+    with pytest.raises(ValueError):
+        engine.step(game, actions.Action(hand_index=0, params=(2,)))
+
+
+def test_validate_rejects_chameleon_target_out_of_range():
+    chameleon_card = make_card(0, "chameleon")
+    zebra = make_card(1, "zebra")
+    game = make_game([chameleon_card], [zebra])
+
+    with pytest.raises(ValueError):
+        engine.step(game, actions.Action(hand_index=0, params=(5,)))
+
+
+def test_validate_rejects_chameleon_parrot_extra_param_out_of_range():
+    chameleon_card = make_card(0, "chameleon")
+    parrot = make_card(1, "parrot")
+    zebra = make_card(1, "zebra")
+    queue = [parrot, zebra]
+    game = make_game([chameleon_card], queue)
+
+    with pytest.raises(ValueError):
+        engine.step(game, actions.Action(hand_index=0, params=(0, 99)))
+
+
+def test_validate_rejects_chameleon_extra_params_for_non_param_card():
+    chameleon_card = make_card(0, "chameleon")
+    zebra = make_card(1, "zebra")
+    game = make_game([chameleon_card], [zebra])
+
+    with pytest.raises(ValueError):
+        engine.step(game, actions.Action(hand_index=0, params=(0, 1)))
+
+
+def test_validate_rejects_invalid_hand_index():
+    lion = make_card(0, "lion")
+    game = make_game([lion], [])
+
+    with pytest.raises(ValueError):
+        engine.step(game, actions.Action(hand_index=1))
+
+
+def test_validate_rejects_chameleon_copying_chameleon():
+    chameleon_new = make_card(0, "chameleon")
+    chameleon_old = make_card(1, "chameleon")
+    game = make_game([chameleon_new], [chameleon_old])
+
+    with pytest.raises(ValueError):
+        engine.step(game, actions.Action(hand_index=0, params=(0,)))

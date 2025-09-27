@@ -46,7 +46,6 @@ class Zones:
 
     queue: CardTuple = ()
     beasty_bar: CardTuple = ()
-    bounced: CardTuple = ()
     thats_it: CardTuple = ()
 
 
@@ -185,7 +184,7 @@ def set_active_player(game_state: State, player: int, *, advance_turn: bool = Fa
     return replace(game_state, active_player=player, turn=turn)
 
 
-_ZONE_NAMES = {"queue", "beasty_bar", "bounced", "thats_it"}
+_ZONE_NAMES = {"queue", "beasty_bar", "thats_it"}
 
 
 def _replace_player(game_state: State, index: int, new_player_state: PlayerState) -> State:

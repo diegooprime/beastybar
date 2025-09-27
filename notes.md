@@ -1,7 +1,8 @@
 # Developer Notes
 
 ## Card behaviour assumptions
-- Seal swaps the entire contents of `beasty_bar` and `bounced` immediately on play; any subsequent recurring effects (e.g., crocodile) operate on the swapped zones as usual.
+- Seal reverses the queue orientation (swaps Heaven's Gate and Bounced markers) immediately on play; recurring effects resolve after the flip.
+- No effect retrieves cards once they move to `thats_it`; that pile is final.
 - Chameleon requires the index of the card it copies. Extra parameters after the first are forwarded to the copied species (currently only the parrot needs a target index). If the target card accepts no params, the chameleon action must omit them.
 - Parrot and chameleon-targeted parrots always require a single queue index parameter referencing a card currently in line.
 - Recurring abilities resolve after the on-play effect, scanning from gate to bounce: hippos pass first, then crocodiles eat, then giraffes hop. Zebras block both hippo passes and crocodile bites for themselves and animals ahead of them.
