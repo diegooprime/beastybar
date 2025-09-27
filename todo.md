@@ -5,7 +5,7 @@
 - [x] Implement deterministic random agent and first-legal helper
 - [x] Add greedy heuristic agent with configurable scoring hook
 - [x] Build tournament harness for bulk simulations (CSV/JSON export)
-- [ ] Document agent usage and data collection workflow
+- [] Document agent usage and data collection workflow
 - [ ] Implement Diego heuristic agent (rule thresholds + fallback)
 - [ ] Implement FrontRunner agent (queue control heuristic)
 - [ ] Implement Killer agent (opponent point maximized removal)

@@ -243,6 +243,40 @@ def test_play_series_collects_summary(tmp_path: Path):
     assert all("scores" in entry for entry in data)
 
 
+def test_play_series_collects_action_telemetry():
+    config = tournament.SeriesConfig(
+        games=1,
+        seed=5,
+        agent_a=FirstLegalAgent(),
+        agent_b=RandomAgent(seed=321),
+        collect_actions=True,
+    )
+
+    result = tournament.play_series(config)
+    record = result.records[0]
+
+    assert record.actions is not None
+    assert len(record.actions) > 0
+    first_action = record.actions[0]
+    assert first_action.was_pass is False
+    assert first_action.hand_before
+    assert first_action.queue_after != ()
+
+
+def test_round_robin_cli_writes_logs(tmp_path: Path):
+    log_dir = tmp_path / "logs"
+    result = tournament.main(
+        ["--round-robin", "--games", "1", "--seed", "42", "--log-dir", str(log_dir)]
+    )
+
+    assert result.summary.games > 0
+    assert log_dir.exists()
+    files = list(log_dir.glob("*.json"))
+    assert files
+    sample = json.loads(files[0].read_text())
+    assert sample and "actions" in sample[0]
+
+
 def test_summarize_rejects_empty_records():
     with pytest.raises(ValueError):
         tournament.summarize([])
