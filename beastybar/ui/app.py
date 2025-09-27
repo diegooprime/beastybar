@@ -130,10 +130,16 @@ def _card_view(card: state.Card) -> dict:
 
 
 def _action_label(card: state.Card, action: actions.Action) -> str:
+    species = card.species
+    if species == "kangaroo":
+        if action.params:
+            hop = action.params[0]
+            return f"Play {species} (hop {hop})"
+        return f"Play {species}"
     if action.params:
         params = ",".join(str(p) for p in action.params)
-        return f"Play {card.species} ({params})"
-    return f"Play {card.species}"
+        return f"Play {species} ({params})"
+    return f"Play {species}"
 
 
 __all__ = ["create_app"]

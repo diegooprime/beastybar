@@ -26,6 +26,13 @@
 - [ ] CI/test automation scripts
 - [ ] Developer workflow notes
 
+## Phase 5 – Agents & Evaluation
+- [ ] Scaffold agent base abstractions and adapters (`beastybar/agents`)
+- [ ] Implement deterministic random agent and first-legal helper
+- [ ] Add greedy heuristic agent with configurable scoring hook
+- [ ] Build tournament harness for bulk simulations (CSV/JSON export)
+- [ ] Document agent usage and data collection workflow
+
 ### Active Focus
 - [x] Capture golden two-turn replay (regression fixture)
 - [x] Draft batch API scaffolding (`simulate.py`, agent hooks)

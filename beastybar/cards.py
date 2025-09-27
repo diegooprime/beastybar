@@ -81,6 +81,8 @@ def _resolve_kangaroo(game_state: state.State, card: state.Card, action: actions
     if idx == 0:
         return game_state
     hop = min(2, idx)
+    if action.params:
+        hop = min(max(action.params[0], 0), hop)
     queue.pop(idx)
     queue.insert(idx - hop, card)
     return state.replace_queue(game_state, queue)

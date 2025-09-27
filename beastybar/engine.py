@@ -17,7 +17,14 @@ def legal_actions(game_state: state.State, player: int) -> Iterable[actions.Acti
     queue = game_state.zones.queue
     for idx, card in enumerate(player_state.hand):
         species = card.species
-        if species == "parrot":
+        if species == "kangaroo":
+            max_hop = min(2, len(queue))
+            if max_hop == 0:
+                yield actions.Action(hand_index=idx)
+            else:
+                for hop in range(1, max_hop + 1):
+                    yield actions.Action(hand_index=idx, params=(hop,))
+        elif species == "parrot":
             for target in range(len(queue)):
                 yield actions.Action(hand_index=idx, params=(target,))
         elif species == "chameleon":
@@ -106,7 +113,20 @@ def _validate_action(game_state: state.State, player: int, action: actions.Actio
     queue = game_state.zones.queue
     species = card.species
 
-    if species == "parrot":
+    if species == "kangaroo":
+        max_hop = min(2, len(queue))
+        if max_hop == 0:
+            if action.params:
+                raise ValueError("Kangaroo cannot hop without cards ahead")
+            return
+        if not action.params:
+            return
+        if len(action.params) != 1:
+            raise ValueError("Kangaroo requires a hop distance parameter")
+        hop = action.params[0]
+        if not (1 <= hop <= max_hop):
+            raise ValueError("Kangaroo hop distance out of range")
+    elif species == "parrot":
         if len(action.params) != 1:
             raise ValueError("Parrot requires exactly one target parameter")
         target = action.params[0]

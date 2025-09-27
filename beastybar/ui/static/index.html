@@ -90,8 +90,8 @@
         display: flex;
         flex-direction: column;
         align-items: flex-end;
-        gap: 0.25rem;
-        min-width: 200px;
+        gap: 0.5rem;
+        min-width: 260px;
       }
 
       .turn-indicator {
@@ -102,6 +102,85 @@
       .score-line {
         color: var(--subtle-text);
         font-size: 0.95rem;
+      }
+
+      .hint {
+        margin: 0;
+        padding: 0 1.75rem 0.75rem;
+        color: var(--subtle-text);
+        font-size: 0.9rem;
+        min-height: 1.1rem;
+      }
+
+      .scoreboard {
+        display: flex;
+        align-items: center;
+        gap: 0.8rem;
+      }
+
+      .score-card {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        padding: 0.6rem 0.9rem;
+        border-radius: 14px;
+        border: 1px solid rgba(148, 163, 184, 0.35);
+        background: rgba(255, 255, 255, 0.8);
+        box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+      }
+
+      .score-card__name {
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--subtle-text);
+      }
+
+      .score-card__value {
+        font-size: 1.5rem;
+        font-weight: 700;
+        line-height: 1.1;
+      }
+
+      .score-card--leader {
+        border-color: rgba(37, 99, 235, 0.45);
+        box-shadow: 0 14px 30px rgba(37, 99, 235, 0.18);
+      }
+
+      .score-card[data-player="1"].score-card--leader {
+        border-color: rgba(249, 115, 22, 0.45);
+        box-shadow: 0 14px 30px rgba(249, 115, 22, 0.18);
+      }
+
+      .score-card--trailing {
+        opacity: 0.75;
+      }
+
+      .score-card--tied {
+        border-style: dashed;
+      }
+
+      .score-card--active {
+        border-color: rgba(37, 99, 235, 0.45);
+        box-shadow: 0 12px 22px rgba(37, 99, 235, 0.16);
+      }
+
+      .score-card[data-player="1"].score-card--active {
+        border-color: rgba(249, 115, 22, 0.45);
+        box-shadow: 0 12px 22px rgba(249, 115, 22, 0.16);
+      }
+
+      .score-card--winner {
+        border-width: 2px;
+        transform: translateY(-4px);
+        background: rgba(37, 99, 235, 0.12);
+        box-shadow: 0 18px 34px rgba(37, 99, 235, 0.28);
+      }
+
+      .score-card[data-player="1"].score-card--winner {
+        background: rgba(249, 115, 22, 0.12);
+        box-shadow: 0 18px 34px rgba(249, 115, 22, 0.28);
       }
 
       .main {
@@ -156,28 +235,54 @@
       }
 
       .pile-preview {
-        position: relative;
-        width: 150px;
-        height: 180px;
+        width: 100%;
         display: flex;
-        align-items: center;
-        justify-content: center;
+        flex-direction: column;
+        gap: 0.45rem;
+        align-items: stretch;
       }
 
       .pile-mini-card {
-        position: absolute;
-        width: 120px;
-        height: 160px;
-        border-radius: 14px;
-        border: 2px solid rgba(148, 163, 184, 0.55);
-        background: linear-gradient(180deg, rgba(148, 163, 184, 0.12), rgba(148, 163, 184, 0.02));
-        box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
         display: flex;
+        justify-content: space-between;
         align-items: center;
-        justify-content: center;
+        padding: 0.4rem 0.65rem;
+        border-radius: 12px;
+        border: 1px solid rgba(148, 163, 184, 0.5);
+        background: rgba(248, 250, 252, 0.9);
+        box-shadow: 0 6px 12px rgba(15, 23, 42, 0.08);
         font-weight: 600;
         color: var(--subtle-text);
-        text-align: center;
+        font-size: 0.85rem;
+      }
+
+      .pile-mini-card[data-owner="0"] {
+        border-color: rgba(37, 99, 235, 0.55);
+        color: rgba(37, 99, 235, 0.85);
+      }
+
+      .pile-mini-card[data-owner="1"] {
+        border-color: rgba(249, 115, 22, 0.55);
+        color: rgba(249, 115, 22, 0.85);
+      }
+
+      .pile-mini-card__owner {
+        font-size: 0.75rem;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: inherit;
+      }
+
+      .pile-mini-card--summary,
+      .pile-mini-card--placeholder {
+        justify-content: center;
+        color: var(--subtle-text);
+        border-style: dashed;
+        box-shadow: none;
+      }
+
+      .pile-mini-card--summary {
+        font-size: 0.8rem;
       }
 
       .queue-area {
@@ -289,6 +394,46 @@
 
       .card:hover {
         transform: translateY(-4px);
+      }
+
+      .card--clickable {
+        cursor: pointer;
+      }
+
+      .card--selected {
+        border-width: 3px;
+        transform: translateY(-10px);
+      }
+
+      .card.player-0.card--selected {
+        border-color: rgba(37, 99, 235, 0.75);
+        box-shadow: 0 30px 58px rgba(37, 99, 235, 0.26);
+      }
+
+      .card.player-1.card--selected {
+        border-color: rgba(249, 115, 22, 0.75);
+        box-shadow: 0 30px 58px rgba(249, 115, 22, 0.26);
+      }
+
+      .card--targetable {
+        cursor: pointer;
+        border-width: 3px;
+        transform: translateY(-8px);
+        box-shadow: 0 30px 60px rgba(37, 99, 235, 0.25);
+      }
+
+      .card.player-1.card--targetable {
+        box-shadow: 0 30px 60px rgba(249, 115, 22, 0.25);
+        border-color: rgba(249, 115, 22, 0.7);
+      }
+
+      .card--targetable:hover {
+        transform: translateY(-10px);
+      }
+
+      .card--dimmed {
+        opacity: 0.35;
+        pointer-events: none;
       }
 
       .card-top {
@@ -547,6 +692,11 @@
           margin-inline: 1.1rem;
         }
 
+        .scoreboard {
+          width: 100%;
+          justify-content: space-between;
+        }
+
         .main {
           padding-inline: 1.1rem;
         }
@@ -571,9 +721,20 @@
         </div>
         <div class="status-block">
           <div id="status" class="turn-indicator">Loading…</div>
+          <div class="scoreboard">
+            <div id="score-card-0" class="score-card" data-player="0">
+              <span class="score-card__name">Player 0</span>
+              <span id="score-player-0" class="score-card__value">0</span>
+            </div>
+            <div id="score-card-1" class="score-card" data-player="1">
+              <span class="score-card__name">Player 1</span>
+              <span id="score-player-1" class="score-card__value">0</span>
+            </div>
+          </div>
           <div id="score" class="score-line"></div>
         </div>
       </header>
+      <div id="hint" class="hint"></div>
       <div class="main">
         <section class="board">
           <button id="gate-pile" class="pile" type="button" data-pile="beastyBar">
@@ -633,12 +794,16 @@
       let bootstrapped = false;
       let pileContents = { beastyBar: [], thatsIt: [] };
       let eventLog = [];
+      let pendingSelection = null;
 
       const statusEl = document.getElementById("status");
       const scoreEl = document.getElementById("score");
+      const scoreCardEls = [document.getElementById("score-card-0"), document.getElementById("score-card-1")];
+      const scoreValueEls = [document.getElementById("score-player-0"), document.getElementById("score-player-1")];
       const queueEl = document.getElementById("queue");
       const handWrappers = [document.getElementById("player-0"), document.getElementById("player-1")];
       const handContainers = [document.getElementById("hand-0"), document.getElementById("hand-1")];
+      const hintEl = document.getElementById("hint");
 
       const newGameBtn = document.getElementById("new-game");
       const newSeedBtn = document.getElementById("new-seeded");
@@ -664,12 +829,18 @@
       newGameBtn.addEventListener("click", () => {
         eventLog = [];
         renderLog();
+        if (pendingSelection) {
+          clearSelection();
+        }
         startNewGame({});
       });
       newSeedBtn.addEventListener("click", () => {
         const value = seedInput.value ? Number(seedInput.value) : null;
         eventLog = [];
         renderLog();
+        if (pendingSelection) {
+          clearSelection();
+        }
         startNewGame({ seed: value ?? undefined });
       });
 
@@ -678,8 +849,15 @@
       modalClose.addEventListener("click", closeModal);
       modalBackdrop.addEventListener("click", closeModal);
       document.addEventListener("keydown", (event) => {
-        if (event.key === "Escape" && modalEl.classList.contains("modal--open")) {
+        if (event.key !== "Escape") {
+          return;
+        }
+        if (modalEl.classList.contains("modal--open")) {
           closeModal();
+          return;
+        }
+        if (pendingSelection) {
+          clearSelection();
         }
       });
 
@@ -714,20 +892,62 @@
       }
 
       function render() {
-        if (!currentState) return;
+        if (!currentState) {
+          updateHint();
+          return;
+        }
         const { turn, activePlayer, isTerminal, seed, score, zones, queue, hands } = currentState;
-        const displayedTurn = isTerminal ? turn : turn + 1;
-        statusEl.textContent = isTerminal
-          ? "Game over"
-          : `Turn ${displayedTurn} · Player ${activePlayer} to play`;
-
         const runningScore = [0, 0];
         zones.beastyBar.forEach((card) => {
           runningScore[card.owner] += card.points;
         });
         const scoreLine = isTerminal && score ? score : runningScore;
-        const parts = `P0 ${scoreLine[0]} – P1 ${scoreLine[1]}`;
-        scoreEl.textContent = seed ? `Score ${parts} · Seed ${seed}` : `Score ${parts}`;
+
+        const displayedTurn = isTerminal ? turn : turn + 1;
+        statusEl.textContent = isTerminal
+          ? winnerMessage(scoreLine)
+          : `Turn ${displayedTurn} · Player ${activePlayer} to play`;
+
+        scoreValueEls.forEach((el, idx) => {
+          el.textContent = scoreLine[idx];
+        });
+
+        scoreCardEls.forEach((cardEl, idx) => {
+          cardEl.classList.remove(
+            "score-card--leader",
+            "score-card--trailing",
+            "score-card--tied",
+            "score-card--winner",
+            "score-card--active",
+          );
+          if (!isTerminal && idx === activePlayer) {
+            cardEl.classList.add("score-card--active");
+          }
+        });
+
+        const scoreSummary = `P0 ${scoreLine[0]} – P1 ${scoreLine[1]}`;
+
+        if (scoreLine[0] === scoreLine[1]) {
+          scoreCardEls.forEach((cardEl) => cardEl.classList.add("score-card--tied"));
+        } else {
+          const leader = scoreLine[0] > scoreLine[1] ? 0 : 1;
+          const trailer = leader === 0 ? 1 : 0;
+          if (isTerminal) {
+            scoreCardEls[leader].classList.add("score-card--winner");
+            scoreCardEls[trailer].classList.add("score-card--trailing");
+          } else {
+            scoreCardEls[leader].classList.add("score-card--leader");
+            scoreCardEls[trailer].classList.add("score-card--trailing");
+          }
+        }
+
+        if (isTerminal) {
+          scoreEl.textContent = `Final score · ${scoreSummary}`;
+        } else if (seed) {
+          scoreEl.textContent = `Seed ${seed} · ${scoreSummary}`;
+        } else {
+          scoreEl.textContent = `Running score · ${scoreSummary}`;
+        }
 
         const legalByHand = new Map();
         currentState.legalActions.forEach((action) => {
@@ -737,9 +957,19 @@
           legalByHand.get(action.handIndex).push(action);
         });
 
-        const queueNodes = queue.map((card) => {
+        const queueTarget = getQueueTargetState();
+        const queueNodes = queue.map((card, queueIndex) => {
           const tooltip = `Strength ${card.strength} · Points ${card.points} · Player ${card.owner}`;
-          return createCard(card, { queue: true, tooltip });
+          const targetable = queueTarget?.indices.has(queueIndex) ?? false;
+          const dimmed = Boolean(queueTarget) && !targetable;
+          return createCard(card, {
+            queue: true,
+            tooltip,
+            queueIndex,
+            targetable,
+            dimmed,
+            onClick: targetable ? () => handleQueueCardClick(queueIndex) : null,
+          });
         });
         renderNodes(queueEl, queueNodes, { emptyText: "Queue empty" });
 
@@ -755,18 +985,49 @@
           wrapper.classList.toggle("hand-active", playerIndex === activePlayer);
           const nodes = hand.map((card, handIndex) => {
             const actions = playerIndex === activePlayer ? legalByHand.get(handIndex) ?? [] : [];
+            const isSelected =
+              pendingSelection &&
+              pendingSelection.handIndex === handIndex &&
+              playerIndex === activePlayer;
+            const inlineOptions =
+              isSelected && pendingSelection.type === "kangaroo"
+                ? pendingSelection.actions.map((action) => ({
+                    label: kangarooLabel(action),
+                    onSelect: () => sendSelectedAction(action),
+                  }))
+                : null;
             return createCard(card, {
-              actions,
-              highlight: actions.length > 0,
+              highlight: actions.length > 0 && playerIndex === activePlayer,
+              selected: isSelected,
+              handIndex,
+              onClick:
+                playerIndex === activePlayer && actions.length > 0
+                  ? () => handleHandCardClick(card, handIndex, actions)
+                  : null,
+              inlineOptions,
             });
           });
           renderNodes(handContainers[playerIndex], nodes, { emptyText: "No cards in hand" });
         });
 
+        updateHint();
       }
 
       function createCard(card, options = {}) {
-        const { actions = [], subtle = false, highlight = false, queue = false, tooltip = "" } = options;
+        const {
+          actions = [],
+          subtle = false,
+          highlight = false,
+          queue = false,
+          tooltip = "",
+          selected = false,
+          targetable = false,
+          dimmed = false,
+          onClick = null,
+          handIndex = null,
+          queueIndex = null,
+          inlineOptions = null,
+        } = options;
         const div = document.createElement("div");
         div.className = "card";
         div.classList.add(`player-${card.owner}`);
@@ -774,11 +1035,41 @@
         if (subtle) {
           div.classList.add("card--subtle");
         }
-        if (highlight && actions.length) {
+        if (highlight) {
           div.classList.add("card--playable");
+        }
+        if (selected) {
+          div.classList.add("card--selected");
+        }
+        if (targetable) {
+          div.classList.add("card--targetable");
+        }
+        if (dimmed) {
+          div.classList.add("card--dimmed");
         }
         if (tooltip) {
           div.title = tooltip;
+        }
+        if (handIndex !== null) {
+          div.dataset.handIndex = String(handIndex);
+        }
+        if (queueIndex !== null) {
+          div.dataset.queueIndex = String(queueIndex);
+        }
+        if (onClick) {
+          div.classList.add("card--clickable");
+          div.setAttribute("role", "button");
+          div.tabIndex = 0;
+          div.addEventListener("click", (event) => {
+            event.stopPropagation();
+            onClick(event);
+          });
+          div.addEventListener("keydown", (event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              onClick(event);
+            }
+          });
         }
 
         const top = document.createElement("div");
@@ -798,19 +1089,19 @@
 
         const species = document.createElement("div");
         species.className = "card-species";
-        species.textContent = card.species;
-        div.appendChild(species);
+       species.textContent = card.species;
+       div.appendChild(species);
 
-        if (actions.length) {
+        if (inlineOptions?.length) {
           const actionsEl = document.createElement("div");
           actionsEl.className = "card-actions";
-          actions.forEach((action) => {
+          inlineOptions.forEach((option) => {
             const button = document.createElement("button");
             button.type = "button";
-            button.textContent = action.label;
+            button.textContent = option.label;
             button.addEventListener("click", (event) => {
               event.stopPropagation();
-              sendAction(action);
+              option.onSelect();
             });
             actionsEl.appendChild(button);
           });
@@ -837,23 +1128,218 @@
         previewEl.innerHTML = "";
         if (!cards.length) {
           const placeholder = document.createElement("div");
-          placeholder.className = "pile-mini-card";
+          placeholder.className = "pile-mini-card pile-mini-card--placeholder";
           placeholder.textContent = emptyText;
           previewEl.appendChild(placeholder);
           countEl.textContent = "";
           return;
         }
 
-        const display = cards.slice(-3);
-        display.forEach((card, index) => {
+        const display = cards.slice(-4).reverse();
+        const hidden = cards.length - display.length;
+
+        if (hidden > 0) {
+          const summary = document.createElement("div");
+          summary.className = "pile-mini-card pile-mini-card--summary";
+          summary.textContent = `+${hidden} more`;
+          previewEl.appendChild(summary);
+        }
+
+        display.forEach((card) => {
           const mini = document.createElement("div");
           mini.className = "pile-mini-card";
-          mini.style.transform = `translateY(${index * -12}px) scale(${1 - index * 0.05})`;
-          mini.style.borderColor = card.owner === 0 ? "rgba(37, 99, 235, 0.6)" : "rgba(249, 115, 22, 0.6)";
-          mini.textContent = card.species;
+          mini.dataset.owner = String(card.owner);
+          const name = document.createElement("span");
+          name.textContent = card.species;
+          const owner = document.createElement("span");
+          owner.className = "pile-mini-card__owner";
+          owner.textContent = `P${card.owner}`;
+          mini.appendChild(name);
+          mini.appendChild(owner);
           previewEl.appendChild(mini);
         });
         countEl.textContent = `${cards.length} card${cards.length === 1 ? "" : "s"}`;
+      }
+
+      function kangarooLabel(action) {
+        const hop = action.params?.[0] ?? 0;
+        if (hop <= 0) {
+          return "Stay put";
+        }
+        return hop === 1 ? "Hop 1 space" : `Hop ${hop} spaces`;
+      }
+
+      function getQueueTargetState() {
+        if (!pendingSelection) {
+          return null;
+        }
+
+        if (pendingSelection.type === "target") {
+          const indices = new Set();
+          pendingSelection.actions.forEach((action) => {
+            const targetIndex = action.params?.[0];
+            if (typeof targetIndex === "number") {
+              indices.add(targetIndex);
+            }
+          });
+          return { indices, step: "target", species: pendingSelection.species };
+        }
+
+        if (pendingSelection.type === "chameleon-extra") {
+          const indices = new Set();
+          pendingSelection.actions.forEach((action) => {
+            const targetIndex = action.params?.[1];
+            if (typeof targetIndex === "number") {
+              indices.add(targetIndex);
+            }
+          });
+          return { indices, step: "extra", species: "chameleon" };
+        }
+
+        return null;
+      }
+
+      function setSelection(selection) {
+        pendingSelection = selection;
+        render();
+      }
+
+      function clearSelection() {
+        if (!pendingSelection) {
+          return;
+        }
+        pendingSelection = null;
+        render();
+      }
+
+      function handleHandCardClick(card, handIndex, actions) {
+        if (!actions.length) {
+          return;
+        }
+
+        if (pendingSelection && pendingSelection.handIndex === handIndex) {
+          clearSelection();
+          return;
+        }
+
+        const species = card.species;
+        if (species === "parrot" || species === "chameleon") {
+          setSelection({ type: "target", species, handIndex, actions });
+          return;
+        }
+
+        if (species === "kangaroo") {
+          const hopOptions = new Set(
+            actions
+              .filter((action) => action.params && action.params.length)
+              .map((action) => action.params[0])
+          );
+          if (hopOptions.size > 1) {
+            setSelection({ type: "kangaroo", species, handIndex, actions });
+            return;
+          }
+        }
+
+        sendSelectedAction(actions[0]);
+      }
+
+      function handleQueueCardClick(queueIndex) {
+        if (!pendingSelection) {
+          return;
+        }
+
+        if (pendingSelection.type === "target") {
+          const matches = pendingSelection.actions.filter((action) => action.params?.[0] === queueIndex);
+          if (!matches.length) {
+            return;
+          }
+
+          if (pendingSelection.species === "chameleon") {
+            const requiresExtra = matches.some((action) => action.params.length > 1);
+            if (requiresExtra) {
+              setSelection({
+                type: "chameleon-extra",
+                species: "chameleon",
+                handIndex: pendingSelection.handIndex,
+                actions: matches,
+              });
+              return;
+            }
+          }
+
+          sendSelectedAction(matches[0]);
+          return;
+        }
+
+        if (pendingSelection.type === "chameleon-extra") {
+          const matches = pendingSelection.actions.filter((action) => action.params?.[1] === queueIndex);
+          if (!matches.length) {
+            return;
+          }
+          sendSelectedAction(matches[0]);
+        }
+      }
+
+      function sendSelectedAction(action) {
+        pendingSelection = null;
+        render();
+        void sendAction(action);
+      }
+
+      function winnerMessage(scores) {
+        if (scores[0] === scores[1]) {
+          return "Game over · Draw";
+        }
+        const winner = scores[0] > scores[1] ? 0 : 1;
+        const diff = Math.abs(scores[0] - scores[1]);
+        const margin = diff === 1 ? "by 1 point" : `by ${diff} points`;
+        return `Game over · Player ${winner} wins ${margin}`;
+      }
+
+      function updateHint() {
+        if (!hintEl) {
+          return;
+        }
+
+        if (!currentState) {
+          hintEl.textContent = "";
+          return;
+        }
+
+        if (pendingSelection) {
+          if (pendingSelection.type === "target") {
+            if (pendingSelection.species === "parrot") {
+              hintEl.textContent = "Select a card in the queue for the parrot to shoo away.";
+              return;
+            }
+            if (pendingSelection.species === "chameleon") {
+              hintEl.textContent = "Choose an animal in the queue for the chameleon to imitate.";
+              return;
+            }
+            hintEl.textContent = "Select a target in the queue.";
+            return;
+          }
+
+          if (pendingSelection.type === "chameleon-extra") {
+            const copyingParrot = pendingSelection.actions[0]?.params?.length > 1;
+            hintEl.textContent = copyingParrot
+              ? "Pick the card the chameleon's borrowed parrot will shoo away."
+              : "Pick the card affected by the copied ability.";
+            return;
+          }
+
+          if (pendingSelection.type === "kangaroo") {
+            hintEl.textContent = "Pick how far the kangaroo should hop.";
+            return;
+          }
+        }
+
+        if (currentState.isTerminal) {
+          hintEl.textContent = "Game finished. Start a new game to play again.";
+          return;
+        }
+
+        hintEl.textContent = `Player ${currentState.activePlayer}: click a card in your hand to play it.`;
       }
 
       function clearRender() {
@@ -862,6 +1348,8 @@
         handWrappers.forEach((wrapper) => wrapper.classList.remove("hand-active"));
         updatePilePreview(beastyPreview, beastyCount, []);
         updatePilePreview(thatsPreview, thatsCount, []);
+        pendingSelection = null;
+        updateHint();
       }
 
       async function sendAction(action) {
