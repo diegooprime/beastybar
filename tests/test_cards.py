@@ -1,4 +1,4 @@
-from beastybar import actions, cards, engine, state
+from beastybar.simulator import actions, cards, engine, state
 
 
 def make_card(owner: int, species: str) -> state.Card:

@@ -4,7 +4,7 @@ from __future__ import annotations
 import random
 from typing import Optional, Sequence
 
-from .. import actions, state
+from ..simulator import actions, state
 from .base import Agent, ensure_legal
 
 

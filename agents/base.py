@@ -4,9 +4,9 @@ from __future__ import annotations
 import abc
 from typing import Callable, Iterable, Sequence
 
-from .. import actions, state
+from ..simulator import actions, state
 
-# Alias kept in sync with beastybar.simulate.AgentFn without importing the module
+# Alias kept in sync with beastybar.simulator.simulate.AgentFn without importing the module
 # to avoid circular dependencies at import time.
 AgentFn = Callable[[state.State, Sequence[actions.Action]], actions.Action]
 

@@ -5,7 +5,7 @@ import random
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Sequence
 
-from .. import actions, engine, rules, state
+from ..simulator import actions, engine, rules, state
 from .base import Agent, ensure_legal
 from .baselines import FirstLegalAgent
 

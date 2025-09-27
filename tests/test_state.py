@@ -1,4 +1,4 @@
-from beastybar import rules, state
+from beastybar.simulator import rules, state
 
 
 def test_initial_state_setup():

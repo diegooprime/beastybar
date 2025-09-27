@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Sequence
 
-from .. import actions, engine, state
+from ..simulator import actions, engine, state
 from .base import Agent, ensure_legal
 from .greedy import GreedyAgent
 

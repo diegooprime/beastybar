@@ -1,4 +1,4 @@
-"""UI package entry points."""
+"""Web user interface entry points."""
 
 from .app import create_app
 

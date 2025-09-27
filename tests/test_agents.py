@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from beastybar import engine, state
+from beastybar.simulator import engine, state
 from beastybar.agents import (
     DiegoAgent,
     FirstLegalAgent,
@@ -14,7 +14,7 @@ from beastybar.agents import (
     ensure_legal,
 )
 from beastybar.agents import evaluation as eval_utils
-from beastybar.agents import tournament
+from beastybar.training import tournament
 
 
 def make_card(owner: int, species: str) -> state.Card:

@@ -1,4 +1,4 @@
-from beastybar import engine, state
+from beastybar.simulator import engine, state
 
 
 PLAN = [

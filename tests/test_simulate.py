@@ -1,4 +1,4 @@
-from beastybar import actions, engine, simulate, state
+from beastybar.simulator import actions, engine, simulate, state
 
 
 def test_new_game_matches_state_initializer():

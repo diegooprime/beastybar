@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from beastybar.ui import create_app
+from beastybar.user_interface import create_app
 
 
 def test_new_game_and_action_cycle():

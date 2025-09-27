@@ -4,7 +4,7 @@
 - Layered layout: rules engine (`beastybar`), human UI (`beastybar/ui`), agent tooling (`beastybar/agents`), automation scripts, and regression tests.
 - Deterministic, immutable state updates keep replays reproducible and make it safe to branch simulations.
 - Minimal dependencies (FastAPI stack + httpx) keep install light and let pytest run without network.
-- Seeding and telemetry directories (`logs/`) capture tournament outputs for offline analysis.
+- Seeding and telemetry directories (`training/logs/`) capture tournament outputs for offline analysis.
 
 ## Environment
 - Python ≥3.10 via `pyproject.toml`; build uses setuptools so the package remains editable-friendly.
@@ -124,7 +124,7 @@
   - Ensures pile previews stay in sync via lightweight state derived from API responses.
 
 ## Scripts
-- `scripts/analyze_logs.py` aggregates tournament telemetry (`*_vs_*.json`) into weighted heuristics: parses per-action records, buckets context by queue length/front control, computes win-rate and score-diff metrics, normalises rankings, and optionally exports JSON tables for new heuristic agents.
+- `training/analyze_logs.py` aggregates tournament telemetry (`*_vs_*.json`) into weighted heuristics: parses per-action records, buckets context by queue length/front control, computes win-rate and score-diff metrics, normalises rankings, and optionally exports JSON tables for new heuristic agents.
 
 ## Tests (`tests/`)
 - `test_state.py` validates initial setup invariants (hand sizes, empty zones).
@@ -142,5 +142,5 @@
 - `rules.md` mirrors the 2019 rulebook, anchoring the implementation against official wording.
 - `notes.md` captures developer assumptions (e.g., order of recurring effects, chameleon parameter forwarding).
 - `todo.md` tracks agent/evaluation milestones; unchecked boxes mark planned work even if partially implemented, preserving historical intent.
-- `logs/` stores tournament outputs (per-match directories plus aggregated JSON summaries) used by the analysis script.
+- `training/logs/` stores tournament outputs (per-match directories plus aggregated JSON summaries) used by the analysis script.
 - `technical.md` (this file) centralises technical rationale for future maintainers.
