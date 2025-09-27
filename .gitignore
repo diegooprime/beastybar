@@ -1,3 +1,7 @@
 logs/round_robin_actions/
 logs/round_robin_actions/
 logs/round_robin_actions/
+__pycache__/
+*.pyc
+*.tar.gz
+logs/

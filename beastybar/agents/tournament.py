@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Iterable, Sequence, Tuple
 
 from .. import actions, simulate, state
-from . import baselines, diego, frontrunner, greedy, killer
+from . import baselines, diego, frontrunner, greedy, heuristic50k, killer
 from .base import Agent
 
 
