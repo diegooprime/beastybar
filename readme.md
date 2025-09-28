@@ -5,11 +5,11 @@ First project of this type for me.
 Purpose: Have the best Beasty Bar strategy in the world.
 
 ### Project structure:
-- simulator: full game rules and state management
-- agents: each strategy as an agent implementation
-- training: tournaments, telemetry tooling, logs, Elo tracking
-- user_interface: FastAPI interface and static viewer
-- other: utilities, docs, and assorted references
+- _01_simulator: full game rules and state management
+- _02_agents: each strategy as an agent implementation
+- _03_training: tournaments, telemetry tooling, logs, Elo tracking
+- _04_ui: FastAPI interface and static viewer
+- _05_other: utilities, docs, and assorted references
 
 The code for each section is independent so we can modify one without fucking up the other sections. 
 
@@ -21,9 +21,8 @@ The code for each section is independent so we can modify one without fucking up
 
 ###
 run the ui with:
-uvicorn user_interface.app:create_app --reload
+uvicorn _04_ui.app:create_app --reload
 source .venv/bin/activate
 pip install -e .
-python -m training.tournament first diego --games 25 --seed 2025
-
+python -m _03_training.tournament first diego --games 25 --seed 2025
 

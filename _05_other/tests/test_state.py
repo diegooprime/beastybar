@@ -1,4 +1,4 @@
-from simulator import rules, state
+from _01_simulator import rules, state
 
 
 def test_initial_state_setup():

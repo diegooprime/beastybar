@@ -4,7 +4,7 @@ from __future__ import annotations
 import random
 from typing import Optional, Sequence
 
-from simulator import actions, state
+from _01_simulator import actions, state
 from .base import Agent, ensure_legal
 
 
@@ -23,4 +23,3 @@ class RandomAgent(Agent):
 
 
 __all__ = ["RandomAgent"]
-

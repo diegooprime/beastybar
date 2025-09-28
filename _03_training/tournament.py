@@ -11,9 +11,9 @@ from pathlib import Path
 from statistics import NormalDist
 from typing import Iterable, Sequence, Tuple
 
-from simulator import actions, simulate, state
-from agents import DiegoAgent, FirstLegalAgent, GreedyAgent, RandomAgent
-from agents.base import Agent
+from _01_simulator import actions, simulate, state
+from _02_agents import DiegoAgent, FirstLegalAgent, GreedyAgent, RandomAgent
+from _02_agents.base import Agent
 
 
 @dataclass

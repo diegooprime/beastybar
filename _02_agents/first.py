@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Sequence
 
-from simulator import actions, state
+from _01_simulator import actions, state
 from .base import Agent
 
 
@@ -18,4 +18,3 @@ class FirstLegalAgent(Agent):
 
 
 __all__ = ["FirstLegalAgent"]
-

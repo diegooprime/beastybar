@@ -1,4 +1,4 @@
-from simulator import actions, cards, engine, state
+from _01_simulator import actions, cards, engine, state
 
 
 def make_card(owner: int, species: str) -> state.Card:

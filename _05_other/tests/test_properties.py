@@ -1,4 +1,4 @@
-from simulator import engine, rules, simulate, state
+from _01_simulator import engine, rules, simulate, state
 
 
 def _total_cards(game_state: state.State) -> int:

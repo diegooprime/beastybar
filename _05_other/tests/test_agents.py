@@ -3,10 +3,10 @@ from pathlib import Path
 
 import pytest
 
-from simulator import engine, state
-from agents import DiegoAgent, FirstLegalAgent, GreedyAgent, RandomAgent, ensure_legal
-from agents import evaluation as eval_utils
-from training import tournament
+from _01_simulator import engine, state
+from _02_agents import DiegoAgent, FirstLegalAgent, GreedyAgent, RandomAgent, ensure_legal
+from _02_agents import evaluation as eval_utils
+from _03_training import tournament
 
 
 def make_card(owner: int, species: str) -> state.Card:

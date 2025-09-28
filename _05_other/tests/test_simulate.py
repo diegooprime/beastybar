@@ -1,4 +1,4 @@
-from simulator import actions, engine, simulate, state
+from _01_simulator import actions, engine, simulate, state
 
 
 def test_new_game_matches_state_initializer():

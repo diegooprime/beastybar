@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Sequence
 
-from simulator import actions, state
+from _01_simulator import actions, state
 from .base import Agent, ensure_legal
 from .evaluation import HeuristicFn, best_action, material_advantage
 

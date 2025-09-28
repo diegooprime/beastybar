@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Callable, Iterable
 
-from simulator import actions, engine, state
+from _01_simulator import actions, engine, state
 
 HeuristicFn = Callable[[state.State, int], float]
 
