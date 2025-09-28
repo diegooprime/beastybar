@@ -712,7 +712,13 @@ def _print_summary(summary: SeriesSummary, *, label_a: str, label_b: str) -> Non
 
 
 def _expected_score(rating_a: float, rating_b: float) -> float:
-    return 1.0 / (1.0 + 10 ** ((rating_b - rating_a) / 400))
+    diff = (rating_b - rating_a) / 400.0
+    exponent = diff * math.log(10)
+    if exponent >= 0:
+        exp_neg = math.exp(-exponent)
+        return exp_neg / (1.0 + exp_neg)
+    exp_pos = math.exp(exponent)
+    return 1.0 / (1.0 + exp_pos)
 
 
 def _apply_elo_update(
@@ -729,17 +735,29 @@ def _apply_elo_update(
     if games == 0:
         return
 
-    score_a = wins_a + 0.5 * ties
-    score_b = wins_b + 0.5 * ties
-
     rating_a = ratings[name_a]
     rating_b = ratings[name_b]
 
-    expected_a = _expected_score(rating_a, rating_b) * games
-    expected_b = games - expected_a
+    for _ in range(wins_a):
+        expected_a = _expected_score(rating_a, rating_b)
+        expected_b = 1.0 - expected_a
+        rating_a += k_factor * (1.0 - expected_a)
+        rating_b += k_factor * (0.0 - expected_b)
 
-    ratings[name_a] = rating_a + k_factor * (score_a - expected_a)
-    ratings[name_b] = rating_b + k_factor * (score_b - expected_b)
+    for _ in range(ties):
+        expected_a = _expected_score(rating_a, rating_b)
+        expected_b = 1.0 - expected_a
+        rating_a += k_factor * (0.5 - expected_a)
+        rating_b += k_factor * (0.5 - expected_b)
+
+    for _ in range(wins_b):
+        expected_a = _expected_score(rating_a, rating_b)
+        expected_b = 1.0 - expected_a
+        rating_a += k_factor * (0.0 - expected_a)
+        rating_b += k_factor * (1.0 - expected_b)
+
+    ratings[name_a] = rating_a
+    ratings[name_b] = rating_b
 
 
 def _build_leaderboard(
