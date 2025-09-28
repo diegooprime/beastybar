@@ -52,7 +52,6 @@
 - Convenience proxies (`new_game`, `legal_actions`, `apply`, `is_terminal`, `score`) keep agent code decoupled from engine internals.
 - `_default_agent` illustrates the minimal policy used when no agent is provided.
 
-
 ### `tournament.py`
 - Provides data classes for series configuration, telemetry (`ActionRecord`, `GameRecord`), and summary statistics.
 - Implements Wilson-score–based early stopping, alternated starting positions, and optional action logging for reproducibility.
