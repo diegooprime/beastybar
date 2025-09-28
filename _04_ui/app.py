@@ -97,7 +97,8 @@ def create_app() -> FastAPI:
             agent = _agent_from_name(request.opponent)
             store.agent = agent
             store.agent_player = 1 - store.human_player
-            agent.start_game(store.state)
+            agent_view = state.mask_state_for_player(store.require_state(), store.agent_player)
+            agent.start_game(agent_view)
             _auto_play(store)
 
         return _serialize(store.require_state(), store.seed, store)
@@ -133,7 +134,10 @@ def create_app() -> FastAPI:
         if store.agent is not None:
             current = store.require_state()
             if simulate.is_terminal(current):
-                store.agent.end_game(current)
+                if store.agent_player is None:
+                    raise RuntimeError("Agent player index is not set")
+                view = state.mask_state_for_player(current, store.agent_player)
+                store.agent.end_game(view)
             else:
                 _auto_play(store)
 
@@ -238,11 +242,17 @@ def _auto_play(store: SessionStore) -> None:
                 ),
             )
             continue
-        action = store.agent.select_action(store.state, legal)
+        if store.agent_player is None:
+            raise RuntimeError("Agent player index is not set")
+        view = state.mask_state_for_player(store.require_state(), store.agent_player)
+        action = store.agent.select_action(view, legal)
         _apply_action(store, action)
 
     if simulate.is_terminal(store.state):
-        store.agent.end_game(store.state)
+        if store.agent_player is None:
+            raise RuntimeError("Agent player index is not set")
+        terminal_view = state.mask_state_for_player(store.require_state(), store.agent_player)
+        store.agent.end_game(terminal_view)
 
 
 def _apply_action(store: SessionStore, action: actions.Action) -> None:

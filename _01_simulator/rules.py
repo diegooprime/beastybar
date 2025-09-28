@@ -39,9 +39,24 @@ SPECIES: Dict[str, Species] = {
     "kangaroo": Species("kangaroo", strength=3, points=4),
     "parrot": Species("parrot", strength=2, points=4),
     "skunk": Species("skunk", strength=1, points=4),
+    # Synthetic species used when masking hidden information from agents.
+    "unknown": Species("unknown", strength=0, points=0),
 }
 
-BASE_DECK: Tuple[str, ...] = tuple(SPECIES.keys())
+BASE_DECK: Tuple[str, ...] = (
+    "lion",
+    "hippo",
+    "crocodile",
+    "snake",
+    "giraffe",
+    "zebra",
+    "seal",
+    "chameleon",
+    "monkey",
+    "kangaroo",
+    "parrot",
+    "skunk",
+)
 
 if len(BASE_DECK) != DECK_SIZE:
     raise ValueError("Base deck definition must contain exactly 12 cards")

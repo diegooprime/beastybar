@@ -1,2 +1,2 @@
 # Project TODO
-Current priority is developing a way of 
+Current priority is developing a way of progresively determining a better strategy by having a way of updating our "best" agent, .ecause right now i’ve ran simiulations and know already that greedy is best, but i don’t know what’s next, like how do i keep improving on top of it? Can you explain this process to me and help me understand how to approach this?

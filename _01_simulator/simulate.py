@@ -76,7 +76,8 @@ def _play_game(game: state.State, agents: Tuple[AgentFn, AgentFn]) -> state.Stat
         legal = legal_actions(current, player)
         if not legal:
             raise RuntimeError("No legal actions available for player")
-        action = agents[player](current, legal)
+        masked_state = state.mask_state_for_player(current, player)
+        action = agents[player](masked_state, legal)
         current = apply(current, action)
     return current
 

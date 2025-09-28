@@ -184,6 +184,36 @@ def set_active_player(game_state: State, player: int, *, advance_turn: bool = Fa
     return replace(game_state, active_player=player, turn=turn)
 
 
+def mask_state_for_player(game_state: State, perspective: int) -> State:
+    """Return a copy of the state hiding other players' hidden cards."""
+
+    if not (0 <= perspective < rules.PLAYER_COUNT):
+        raise ValueError("Perspective player index out of range")
+
+    def _mask(cards: Sequence[Card]) -> CardTuple:
+        return tuple(Card(owner=card.owner, species="unknown") for card in cards)
+
+    masked_players: list[PlayerState] = []
+    for index, player_state in enumerate(game_state.players):
+        if index == perspective:
+            masked_players.append(player_state)
+            continue
+        masked_players.append(
+            PlayerState(
+                deck=_mask(player_state.deck),
+                hand=_mask(player_state.hand),
+            )
+        )
+
+    return State(
+        seed=game_state.seed,
+        turn=game_state.turn,
+        active_player=game_state.active_player,
+        players=tuple(masked_players),
+        zones=game_state.zones,
+    )
+
+
 _ZONE_NAMES = {"queue", "beasty_bar", "thats_it"}
 
 
@@ -213,4 +243,5 @@ __all__ = [
     "replace_queue",
     "push_to_zone",
     "set_active_player",
+    "mask_state_for_player",
 ]

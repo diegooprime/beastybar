@@ -192,8 +192,9 @@ def play_series(config: SeriesConfig) -> SeriesResult:
         current = simulate.new_game(game_seed, starting_player=starting_player)
         action_events: list[ActionRecord] | None = [] if config.collect_actions else None
 
-        for agent in agents:
-            agent.start_game(current)
+        for player_index, agent in enumerate(agents):
+            view = state.mask_state_for_player(current, player_index)
+            agent.start_game(view)
 
         turns = 0
         while not simulate.is_terminal(current):
@@ -205,7 +206,8 @@ def play_series(config: SeriesConfig) -> SeriesResult:
                 current = state.set_active_player(current, current.next_player(), advance_turn=True)
                 turns += 1
                 continue
-            action = agents[player].select_action(current, legal)
+            view = state.mask_state_for_player(current, player)
+            action = agents[player].select_action(view, legal)
             next_state = simulate.apply(current, action)
             if action_events is not None:
                 action_events.append(
@@ -220,8 +222,9 @@ def play_series(config: SeriesConfig) -> SeriesResult:
             current = next_state
             turns += 1
 
-        for agent in agents:
-            agent.end_game(current)
+        for player_index, agent in enumerate(agents):
+            view = state.mask_state_for_player(current, player_index)
+            agent.end_game(view)
 
         scores = simulate.score(current)
         winner = _winner(scores)
