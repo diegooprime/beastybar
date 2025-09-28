@@ -22,15 +22,8 @@ The code for each section is independent so we can modify one without fucking up
 ###
 run the ui with:
 uvicorn user_interface.app:create_app --reload
+source .venv/bin/activate
+pip install -e .
+python -m training.tournament first diego --games 25 --seed 2025
 
-### Play agents from the CLI
-1. Activate your environment and install the project in editable mode:
-   ```bash
-   source .venv/bin/activate
-   pip install -e .
-   ```
-2. Start a head-to-head series by naming two built-in agents:
-   ```bash
-   python -m training.tournament first diego --games 25 --seed 2025
-   ```
 
