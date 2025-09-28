@@ -11,9 +11,9 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ConfigDict
 
-from ..simulator import actions, simulate, state
-from ..agents import baselines, diego, frontrunner, greedy, heuristic50k, killer
-from ..agents.base import Agent
+from simulator import actions, simulate, state
+from agents import baselines, diego, frontrunner, greedy, heuristic50k, killer
+from agents.base import Agent
 
 
 @dataclass

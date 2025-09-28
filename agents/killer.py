@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable, Sequence
 
-from ..simulator import actions, cards, engine, state
+from simulator import actions, cards, engine, state
 from .base import Agent, ensure_legal
 from .baselines import FirstLegalAgent
 

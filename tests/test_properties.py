@@ -1,4 +1,4 @@
-from beastybar.simulator import engine, rules, simulate, state
+from simulator import engine, rules, simulate, state
 
 
 def _total_cards(game_state: state.State) -> int:

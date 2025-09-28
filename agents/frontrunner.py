@@ -5,7 +5,7 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Iterable, Sequence
 
-from ..simulator import actions, cards, rules, state
+from simulator import actions, cards, rules, state
 from .base import Agent
 from .baselines import FirstLegalAgent
 

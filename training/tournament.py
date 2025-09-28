@@ -11,9 +11,9 @@ from pathlib import Path
 from statistics import NormalDist
 from typing import Iterable, Sequence, Tuple
 
-from ..simulator import actions, simulate, state
-from ..agents import baselines, diego, frontrunner, greedy, heuristic50k, killer
-from ..agents.base import Agent
+from simulator import actions, simulate, state
+from agents import baselines, diego, frontrunner, greedy, heuristic50k, killer
+from agents.base import Agent
 
 
 @dataclass

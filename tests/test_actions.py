@@ -1,6 +1,6 @@
 import pytest
 
-from beastybar.simulator import actions, engine, state
+from simulator import actions, engine, state
 
 
 def make_card(owner: int, species: str) -> state.Card:

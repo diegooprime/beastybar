@@ -15,7 +15,7 @@ dependencies = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["beastybar*"]
+include = ["agents*", "simulator*", "training*", "user_interface*"]
 exclude = ["tests*", "logs*", "scripts*"]
 
 [tool.pytest.ini_options]

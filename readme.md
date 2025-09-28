@@ -14,3 +14,20 @@ Purpose: Have the best Beasty Bar strategy in the world.
 ### Misc
 Built in Python. Fast to build. I want to get better at it.
 - Beasty Bar intro: https://tesera.ru/images/items/1525203/BeastyBar_EN-online.pdf
+
+
+###
+run the ui with:
+uvicorn user_interface.app:create_app --reload
+
+### Play agents from the CLI
+1. Activate your environment and install the project in editable mode:
+   ```bash
+   source .venv/bin/activate
+   pip install -e .
+   ```
+2. Start a head-to-head series by naming two built-in agents:
+   ```bash
+   python -m training.tournament first diego --games 25 --seed 2025
+   ```
+
