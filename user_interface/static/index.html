@@ -608,6 +608,11 @@
         color: var(--subtle-text);
       }
 
+      .log-actions {
+        display: flex;
+        gap: 0.5rem;
+      }
+
       .log-toggle {
         padding: 0.35rem 0.8rem;
         border-radius: 12px;
@@ -635,6 +640,17 @@
         font-size: 0.75rem;
         color: var(--subtle-text);
         margin-bottom: 0.15rem;
+      }
+
+      .log-item ul {
+        margin: 0.35rem 0 0;
+        padding-left: 1.1rem;
+        color: var(--subtle-text);
+        font-size: 0.8rem;
+      }
+
+      .log-item ul li {
+        margin: 0.1rem 0;
       }
 
       .log-empty {
@@ -830,7 +846,10 @@
         <aside id="log" class="log">
           <div class="log-header">
             <h2>Turn Log</h2>
-            <button id="log-toggle" type="button" class="log-toggle" aria-expanded="true">Collapse</button>
+            <div class="log-actions">
+              <button id="log-copy" type="button" class="log-toggle">Copy Transcript</button>
+              <button id="log-toggle" type="button" class="log-toggle" aria-expanded="true">Collapse</button>
+            </div>
           </div>
           <ol id="log-list" class="log-list">
             <li class="log-empty">No turns yet</li>
@@ -866,7 +885,8 @@
       let currentState = null;
       let bootstrapped = false;
       let pileContents = { beastyBar: [], thatsIt: [] };
-      let eventLog = [];
+      let serverLogEntries = [];
+      let localLogEntries = [];
       let pendingSelection = null;
       let availableAgents = [];
 
@@ -897,6 +917,7 @@
 
       const logEl = document.getElementById("log");
       const logToggleBtn = document.getElementById("log-toggle");
+      const logCopyBtn = document.getElementById("log-copy");
       const logList = document.getElementById("log-list");
 
       const modalEl = document.getElementById("modal");
@@ -905,8 +926,13 @@
       const modalClose = document.getElementById("modal-close");
       const modalBackdrop = document.getElementById("modal-backdrop");
 
+      if (logCopyBtn) {
+        logCopyBtn.disabled = true;
+      }
+
       newGameBtn.addEventListener("click", () => {
-        eventLog = [];
+        serverLogEntries = [];
+        localLogEntries = [];
         renderLog();
         if (pendingSelection) {
           clearSelection();
@@ -922,7 +948,8 @@
             overrides.seed = parsed;
           }
         }
-        eventLog = [];
+        serverLogEntries = [];
+        localLogEntries = [];
         renderLog();
         if (pendingSelection) {
           clearSelection();
@@ -952,6 +979,29 @@
         logToggleBtn.textContent = collapsed ? "Expand" : "Collapse";
         logToggleBtn.setAttribute("aria-expanded", String(!collapsed));
       });
+
+      if (logCopyBtn) {
+        logCopyBtn.addEventListener("click", () => {
+          const transcript = (currentState?.logText || "").trim();
+          if (!transcript) {
+            if (hintEl) {
+              hintEl.textContent = "No turns to copy yet.";
+            }
+            return;
+          }
+          copyTextToClipboard(transcript)
+            .then(() => {
+              if (hintEl) {
+                hintEl.textContent = "Transcript copied to clipboard.";
+              }
+            })
+            .catch(() => {
+              if (hintEl) {
+                hintEl.textContent = "Clipboard copy failed. Try selecting the log manually.";
+              }
+            });
+        });
+      }
 
       async function startNewGame(overrides = {}) {
         const payload = {
@@ -986,21 +1036,14 @@
             // ignore json parse issues
           }
           hintEl.textContent = message;
-          addLogEntry(`Error · ${message}`);
+          addLocalLogEntry({
+            message: `Error · ${message}`,
+            timestamp: new Date(),
+          });
           return;
         }
 
         bootstrapped = true;
-        const details = [];
-        if (payload.seed !== undefined) {
-          details.push(`Seed ${payload.seed}`);
-        }
-        details.push(`start P${payload.startingPlayer}`);
-        if (opponent) {
-          details.push(`vs ${opponent}`);
-          details.push(`you as P${payload.humanPlayer}`);
-        }
-        addLogEntry(`New game started${details.length ? ` · ${details.join(" · ")}` : ""}`);
         await refreshState();
       }
 
@@ -1048,9 +1091,19 @@
         if (!currentState) {
           updatePlayerNames();
           updateHint();
+          serverLogEntries = [];
+          renderLog();
+          if (logCopyBtn) {
+            logCopyBtn.disabled = true;
+          }
           return;
         }
-        const { turn, activePlayer, isTerminal, score, zones, queue, hands, seed } = currentState;
+        const { turn, activePlayer, isTerminal, score, zones, queue, hands, seed, log, logText } = currentState;
+        serverLogEntries = Array.isArray(log) ? log : [];
+        if (logCopyBtn) {
+          const transcript = typeof logText === "string" ? logText.trim() : "";
+          logCopyBtn.disabled = transcript.length === 0;
+        }
         const runningScore = [0, 0];
         zones.beastyBar.forEach((card) => {
           runningScore[card.owner] += card.points;
@@ -1186,6 +1239,7 @@
         });
 
         updateHint();
+        renderLog();
       }
 
       function createCard(card, options = {}) {
@@ -1545,12 +1599,15 @@
         pendingSelection = null;
         updatePlayerNames();
         updateHint();
+        serverLogEntries = [];
+        renderLog();
+        if (logCopyBtn) {
+          logCopyBtn.disabled = true;
+        }
       }
 
       async function sendAction(action) {
         if (!currentState) return;
-        const actor = playerLabel(currentState.activePlayer);
-        addLogEntry(`${actor} · ${action.label}`);
         const response = await fetch("/api/action", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1567,24 +1624,50 @@
             // ignore
           }
           hintEl.textContent = message;
-          addLogEntry(`Error · ${message}`);
+          addLocalLogEntry({
+            message: `Error · ${message}`,
+            timestamp: new Date(),
+          });
         }
         await refreshState();
       }
 
-      function addLogEntry(message) {
-        const entry = {
-          id: makeId(),
-          message,
-          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        };
-        eventLog = [entry, ...eventLog].slice(0, 30);
-        renderLog();
-      }
-
       function renderLog() {
+        const normalizedServer = (serverLogEntries || []).map((entry) => ({
+          id: entry.id,
+          turn: entry.turn,
+          player: entry.player,
+          action: entry.action,
+          effects: Array.isArray(entry.effects) ? entry.effects : [],
+          timestamp: createTimestamp(entry.timestampMs, entry.timestamp),
+          source: "server",
+        }));
+
+        const unmatchedLocal = (localLogEntries || []).filter((local) => {
+          if (!local.action) {
+            return true;
+          }
+          return !normalizedServer.some(
+            (server) =>
+              typeof server.turn === "number" &&
+              typeof local.turn === "number" &&
+              server.turn === local.turn &&
+              server.player === local.player &&
+              server.action === local.action,
+          );
+        });
+
+        const combined = [...normalizedServer, ...unmatchedLocal]
+          .map((entry) => {
+            const stamp = entry.timestamp instanceof Date && !Number.isNaN(entry.timestamp.valueOf())
+              ? entry.timestamp
+              : new Date();
+            return { ...entry, timestamp: stamp };
+          })
+          .sort((a, b) => b.timestamp.valueOf() - a.timestamp.valueOf());
+
         logList.innerHTML = "";
-        if (!eventLog.length) {
+        if (!combined.length) {
           const empty = document.createElement("li");
           empty.className = "log-empty";
           empty.textContent = "No turns yet";
@@ -1592,18 +1675,92 @@
           return;
         }
 
-        eventLog.forEach((entry) => {
+        combined.forEach((entry) => {
           const item = document.createElement("li");
           item.className = "log-item";
           const time = document.createElement("time");
-          time.dateTime = entry.timestamp;
-          time.textContent = entry.timestamp;
-          const text = document.createElement("span");
-          text.textContent = entry.message;
+          const safeDate = entry.timestamp instanceof Date && !Number.isNaN(entry.timestamp.valueOf())
+            ? entry.timestamp
+            : new Date();
+          time.dateTime = safeDate.toISOString();
+          time.textContent = safeDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
           item.appendChild(time);
+
+          const text = document.createElement("div");
+          text.textContent = entry.action || entry.message || "";
           item.appendChild(text);
+
+          if (entry.effects && entry.effects.length) {
+            const list = document.createElement("ul");
+            entry.effects.forEach((effect) => {
+              const effectItem = document.createElement("li");
+              effectItem.textContent = effect;
+              list.appendChild(effectItem);
+            });
+            item.appendChild(list);
+          }
           logList.appendChild(item);
         });
+      }
+
+      function addLocalLogEntry(entry) {
+        const normalized = {
+          id: entry.id || makeId(),
+          action: entry.action || entry.message || "",
+          effects: Array.isArray(entry.effects) ? entry.effects : [],
+          turn: typeof entry.turn === "number" ? entry.turn : null,
+          player: typeof entry.player === "number" ? entry.player : null,
+          timestamp: entry.timestamp instanceof Date ? entry.timestamp : new Date(),
+          source: "local",
+        };
+        localLogEntries = [normalized, ...localLogEntries].slice(0, 30);
+        renderLog();
+      }
+
+      function copyTextToClipboard(text) {
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+          return navigator.clipboard.writeText(text);
+        }
+        return new Promise((resolve, reject) => {
+          const textarea = document.createElement("textarea");
+          textarea.value = text;
+          textarea.setAttribute("readonly", "true");
+          textarea.style.position = "fixed";
+          textarea.style.opacity = "0";
+          document.body.appendChild(textarea);
+          textarea.focus();
+          textarea.select();
+          try {
+            const successful = document.execCommand("copy");
+            document.body.removeChild(textarea);
+            if (successful) {
+              resolve();
+            } else {
+              reject(new Error("Copy command was unsuccessful"));
+            }
+          } catch (error) {
+            document.body.removeChild(textarea);
+            reject(error);
+          }
+        });
+      }
+
+      function createTimestamp(timestampMs, isoString) {
+        if (typeof timestampMs === "number" && Number.isFinite(timestampMs)) {
+          const date = new Date(timestampMs);
+          if (!Number.isNaN(date.valueOf())) {
+            return date;
+          }
+        }
+        if (typeof isoString === "string" && isoString) {
+          // Trim fractional seconds beyond milliseconds for broader compatibility.
+          const sanitized = isoString.replace(/\.(\d{3})\d*(?=Z|[+-]\d{2}:?\d{2}$)/, ".$1");
+          const parsed = new Date(sanitized);
+          if (!Number.isNaN(parsed.valueOf())) {
+            return parsed;
+          }
+        }
+        return new Date();
       }
 
       function openPileModal(title, cards) {

@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import secrets
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+import uuid
+from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -17,6 +20,18 @@ from agents.base import Agent
 
 
 @dataclass
+class TurnLogEntry:
+    """Structured record of a single turn action."""
+
+    id: str
+    timestamp: datetime
+    turn: int
+    player: Optional[int]
+    action: str
+    effects: Tuple[str, ...]
+
+
+@dataclass
 class SessionStore:
     """In-memory holder for the current game state."""
 
@@ -26,6 +41,7 @@ class SessionStore:
     agent_player: Optional[int] = None
     opponent: Optional[str] = None
     agent: Optional[Agent] = None
+    log: List[TurnLogEntry] = field(default_factory=list)
 
     def require_state(self) -> state.State:
         if self.state is None:
@@ -74,6 +90,8 @@ def create_app() -> FastAPI:
             store.agent = None
 
         store.state = simulate.new_game(seed, starting_player=request.starting_player)
+        store.log.clear()
+        _log_new_game(store, starting_player=request.starting_player)
 
         if request.opponent:
             agent = _agent_from_name(request.opponent)
@@ -110,11 +128,12 @@ def create_app() -> FastAPI:
         except StopIteration as exc:
             raise HTTPException(status_code=400, detail="Illegal action") from exc
 
-        store.state = simulate.apply(game_state, action)
+        _apply_action(store, action)
 
         if store.agent is not None:
-            if simulate.is_terminal(store.state):
-                store.agent.end_game(store.state)
+            current = store.require_state()
+            if simulate.is_terminal(current):
+                store.agent.end_game(current)
             else:
                 _auto_play(store)
 
@@ -126,6 +145,7 @@ def create_app() -> FastAPI:
 def _serialize(game_state: state.State, seed: Optional[int], store: SessionStore) -> dict:
     active_player = game_state.active_player
     legal = simulate.legal_actions(game_state, active_player) if not simulate.is_terminal(game_state) else ()
+    log_entries = list(store.log)
     return {
         "seed": seed,
         "turn": game_state.turn,
@@ -145,6 +165,8 @@ def _serialize(game_state: state.State, seed: Optional[int], store: SessionStore
             for player_state in game_state.players
         ],
         "legalActions": [_serialize_action(game_state, action) for action in legal],
+        "log": [_serialize_log_entry(entry) for entry in log_entries],
+        "logText": _format_log_text(store, log_entries),
     }
 
 
@@ -204,12 +226,169 @@ def _auto_play(store: SessionStore) -> None:
         if not legal:
             next_player = store.state.next_player()
             store.state = state.set_active_player(store.state, next_player, advance_turn=True)
+            _append_log_entry(
+                store,
+                TurnLogEntry(
+                    id=_make_log_id(),
+                    timestamp=datetime.now(timezone.utc),
+                    turn=store.state.turn,
+                    player=store.agent_player,
+                    action="No legal actions available",
+                    effects=("Turn passes to next player",),
+                ),
+            )
             continue
         action = store.agent.select_action(store.state, legal)
-        store.state = simulate.apply(store.state, action)
+        _apply_action(store, action)
 
     if simulate.is_terminal(store.state):
         store.agent.end_game(store.state)
+
+
+def _apply_action(store: SessionStore, action: actions.Action) -> None:
+    before = store.require_state()
+    player = before.active_player
+    try:
+        card = before.players[player].hand[action.hand_index]
+    except IndexError as exc:  # pragma: no cover - validation upstream should prevent this
+        raise HTTPException(status_code=400, detail="Invalid hand index") from exc
+
+    after = simulate.apply(before, action)
+    store.state = after
+    effects = _describe_action_effects(store, before, after, player)
+    if simulate.is_terminal(after):
+        final_score = simulate.score(after)
+        summary = "Game over: " + " – ".join(
+            f"P{idx} {score}" for idx, score in enumerate(final_score)
+        )
+        effects.append(summary)
+    entry = TurnLogEntry(
+        id=_make_log_id(),
+        timestamp=datetime.now(timezone.utc),
+        turn=after.turn,
+        player=player,
+        action=_action_label(card, action),
+        effects=tuple(effects),
+    )
+    _append_log_entry(store, entry)
+
+
+def _log_new_game(store: SessionStore, *, starting_player: int) -> None:
+    opponent = store.opponent
+    details: List[str] = []
+    if store.seed is not None:
+        details.append(f"Seed {store.seed}")
+    details.append(f"Starting player P{starting_player}")
+    if opponent:
+        human = store.human_player
+        agent = store.agent_player if store.agent_player is not None else (1 - human)
+        details.append(f"You are P{human}")
+        details.append(f"Opponent {opponent} as P{agent}")
+
+    entry = TurnLogEntry(
+        id=_make_log_id(),
+        timestamp=datetime.now(timezone.utc),
+        turn=0,
+        player=None,
+        action="New game started",
+        effects=tuple(details),
+    )
+    _append_log_entry(store, entry)
+
+
+def _append_log_entry(store: SessionStore, entry: TurnLogEntry, *, max_entries: int = 100) -> None:
+    store.log.append(entry)
+    if len(store.log) > max_entries:
+        store.log[:] = store.log[-max_entries:]
+
+
+def _make_log_id() -> str:
+    return uuid.uuid4().hex
+
+
+def _describe_action_effects(store: SessionStore, before: state.State, after: state.State, player: int) -> List[str]:
+    effects: List[str] = []
+
+    scored = _zone_new_cards(before.zones.beasty_bar, after.zones.beasty_bar)
+    if scored:
+        owners = defaultdict(int)
+        for card in scored:
+            owners[card.owner] += card.points
+        gains = ", ".join(f"P{owner} +{points}" for owner, points in sorted(owners.items()))
+        effects.append(f"Heaven's Gate: {_format_card_list(scored)} ({gains})")
+
+    bounced = _zone_new_cards(before.zones.thats_it, after.zones.thats_it)
+    if bounced:
+        effects.append(f"Sent to THAT'S IT: {_format_card_list(bounced)}")
+
+    draw = _drawn_cards(before, after, player)
+    if draw:
+        is_visible = player == store.human_player or store.opponent is None
+        if is_visible:
+            effects.append(f"Drew {_format_card_list(draw)}")
+        else:
+            count = len(draw)
+            label = "card" if count == 1 else "cards"
+            effects.append(f"Drew {count} {label}")
+
+    return effects
+
+
+def _drawn_cards(before: state.State, after: state.State, player: int) -> List[state.Card]:
+    before_ids = {id(card) for card in before.players[player].hand}
+    return [card for card in after.players[player].hand if id(card) not in before_ids]
+
+
+def _zone_new_cards(before_cards: Tuple[state.Card, ...], after_cards: Tuple[state.Card, ...]) -> List[state.Card]:
+    before_ids = {id(card) for card in before_cards}
+    return [card for card in after_cards if id(card) not in before_ids]
+
+
+def _format_card_list(cards: List[state.Card]) -> str:
+    return ", ".join(f"{card.species} (P{card.owner})" for card in cards)
+
+
+def _serialize_log_entry(entry: TurnLogEntry) -> dict:
+    timestamp = entry.timestamp
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=timezone.utc)
+    iso_ts = timestamp.isoformat(timespec="milliseconds")
+    epoch_ms = int(timestamp.timestamp() * 1000)
+    return {
+        "id": entry.id,
+        "turn": entry.turn,
+        "player": entry.player,
+        "action": entry.action,
+        "effects": list(entry.effects),
+        "timestamp": iso_ts,
+        "timestampMs": epoch_ms,
+    }
+
+
+def _format_log_text(store: SessionStore, entries: List[TurnLogEntry]) -> str:
+    if not entries:
+        return ""
+
+    lines: List[str] = []
+    for entry in entries:
+        if entry.player is None:
+            header = f"Turn {entry.turn} – Setup: {entry.action}"
+        else:
+            label = _log_player_label(store, entry.player)
+            header = f"Turn {entry.turn} – {label}: {entry.action}"
+        lines.append(header)
+        for effect in entry.effects:
+            lines.append(f"  - {effect}")
+    return "\n".join(lines)
+
+
+def _log_player_label(store: SessionStore, player: int) -> str:
+    if store.opponent:
+        if player == store.human_player:
+            return f"P{player} (You)"
+        if store.agent_player is not None and player == store.agent_player:
+            return f"P{player} ({store.opponent})"
+    return f"P{player}"
 
 
 _AGENT_FACTORIES: Dict[str, type[Agent]] = {
