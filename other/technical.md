@@ -67,8 +67,10 @@
 - Abstract `Agent` class defines lifecycle hooks (`start_game`, `end_game`) and enforces implementers provide `select_action`; the callable wrapper returned by `bind` guards against illegal outputs.
 - `ensure_legal` is a reusable guard when agents sample from candidate lists.
 
-### `baselines.py`
+### `first.py`
 - `FirstLegalAgent` provides a deterministic policy ideal for reproducible tests.
+
+### `random_agent.py`
 - `RandomAgent` keeps its own RNG (seedable) to allow stochastic baselines without global randomness.
 
 ### `evaluation.py`
@@ -85,20 +87,6 @@
 - `_score` composes multiple priorities (net bar gain, opponent losses, queue position, hand order) into a tuple for deterministic comparisons.
 - Falls back to `FirstLegalAgent` when filters reject all options, preserving progress.
 
-### `frontrunner.py`
-- Focuses on controlling the front of the queue; simulates one-step outcomes manually to inspect entrant counts and recurring removal.
-- `_reject_lion` and `_reject_lone_front` enforce heuristics that avoid stranded lions or exposing seals/crocs behind solo leaders.
-- `_SimulationTrace` records intermediate queues to reason about recurring effects and five-card entrants without mutating the canonical state.
-
-### `killer.py`
-- Prioritises opponent point loss by tracing both bounce and five-card check results; weights bounce losses more heavily than gate expulsions.
-- Uses `_trace_losses` to run card logic without mutating the original state, mirroring engine sequencing.
-- Falls back to `FirstLegalAgent` when no option exceeds thresholds to avoid deadlocks.
-
-### `heuristic50k.py`
-- Encodes aggregated heuristics derived from 50k logged games (`_HEURISTIC_WEIGHTS`), scaling them to bias toward high-impact contexts.
-- `_lookahead_bonus` actually simulates the action using the engine to factor immediate bar deltas and queue front control into the score.
-- Uses `GreedyAgent` as a fallback to retain strong baseline behaviour when no heuristic matches.
 
 ### `tournament.py`
 - Provides data classes for series configuration, telemetry (`ActionRecord`, `GameRecord`), and summary statistics.

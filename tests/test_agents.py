@@ -4,15 +4,7 @@ from pathlib import Path
 import pytest
 
 from simulator import engine, state
-from agents import (
-    DiegoAgent,
-    FirstLegalAgent,
-    FrontRunnerAgent,
-    GreedyAgent,
-    KillerAgent,
-    RandomAgent,
-    ensure_legal,
-)
+from agents import DiegoAgent, FirstLegalAgent, GreedyAgent, RandomAgent, ensure_legal
 from agents import evaluation as eval_utils
 from training import tournament
 
@@ -281,90 +273,6 @@ def test_summarize_rejects_empty_records():
     with pytest.raises(ValueError):
         tournament.summarize([])
 
-
-def test_frontrunner_prefers_queue_control():
-    crocodile = make_card(0, "crocodile")
-    kangaroo = make_card(0, "kangaroo")
-    monkey = make_card(1, "monkey")
-    snake = make_card(1, "snake")
-    game = make_state([crocodile, kangaroo], [monkey, snake])
-    legal = tuple(engine.legal_actions(game, 0))
-
-    agent = FrontRunnerAgent()
-    chosen = agent.select_action(game, legal)
-
-    species = game.players[0].hand[chosen.hand_index].species
-    assert species == "crocodile"
-
-
-def test_frontrunner_rejects_lion_when_blocked():
-    lion = make_card(0, "lion")
-    snake = make_card(0, "snake")
-    opposing_lion = make_card(1, "lion")
-    game = make_state([lion, snake], [opposing_lion])
-    legal = tuple(engine.legal_actions(game, 0))
-
-    agent = FrontRunnerAgent()
-    chosen = agent.select_action(game, legal)
-
-    species = game.players[0].hand[chosen.hand_index].species
-    assert species != "lion"
-
-
-def test_frontrunner_falls_back_to_first_legal_when_all_rejected():
-    lion = make_card(0, "lion")
-    opposing_lion = make_card(1, "lion")
-    game = make_state([lion], [opposing_lion])
-    legal = tuple(engine.legal_actions(game, 0))
-
-    agent = FrontRunnerAgent()
-    chosen = agent.select_action(game, legal)
-
-    fallback = FirstLegalAgent().select_action(game, legal)
-    assert chosen == fallback
-
-
-def test_killer_prioritizes_high_point_removal():
-    skunk = make_card(0, "skunk")
-    parrot = make_card(0, "parrot")
-    opponent_zebra = make_card(1, "zebra")
-    opponent_parrot = make_card(1, "parrot")
-    game = make_state([skunk, parrot], [opponent_zebra, opponent_parrot])
-    legal = tuple(engine.legal_actions(game, 0))
-
-    agent = KillerAgent()
-    action = agent.select_action(game, legal)
-
-    chosen_species = game.players[0].hand[action.hand_index].species
-    assert chosen_species == "skunk"
-
-
-def test_killer_ignores_own_losses():
-    skunk = make_card(0, "skunk")
-    kangaroo = make_card(0, "kangaroo")
-    our_seal = make_card(0, "seal")
-    opponent_zebra = make_card(1, "zebra")
-    opponent_monkey = make_card(1, "monkey")
-    game = make_state([skunk, kangaroo], [our_seal, opponent_zebra, opponent_monkey])
-    legal = tuple(engine.legal_actions(game, 0))
-
-    agent = KillerAgent()
-    action = agent.select_action(game, legal)
-
-    chosen_species = game.players[0].hand[action.hand_index].species
-    assert chosen_species == "skunk"
-
-
-def test_killer_falls_back_when_no_opponent_loss():
-    lion = make_card(0, "lion")
-    snake = make_card(0, "snake")
-    game = make_state([lion, snake], [])
-    legal = tuple(engine.legal_actions(game, 0))
-
-    agent = KillerAgent()
-    chosen = agent.select_action(game, legal)
-
-    assert chosen == legal[0]
 
 
 def test_should_stop_early_when_wilson_confident():

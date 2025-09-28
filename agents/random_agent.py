@@ -1,4 +1,4 @@
-"""Baseline agent implementations."""
+"""Uniform random baseline agent."""
 from __future__ import annotations
 
 import random
@@ -6,16 +6,6 @@ from typing import Optional, Sequence
 
 from simulator import actions, state
 from .base import Agent, ensure_legal
-
-
-class FirstLegalAgent(Agent):
-    """Deterministic agent that always picks the first legal action."""
-
-    def select_action(self, game_state: state.State, legal: Sequence[actions.Action]) -> actions.Action:  # noqa: D401
-        del game_state  # unused
-        if not legal:
-            raise RuntimeError("FirstLegalAgent received no legal actions")
-        return legal[0]
 
 
 class RandomAgent(Agent):
@@ -32,4 +22,5 @@ class RandomAgent(Agent):
         return ensure_legal(legal[choice], legal)
 
 
-__all__ = ["FirstLegalAgent", "RandomAgent"]
+__all__ = ["RandomAgent"]
+

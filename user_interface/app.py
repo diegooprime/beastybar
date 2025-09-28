@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ConfigDict
 
 from simulator import actions, simulate, state
-from agents import baselines, diego, frontrunner, greedy, heuristic50k, killer
+from agents import DiegoAgent, FirstLegalAgent, GreedyAgent, RandomAgent
 from agents.base import Agent
 
 
@@ -392,13 +392,10 @@ def _log_player_label(store: SessionStore, player: int) -> str:
 
 
 _AGENT_FACTORIES: Dict[str, type[Agent]] = {
-    "first": baselines.FirstLegalAgent,
-    "random": baselines.RandomAgent,
-    "greedy": greedy.GreedyAgent,
-    "frontrunner": frontrunner.FrontRunnerAgent,
-    "diego": diego.DiegoAgent,
-    "heuristic50k": heuristic50k.Heuristic50kAgent,
-    "killer": killer.KillerAgent,
+    "first": FirstLegalAgent,
+    "random": RandomAgent,
+    "greedy": GreedyAgent,
+    "diego": DiegoAgent,
 }
 
 

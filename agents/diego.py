@@ -7,7 +7,7 @@ from typing import Dict, Iterable, List, Sequence
 
 from simulator import actions, engine, rules, state
 from .base import Agent, ensure_legal
-from .baselines import FirstLegalAgent
+from .first import FirstLegalAgent
 
 
 _RANDOM_SPECIES = {"chameleon", "giraffe", "snake"}

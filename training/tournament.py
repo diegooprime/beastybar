@@ -12,7 +12,7 @@ from statistics import NormalDist
 from typing import Iterable, Sequence, Tuple
 
 from simulator import actions, simulate, state
-from agents import baselines, diego, frontrunner, greedy, heuristic50k, killer
+from agents import DiegoAgent, FirstLegalAgent, GreedyAgent, RandomAgent
 from agents.base import Agent
 
 
@@ -434,13 +434,10 @@ def _action_record_to_dict(action: ActionRecord) -> dict:
 
 
 _AGENT_LOOKUP = {
-    "first": baselines.FirstLegalAgent,
-    "random": baselines.RandomAgent,
-    "greedy": greedy.GreedyAgent,
-    "frontrunner": frontrunner.FrontRunnerAgent,
-    "diego": diego.DiegoAgent,
-    "heuristic50k": heuristic50k.Heuristic50kAgent,
-    "killer": killer.KillerAgent,
+    "first": FirstLegalAgent,
+    "random": RandomAgent,
+    "greedy": GreedyAgent,
+    "diego": DiegoAgent,
 }
 
 _DEFAULT_ELO_BASE = 1500.0
@@ -460,12 +457,12 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "agent_a",
         nargs="?",
-        help="Name of the first agent (first, random, greedy, frontrunner, diego, heuristic50k, killer)",
+        help="Name of the first agent (first, random, greedy, diego)",
     )
     parser.add_argument(
         "agent_b",
         nargs="?",
-        help="Name of the second agent (first, random, greedy, frontrunner, diego, heuristic50k, killer)",
+        help="Name of the second agent (first, random, greedy, diego)",
     )
     parser.add_argument("--games", type=int, default=1000, help="Number of games to play")
     parser.add_argument("--seed", type=int, default=2025, help="Base seed for the series")
