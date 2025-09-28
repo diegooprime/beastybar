@@ -68,6 +68,13 @@ def is_terminal(game_state: state.State) -> bool:
 
     if game_state.turn == 0:
         return False
+
+    remaining_cards = len(game_state.zones.queue)
+    for player_state in game_state.players:
+        remaining_cards += len(player_state.hand) + len(player_state.deck)
+    if remaining_cards < rules.MAX_QUEUE_LENGTH:
+        return True
+
     for player_state in game_state.players:
         if player_state.hand or player_state.deck:
             return False

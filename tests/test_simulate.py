@@ -76,3 +76,43 @@ class _recording_agent:
                     return act
             raise AssertionError(f"Params {params} not available for species {species}")
         return legal[0]
+
+
+def test_game_ends_when_insufficient_cards_for_queue():
+    def make_card(owner, species):
+        return state.Card(owner=owner, species=species)
+
+    queue = (make_card(0, "lion"), make_card(1, "zebra"))
+    players = (
+        state.PlayerState(deck=(), hand=(make_card(0, "parrot"),)),
+        state.PlayerState(deck=(), hand=(make_card(1, "giraffe"),)),
+    )
+    game_state = state.State(
+        seed=123,
+        turn=1,
+        active_player=0,
+        players=players,
+        zones=state.Zones(queue=queue),
+    )
+
+    assert engine.is_terminal(game_state)
+
+
+def test_game_continues_when_cards_can_still_fill_queue():
+    def make_card(owner, species):
+        return state.Card(owner=owner, species=species)
+
+    queue = (make_card(0, "lion"), make_card(1, "zebra"))
+    players = (
+        state.PlayerState(deck=(make_card(0, "seal"),), hand=(make_card(0, "parrot"),)),
+        state.PlayerState(deck=(), hand=(make_card(1, "giraffe"),)),
+    )
+    game_state = state.State(
+        seed=456,
+        turn=1,
+        active_player=0,
+        players=players,
+        zones=state.Zones(queue=queue),
+    )
+
+    assert not engine.is_terminal(game_state)

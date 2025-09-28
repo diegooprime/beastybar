@@ -11,8 +11,11 @@ Purpose: Have the best Beasty Bar strategy in the world.
 - user_interface: FastAPI interface and static viewer
 - other: utilities, docs, and assorted references
 
+The code for each section is independent so we can modify one without fucking up the other sections. 
+
 ### Misc
-Built in Python. Fast to build. I want to get better at it.
+- Built in Python. Fast to build. I want to get better at it.
+- FastAPI + static html. Fast, simple and zero build.
 - Beasty Bar intro: https://tesera.ru/images/items/1525203/BeastyBar_EN-online.pdf
 
 
