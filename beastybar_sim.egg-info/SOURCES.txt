@@ -1,13 +1,8 @@
 pyproject.toml
-beastybar_sim.egg-info/PKG-INFO
-beastybar_sim.egg-info/SOURCES.txt
-beastybar_sim.egg-info/dependency_links.txt
-beastybar_sim.egg-info/requires.txt
-beastybar_sim.egg-info/top_level.txt
+_01_simulator/__init__.py
 _01_simulator/actions.py
 _01_simulator/cards.py
 _01_simulator/engine.py
-_01_simulator/__init__.py
 _01_simulator/rules.py
 _01_simulator/simulate.py
 _01_simulator/state.py
@@ -23,6 +18,7 @@ _03_training/analyze_logs.py
 _03_training/tournament.py
 _04_ui/__init__.py
 _04_ui/app.py
+_05_other/tests/__init__.py
 _05_other/tests/test_actions.py
 _05_other/tests/test_agents.py
 _05_other/tests/test_cards.py
@@ -31,3 +27,8 @@ _05_other/tests/test_replay.py
 _05_other/tests/test_simulate.py
 _05_other/tests/test_state.py
 _05_other/tests/test_ui.py
+beastybar_sim.egg-info/PKG-INFO
+beastybar_sim.egg-info/SOURCES.txt
+beastybar_sim.egg-info/dependency_links.txt
+beastybar_sim.egg-info/requires.txt
+beastybar_sim.egg-info/top_level.txt

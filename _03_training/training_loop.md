@@ -9,12 +9,12 @@
 
 ### 1. Simulator readiness
 - Deterministic rollouts: `_01_simulator` already exposes seed-threaded transitions; double-check every state mutation is pure and repeatable.
-- Observation builder: add a function that maps a `GameState` into a fixed-size tensor/dict (queue slots, heaven's gate, discard tallies, hand encoding, turn context).
-- Reward surface: expose both terminal win/loss (±1) and optional shaped signals (e.g., normalized point margin, progress through queue). Keep toggles so experiments stay reproducible.
-- Action space spec: enumerate legal moves as indices with masks so the policy can ignore invalid plays.
+- Observation builder: `_01_simulator.observations.build_observation` maps a `State` into fixed-size card feature tensors (queue, beasty bar, discard, hand, turn context).
+- Reward surface: `_01_simulator.rewards` exposes terminal win/loss, normalized margin, and shaped composite helpers with deterministic seeding.
+- Action space spec: `_01_simulator.action_space` exposes a fixed action catalog, mask, and index helper for policy heads.
 
 ### 2. Learnable agent scaffold
-- Create a `SelfPlayRLAgent` in `_02_agents` that loads model weights, performs forward inference, and respects deterministic seeds.
+- `SelfPlayRLAgent` in `_02_agents.self_play_rl` loads policy logits, supports deterministic seeds, and exposes exploration toggles for training/eval.
 - Share code paths: evaluation should reuse the same policy/value heads that training updates; inject exploration only when flagged (e.g., epsilon or temperature).
 - Configure serialization: checkpoints live under `_03_training/artifacts/checkpoints/<run_id>/step_<N>.pt` and include metadata (commit, simulator hash, hyperparameters).
 

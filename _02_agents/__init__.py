@@ -6,6 +6,7 @@ from .evaluation import HeuristicFn, best_action, evaluate_action, material_adva
 from .first import FirstLegalAgent
 from .greedy import GreedyAgent
 from .random_agent import RandomAgent
+from .self_play_rl import ExplorationConfig, SelfPlayRLAgent
 
 __all__ = [
     "Agent",
@@ -15,6 +16,8 @@ __all__ = [
     "RandomAgent",
     "GreedyAgent",
     "DiegoAgent",
+    "ExplorationConfig",
+    "SelfPlayRLAgent",
     "HeuristicFn",
     "best_action",
     "evaluate_action",

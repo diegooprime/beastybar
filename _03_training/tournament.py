@@ -3,16 +3,24 @@ from __future__ import annotations
 
 import argparse
 import csv
+import importlib
 import json
 import itertools
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from statistics import NormalDist
-from typing import Iterable, Sequence, Tuple
+from typing import Any, Callable, Iterable, Mapping, Sequence, Tuple
 
 from _01_simulator import actions, simulate, state
-from _02_agents import DiegoAgent, FirstLegalAgent, GreedyAgent, RandomAgent
+from _02_agents import (
+    DiegoAgent,
+    ExplorationConfig,
+    FirstLegalAgent,
+    GreedyAgent,
+    RandomAgent,
+    SelfPlayRLAgent,
+)
 from _02_agents.base import Agent
 
 
@@ -447,12 +455,112 @@ _DEFAULT_ELO_BASE = 1500.0
 _DEFAULT_ELO_K = 32.0
 
 
-def _agent_from_name(name: str) -> Agent:
+def _agent_from_name(name: str, args: argparse.Namespace) -> Agent:
+    normalized = name.lower()
+    if normalized in {"self-play", "self_play", "selfplay"}:
+        return _build_self_play_agent(args)
+
     try:
-        factory = _AGENT_LOOKUP[name]
+        factory = _AGENT_LOOKUP[normalized]
     except KeyError as exc:
         raise ValueError(f"Unknown agent '{name}'") from exc
     return factory()
+
+
+def _build_self_play_agent(args: argparse.Namespace) -> Agent:
+    manifest_path: Path | None = args.self_play_manifest
+    if manifest_path is None:
+        raise SystemExit(
+            "Self-play agent requested but no --self-play-manifest was provided",
+        )
+
+    manifest = _load_self_play_manifest(manifest_path)
+    model_factory = _model_factory_from_manifest(manifest, manifest_path)
+    exploration = _exploration_from_args(args, manifest)
+    return SelfPlayRLAgent(model_factory=model_factory, exploration=exploration)
+
+
+def _load_self_play_manifest(path: Path) -> Mapping[str, Any]:
+    if not path.exists():
+        raise SystemExit(f"Self-play manifest not found: {path}")
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError as exc:  # pragma: no cover - filesystem failure
+        raise SystemExit(f"Failed to read self-play manifest: {exc}") from exc
+    try:
+        manifest = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Invalid JSON in self-play manifest: {exc}") from exc
+    if not isinstance(manifest, Mapping):
+        raise SystemExit("Self-play manifest must describe an object")
+    return manifest
+
+
+def _model_factory_from_manifest(
+    manifest: Mapping[str, Any],
+    manifest_path: Path,
+) -> Callable[[], Callable[..., Sequence[float]]]:
+    loader_spec = manifest.get("model")
+    if not isinstance(loader_spec, str) or ":" not in loader_spec:
+        raise SystemExit(
+            "Self-play manifest requires 'model' in 'module:function' format",
+        )
+    module_name, factory_name = loader_spec.split(":", 1)
+    try:
+        module = importlib.import_module(module_name)
+    except ModuleNotFoundError as exc:
+        raise SystemExit(f"Unable to import self-play model module '{module_name}'") from exc
+    try:
+        factory = getattr(module, factory_name)
+    except AttributeError as exc:
+        raise SystemExit(
+            f"Self-play model factory '{factory_name}' not found in '{module_name}'",
+        ) from exc
+
+    if not callable(factory):
+        raise SystemExit("Self-play model factory must be callable")
+
+    args = manifest.get("factoryArgs", [])
+    if not isinstance(args, list):
+        raise SystemExit("factoryArgs must be a list when provided")
+
+    raw_kwargs = manifest.get("factoryKwargs", {}) or {}
+    if not isinstance(raw_kwargs, Mapping):
+        raise SystemExit("factoryKwargs must be an object when provided")
+    kwargs = dict(raw_kwargs)
+
+    checkpoint = manifest.get("checkpoint")
+    if checkpoint is not None:
+        if not isinstance(checkpoint, str):
+            raise SystemExit("checkpoint must be a string path when provided")
+        resolved = (manifest_path.parent / checkpoint).expanduser()
+        kwargs.setdefault("checkpoint", resolved)
+
+    def build_model() -> Callable[..., Sequence[float]]:
+        return factory(*args, **kwargs)
+
+    return build_model
+
+
+def _exploration_from_args(
+    args: argparse.Namespace,
+    manifest: Mapping[str, Any],
+) -> ExplorationConfig:
+    manifest_cfg = manifest.get("exploration", {})
+    if manifest_cfg is None:
+        manifest_cfg = {}
+    if not isinstance(manifest_cfg, Mapping):
+        raise SystemExit("exploration section in manifest must be an object")
+
+    temperature = manifest_cfg.get("temperature", 0.0)
+    epsilon = manifest_cfg.get("epsilon", 0.0)
+
+    if args.self_play_temperature is not None:
+        temperature = args.self_play_temperature
+    if args.self_play_epsilon is not None:
+        epsilon = args.self_play_epsilon
+
+    return ExplorationConfig(temperature=float(temperature), epsilon=float(epsilon))
 
 
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -523,6 +631,23 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=Path,
         help="Optional path to export the Elo leaderboard as JSON",
     )
+    parser.add_argument(
+        "--self-play-manifest",
+        type=Path,
+        help="Path to a JSON manifest describing how to load a SelfPlayRLAgent",
+    )
+    parser.add_argument(
+        "--self-play-temperature",
+        type=float,
+        default=None,
+        help="Override exploration temperature for the SelfPlayRLAgent",
+    )
+    parser.add_argument(
+        "--self-play-epsilon",
+        type=float,
+        default=None,
+        help="Override epsilon-greedy exploration for the SelfPlayRLAgent",
+    )
     return parser.parse_args(argv)
 
 
@@ -557,14 +682,15 @@ def main(argv: Sequence[str] | None = None) -> SeriesResult:
             elo_k=args.elo_k,
             leaderboard_path=args.leaderboard_json,
             early_stop=early_stop_config,
+            args=args,
         )
         return results
 
     if not args.agent_a or not args.agent_b:
         raise SystemExit("agent_a and agent_b are required unless --round-robin is used")
 
-    agent_a = _agent_from_name(args.agent_a)
-    agent_b = _agent_from_name(args.agent_b)
+    agent_a = _agent_from_name(args.agent_a, args)
+    agent_b = _agent_from_name(args.agent_b, args)
 
     config = SeriesConfig(
         games=args.games,
@@ -601,8 +727,11 @@ def _run_round_robin(
     elo_k: float,
     leaderboard_path: Path | None,
     early_stop: EarlyStopConfig | None,
+    args: argparse.Namespace,
 ) -> SeriesResult:
     agent_names = sorted(_AGENT_LOOKUP.keys())
+    if args.self_play_manifest is not None:
+        agent_names.append("self-play")
     pairings = list(itertools.combinations(agent_names, 2))
     if not pairings:
         raise SystemExit("No agent pairings available for round robin")
@@ -623,8 +752,8 @@ def _run_round_robin(
     ratings = {name: float(elo_base) for name in agent_names}
 
     for idx, (name_a, name_b) in enumerate(pairings):
-        agent_a = _agent_from_name(name_a)
-        agent_b = _agent_from_name(name_b)
+        agent_a = _agent_from_name(name_a, args)
+        agent_b = _agent_from_name(name_b, args)
         series_seed = seed + idx * max(games, 1)
         config = SeriesConfig(
             games=games,

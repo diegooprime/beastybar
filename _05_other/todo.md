@@ -1,20 +1,32 @@
 # Project TODO — Self-play RL shift
 
 ## Phase 0 — Strategy & scope
-- [ ] Draft a short design brief describing the self-play RL objective, success metrics (Elo deltas vs Greedy/Diego), and resource assumptions.
-- [ ] Inventory current agents/checkpoints; decide which baselines remain in the evaluation pool.
-- [ ] Define experiment logging conventions (run id structure, artifact directories, retention policy).
+- [x] Draft a short design brief describing the self-play RL objective, success metrics (Elo deltas vs Greedy/Diego), and resource assumptions.
+    - [x] Create `_03_training/self_play_brief.md` skeleton with objective, metrics, resource, logging sections.
+    - [x] Populate target Elo deltas and evaluation seeds for Greedy/Diego baselines.
+    - [x] Capture hardware/batch assumptions and open questions before circulation.
+
+- [x] Inventory current agents/checkpoints; decide which baselines remain in the evaluation pool.
+    - [x] List shipped agents via `_02_agents` exports and note latest Elo.
+    - [x] Audit stored checkpoints for compatibility with observation builder.
+    - [x] Propose baseline pool to circulate with RL design brief.
+
+- [x] Define experiment logging conventions (run id structure, artifact directories, retention policy).
+    - [x] Draft run-id schema referencing phase, seed, and git SHA.
+    - [x] Sketch artifact directory layout covering raw rollouts, checkpoints, metrics.
+    - [x] Align retention policy with storage constraints (time + size thresholds).
+
 
 ## Phase 1 — Simulator readiness
-- [ ] Add an observation builder in `_01_simulator` that exports fixed-size tensors/dicts for queue, bar, discard, hand, and turn context.
-- [ ] Expose reward helpers (win/loss, normalized margin, optional shaped signals) with deterministic seeds for reproducibility.
-- [ ] Implement legal-action enumeration plus masking utilities, and cover them with pytest fixtures.
-- [ ] Extend simulator tests under `_05_other/tests` to validate observation encoding, reward calculations, and mask correctness.
+- [x] Add an observation builder in `_01_simulator` that exports fixed-size tensors/dicts for queue, bar, discard, hand, and turn context.
+- [x] Expose reward helpers (win/loss, normalized margin, optional shaped signals) with deterministic seeds for reproducibility.
+- [x] Implement legal-action enumeration plus masking utilities, and cover them with pytest fixtures.
+- [x] Extend simulator tests under `_05_other/tests` to validate observation encoding, reward calculations, and mask correctness.
 
 ## Phase 2 — Learnable agent scaffold
-- [ ] Implement `SelfPlayRLAgent` in `_02_agents` with model loading, inference, and stochastic exploration toggles.
-- [ ] Surface the new agent via `_02_agents/__init__.py` and ensure tournaments can instantiate it by name.
-- [ ] Write smoke tests that confirm deterministic outputs when exploration is disabled and seeds match.
+- [x] Implement `SelfPlayRLAgent` in `_02_agents` with model loading, inference, and stochastic exploration toggles.
+- [x] Surface the new agent via `_02_agents/__init__.py` and ensure tournaments can instantiate it by name.
+- [x] Write smoke tests that confirm deterministic outputs when exploration is disabled and seeds match.
 
 ## Phase 3 — Training pipeline
 - [ ] Create a self-play training entry point (e.g., `_03_training/self_play.py`) that wires up configs, seeding, and logging.
