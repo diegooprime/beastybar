@@ -1,6 +1,8 @@
 # Core training loop
 https://chatgpt.com/c/68d98568-51f0-8332-b348-0bd86223f633
 
+epsilon greedy bot vs xgboost tree?
+
 - Optimize probability of winning. That equals maximizing win rate over our evaluation distribution.
 - Evaluation = fixed opponent pool: first, random, greedy, diego + champion in a round robin of X games. 
 
