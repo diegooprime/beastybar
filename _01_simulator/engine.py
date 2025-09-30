@@ -163,8 +163,16 @@ def _chameleon_params(target_card: state.Card, queue_len: int):
     if species == "parrot":
         for target in range(queue_len):
             yield (target,)
-    else:
-        yield ()
+        return
+    if species == "kangaroo":
+        max_hop = min(2, queue_len)
+        if max_hop == 0:
+            yield ()
+        else:
+            for hop in range(1, max_hop + 1):
+                yield (hop,)
+        return
+    yield ()
 
 
 def _validate_chameleon_params(target_card: state.Card, params: tuple[int, ...], queue: tuple[state.Card, ...]) -> None:
@@ -174,6 +182,15 @@ def _validate_chameleon_params(target_card: state.Card, params: tuple[int, ...],
             raise ValueError("Chameleon-as-parrot requires one target parameter")
         if not (0 <= params[0] < len(queue)):
             raise ValueError("Chameleon-as-parrot target out of range")
+    elif species == "kangaroo":
+        if not params:
+            return
+        if len(params) != 1:
+            raise ValueError("Chameleon-as-kangaroo expects a hop distance parameter")
+        hop = params[0]
+        max_hop = min(2, len(queue))
+        if not (1 <= hop <= max_hop):
+            raise ValueError("Chameleon-as-kangaroo hop distance out of range")
     else:
         if params:
             raise ValueError("Chameleon-as-%s should not have extra parameters" % species)

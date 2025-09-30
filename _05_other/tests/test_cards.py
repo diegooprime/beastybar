@@ -207,6 +207,21 @@ def test_chameleon_copy_parrot_uses_extra_params():
     assert next_state.zones.thats_it[-1] is zebra
 
 
+def test_chameleon_copy_kangaroo_respects_selected_hop():
+    chameleon_card = make_card(0, "chameleon")
+    kangaroo = make_card(1, "kangaroo")
+    parrot = make_card(1, "parrot")
+    zebra = make_card(1, "zebra")
+
+    game_state = make_state([chameleon_card], [kangaroo, parrot, zebra])
+
+    one_hop_state = engine.step(game_state, actions.Action(hand_index=0, params=(0, 1)))
+    assert one_hop_state.zones.queue[:3] == (kangaroo, parrot, chameleon_card)
+
+    two_hop_state = engine.step(game_state, actions.Action(hand_index=0, params=(0, 2)))
+    assert two_hop_state.zones.queue[:3] == (kangaroo, chameleon_card, parrot)
+
+
 def test_five_card_check_triggers_after_resolution():
     cards_in_queue = [
         make_card(0, "parrot"),

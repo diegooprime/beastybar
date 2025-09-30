@@ -1,0 +1,79 @@
+{
+  "timestamp": "2025-09-30T01:05:25.113960+00:00",
+  "step": 6154,
+  "iteration": 3,
+  "checkpoint": "_03_training/artifacts/soak_cli/checkpoints/step_6154.pt",
+  "gamesPerOpponent": 1000,
+  "seedBase": 4321,
+  "opponents": [
+    {
+      "opponent": "first",
+      "games": 1000,
+      "wins": 496,
+      "losses": 408,
+      "ties": 96,
+      "winRate": 0.496,
+      "averageScore": 9.467,
+      "averageOpponentScore": 8.951,
+      "averageTurns": 22.724,
+      "elo": {
+        "before": 1500.0,
+        "after": 1066.46620734247,
+        "delta": -433.53379265753006,
+        "opponentAfter": 1933.5337926575303
+      }
+    },
+    {
+      "opponent": "random",
+      "games": 1000,
+      "wins": 491,
+      "losses": 418,
+      "ties": 91,
+      "winRate": 0.491,
+      "averageScore": 9.098,
+      "averageOpponentScore": 8.92,
+      "averageTurns": 22.745,
+      "elo": {
+        "before": 1066.46620734247,
+        "after": 847.5634578409366,
+        "delta": -218.90274950153332,
+        "opponentAfter": 1718.9027495015325
+      }
+    },
+    {
+      "opponent": "greedy",
+      "games": 1000,
+      "wins": 52,
+      "losses": 920,
+      "ties": 28,
+      "winRate": 0.052,
+      "averageScore": 5.289,
+      "averageOpponentScore": 13.904,
+      "averageTurns": 22.854,
+      "elo": {
+        "before": 847.5634578409366,
+        "after": 668.8614258927774,
+        "delta": -178.70203194815917,
+        "opponentAfter": 1678.7020319481599
+      }
+    },
+    {
+      "opponent": "diego",
+      "games": 1000,
+      "wins": 124,
+      "losses": 806,
+      "ties": 70,
+      "winRate": 0.124,
+      "averageScore": 5.287,
+      "averageOpponentScore": 10.907,
+      "averageTurns": 22.644,
+      "elo": {
+        "before": 668.8614258927774,
+        "after": 591.0058345048529,
+        "delta": -77.8555913879245,
+        "opponentAfter": 1577.855591387926
+      }
+    }
+  ],
+  "finalElo": 591.0058345048529
+}

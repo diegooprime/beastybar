@@ -43,8 +43,23 @@ def test_legal_actions_chameleon_on_non_param_card():
     game = make_game([chameleon_card], [kangaroo])
 
     acts = list(engine.legal_actions(game, 0))
-    assert actions.Action(hand_index=0, params=(0,)) in acts
+    assert actions.Action(hand_index=0, params=(0, 1)) in acts
     assert len(acts) == 1
+
+
+def test_legal_actions_chameleon_on_kangaroo_offers_hops():
+    chameleon_card = make_card(0, "chameleon")
+    kangaroo = make_card(1, "kangaroo")
+    zebra = make_card(1, "zebra")
+    game = make_game([chameleon_card], [kangaroo, zebra])
+
+    acts = set(engine.legal_actions(game, 0))
+    expected = {
+        actions.Action(hand_index=0, params=(0, 1)),
+        actions.Action(hand_index=0, params=(0, 2)),
+        actions.Action(hand_index=0, params=(1,)),
+    }
+    assert acts == expected
 
 
 def test_legal_actions_chameleon_on_parrot_adds_targets():

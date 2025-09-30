@@ -1312,13 +1312,26 @@
               pendingSelection &&
               pendingSelection.handIndex === handIndex &&
               playerIndex === activePlayer;
-            const inlineOptions =
-              !hidden && isSelected && pendingSelection.type === "kangaroo"
-                ? pendingSelection.actions.map((action) => ({
-                    label: kangarooLabel(action),
+            let inlineOptions = null;
+            if (!hidden && isSelected) {
+              if (pendingSelection.type === "kangaroo") {
+                inlineOptions = pendingSelection.actions.map((action) => ({
+                  label: kangarooLabel(action),
+                  onSelect: () => sendSelectedAction(action),
+                }));
+              } else if (
+                pendingSelection.type === "chameleon-extra" &&
+                pendingSelection.copiedSpecies === "kangaroo"
+              ) {
+                const options = pendingSelection.actions
+                  .filter((action) => action.params.length > 1)
+                  .map((action) => ({
+                    label: kangarooLabel(action, 1),
                     onSelect: () => sendSelectedAction(action),
-                  }))
-                : null;
+                  }));
+                inlineOptions = options.length ? options : null;
+              }
+            }
             const displayCard = hidden
               ? {
                   owner: card.owner,
@@ -1531,8 +1544,8 @@
         countEl.textContent = `${cards.length} card${cards.length === 1 ? "" : "s"}`;
       }
 
-      function kangarooLabel(action) {
-        const hop = action.params?.[0] ?? 0;
+      function kangarooLabel(action, paramIndex = 0) {
+        const hop = action.params?.[paramIndex] ?? 0;
         if (hop <= 0) {
           return "Stay put";
         }
@@ -1556,6 +1569,9 @@
         }
 
         if (pendingSelection.type === "chameleon-extra") {
+          if (pendingSelection.copiedSpecies !== "parrot") {
+            return null;
+          }
           const indices = new Set();
           pendingSelection.actions.forEach((action) => {
             const targetIndex = action.params?.[1];
@@ -1627,9 +1643,12 @@
           if (pendingSelection.species === "chameleon") {
             const requiresExtra = matches.some((action) => action.params.length > 1);
             if (requiresExtra) {
+              const targetCard = currentState?.zones?.queue?.[queueIndex] ?? null;
+              const copiedSpecies = targetCard?.species ?? null;
               setSelection({
                 type: "chameleon-extra",
                 species: "chameleon",
+                copiedSpecies,
                 handIndex: pendingSelection.handIndex,
                 actions: matches,
               });
@@ -1642,6 +1661,9 @@
         }
 
         if (pendingSelection.type === "chameleon-extra") {
+          if (pendingSelection.copiedSpecies !== "parrot") {
+            return;
+          }
           const matches = pendingSelection.actions.filter((action) => action.params?.[1] === queueIndex);
           if (!matches.length) {
             return;
@@ -1692,10 +1714,14 @@
           }
 
           if (pendingSelection.type === "chameleon-extra") {
-            const copyingParrot = pendingSelection.actions[0]?.params?.length > 1;
-            hintEl.textContent = copyingParrot
-              ? "Pick the card the chameleon's borrowed parrot will shoo away."
-              : "Pick the card affected by the copied ability.";
+            const copied = pendingSelection.copiedSpecies;
+            if (copied === "parrot") {
+              hintEl.textContent = "Pick the card the chameleon's borrowed parrot will shoo away.";
+            } else if (copied === "kangaroo") {
+              hintEl.textContent = "Choose how far the chameleon's borrowed kangaroo should hop.";
+            } else {
+              hintEl.textContent = "Pick the option for the copied ability.";
+            }
             return;
           }
 
