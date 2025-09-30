@@ -1,9 +1,27 @@
 """Rule engine entry points."""
 from __future__ import annotations
 
-from typing import Iterable, List
+from dataclasses import dataclass
+from typing import Iterable, List, Optional, Tuple
 
 from . import actions, cards, rules, state
+
+
+@dataclass(frozen=True)
+class TurnStep:
+    """Describes a single phase of turn resolution."""
+
+    name: str
+    events: Tuple[str, ...]
+
+
+def _card_label(card: state.Card) -> str:
+    species = card.species.replace("_", " ").title()
+    return f"{species} (P{card.owner})"
+
+
+def _card_list(cards: Iterable[state.Card]) -> str:
+    return ", ".join(_card_label(card) for card in cards)
 
 
 def legal_actions(game_state: state.State, player: int) -> Iterable[actions.Action]:
@@ -43,6 +61,12 @@ def legal_actions(game_state: state.State, player: int) -> Iterable[actions.Acti
 
 def step(game_state: state.State, action: actions.Action) -> state.State:
     """Advance the game by applying an action for the active player."""
+    game_state, _ = step_with_trace(game_state, action)
+    return game_state
+
+
+def step_with_trace(game_state: state.State, action: actions.Action) -> Tuple[state.State, Tuple[TurnStep, ...]]:
+    """Advance the game and capture the canonical five-phase resolution trace."""
 
     if is_terminal(game_state):
         raise ValueError("Cannot step; game already finished")
@@ -50,17 +74,34 @@ def step(game_state: state.State, action: actions.Action) -> state.State:
     player = game_state.active_player
     _validate_action(game_state, player, action)
 
+    steps: List[TurnStep] = []
+
     game_state, card = state.remove_hand_card(game_state, player, action.hand_index)
+    object.__setattr__(card, "entered_turn", game_state.turn)
+
     game_state = state.append_queue(game_state, card)
+    steps.append(TurnStep(name="play", events=(f"Played {_card_label(card)} to the queue.",)))
 
-    game_state = cards.resolve_play(game_state, card, action)
-    game_state = cards.process_recurring(game_state)
-    game_state = _apply_five_card_check(game_state)
+    before_resolve = game_state
+    after_resolve = cards.resolve_play(game_state, card, action)
+    resolve_events = _resolve_events(card, action, before_resolve, after_resolve)
+    steps.append(TurnStep(name="resolve", events=resolve_events))
+    game_state = after_resolve
 
-    game_state, _ = state.draw_card(game_state, player)
+    game_state, recurring_events = cards.process_recurring_with_trace(game_state)
+    if not recurring_events:
+        recurring_events = ("No recurring animals act.",)
+    steps.append(TurnStep(name="recurring", events=recurring_events))
+
+    game_state, check_events = _apply_five_card_check_with_trace(game_state)
+    steps.append(TurnStep(name="five-animal check", events=check_events))
+
+    game_state, _, draw_events = _draw_card_with_trace(game_state, player)
+    steps.append(TurnStep(name="draw", events=draw_events))
+
     next_player = game_state.next_player()
     game_state = state.set_active_player(game_state, next_player, advance_turn=True)
-    return game_state
+    return game_state, tuple(steps)
 
 
 def is_terminal(game_state: state.State) -> bool:
@@ -90,10 +131,65 @@ def score(game_state: state.State) -> List[int]:
     return scores
 
 
+def _resolve_events(
+    card: state.Card,
+    action: actions.Action,
+    before: state.State,
+    after: state.State,
+) -> Tuple[str, ...]:
+    unchanged = (
+        before.zones.queue == after.zones.queue
+        and before.zones.beasty_bar == after.zones.beasty_bar
+        and before.zones.thats_it == after.zones.thats_it
+    )
+
+    species_messages = {
+        "lion": "Lion roars to the front, scattering monkeys.",
+        "snake": "Snake orders the queue by strength, keeping ties in place.",
+        "giraffe": "Giraffe leans forward through weaker animals.",
+        "kangaroo": "Kangaroo hops ahead based on the chosen distance.",
+        "monkey": "Monkey pair drives out the heavyweights.",
+        "parrot": "Parrot shoos a target to THAT'S IT.",
+        "seal": "Seal flips Heaven's Gate and the bounce.",
+        "chameleon": "Chameleon imitates the chosen ability.",
+        "skunk": "Skunk expels the top strength bands.",
+    }
+
+    if card.species == "chameleon" and action.params:
+        target_index = action.params[0]
+        queue = before.zones.queue
+        if 0 <= target_index < len(queue):
+            target = queue[target_index]
+            message = f"{_card_label(card)} imitates {_card_label(target)} on-play."
+            if unchanged:
+                return (message,)
+            return (message,)
+
+    if unchanged:
+        return (f"{_card_label(card)} has no immediate effect.",)
+
+    message = species_messages.get(card.species)
+    if message is None:
+        message = f"{_card_label(card)} resolves its on-play ability."
+    return (message,)
+
+
+def _draw_card_with_trace(game_state: state.State, player: int) -> Tuple[state.State, Optional[state.Card], Tuple[str, ...]]:
+    game_state, card = state.draw_card(game_state, player)
+    if card is None:
+        return game_state, None, ("Deck empty; no card drawn.",)
+    return game_state, card, (f"Drew {_card_label(card)}.",)
+
+
 def _apply_five_card_check(game_state: state.State) -> state.State:
+    game_state, _ = _apply_five_card_check_with_trace(game_state)
+    return game_state
+
+
+def _apply_five_card_check_with_trace(game_state: state.State) -> Tuple[state.State, Tuple[str, ...]]:
     queue = game_state.zones.queue
     if len(queue) != rules.MAX_QUEUE_LENGTH:
-        return game_state
+        return game_state, ("Queue below capacity; no animals move.",)
 
     entering = queue[:2]
     bounced = queue[-1]
@@ -103,7 +199,12 @@ def _apply_five_card_check(game_state: state.State) -> state.State:
     for card in entering:
         game_state = state.push_to_zone(game_state, rules.ZONE_BEASTY_BAR, card)
     game_state = state.push_to_zone(game_state, rules.ZONE_THATS_IT, bounced)
-    return game_state
+
+    messages: List[str] = []
+    if entering:
+        messages.append(f"Heaven's Gate admits {_card_list(entering)}.")
+    messages.append(f"THAT'S IT receives {_card_label(bounced)}.")
+    return game_state, tuple(messages)
 
 
 def _validate_player_index(player: int) -> None:
@@ -199,6 +300,8 @@ def _validate_chameleon_params(target_card: state.Card, params: tuple[int, ...],
 __all__ = [
     "legal_actions",
     "step",
+    "step_with_trace",
     "is_terminal",
     "score",
+    "TurnStep",
 ]

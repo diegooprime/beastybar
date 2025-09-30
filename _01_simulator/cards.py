@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import replace as dc_replace
-from typing import Callable, Dict, List, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from . import actions, rules, state
 
@@ -20,20 +20,36 @@ def resolve_play(game_state: state.State, card: state.Card, action: actions.Acti
 def process_recurring(game_state: state.State) -> state.State:
     """Process recurring abilities from Heaven's Gate toward the bounce."""
 
+    game_state, _ = process_recurring_with_trace(game_state)
+    return game_state
+
+
+def process_recurring_with_trace(game_state: state.State) -> Tuple[state.State, Tuple[str, ...]]:
+    """Process recurring abilities and return a textual trace of outcomes."""
+
+    events: List[str] = []
     index = 0
     while index < len(game_state.zones.queue):
         queue = game_state.zones.queue
         card = queue[index]
         species = card.species
         if species == "hippo":
-            game_state, index = _recurring_hippo(game_state, index)
+            game_state, index, message = _recurring_hippo(game_state, index)
+            events.append(message)
         elif species == "crocodile":
-            game_state, index = _recurring_crocodile(game_state, index)
+            game_state, index, message = _recurring_crocodile(game_state, index)
+            events.append(message)
         elif species == "giraffe":
-            game_state, index = _recurring_giraffe(game_state, index)
+            game_state, index, message = _recurring_giraffe(game_state, index)
+            events.append(message)
         else:
             index += 1
-    return game_state
+    return game_state, tuple(events)
+
+
+def _card_label(card: state.Card) -> str:
+    species = card.species.replace("_", " ").title()
+    return f"{species} (P{card.owner})"
 
 
 def _resolve_lion(game_state: state.State, card: state.Card, action: actions.Action) -> state.State:
@@ -122,6 +138,20 @@ def _resolve_parrot(game_state: state.State, card: state.Card, action: actions.A
 
     game_state, target = state.remove_queue_card(game_state, target_index)
     game_state = state.push_to_zone(game_state, rules.ZONE_THATS_IT, target)
+    queue_after = game_state.zones.queue
+    try:
+        parrot_index = queue_after.index(card)
+    except ValueError:  # pragma: no cover - defensive safeguard
+        return game_state
+    game_state, _ = state.remove_queue_card(game_state, parrot_index)
+    queue_without_actor = game_state.zones.queue
+    insert_index = 0
+    for existing in queue_without_actor:
+        if existing.species == "parrot":
+            insert_index += 1
+        else:
+            break
+    game_state = state.insert_queue(game_state, insert_index, card)
     return game_state
 
 
@@ -147,7 +177,7 @@ def _resolve_chameleon(game_state: state.State, card: state.Card, action: action
     target_species = target_card.species
     handler = _HANDLERS.get(target_species, _noop_handler)
 
-    fake_card = state.Card(owner=card.owner, species=target_species)
+    fake_card = state.Card(owner=card.owner, species=target_species, entered_turn=card.entered_turn)
     temp_queue = tuple(fake_card if c is card else c for c in queue)
     temp_state = dc_replace(game_state, zones=dc_replace(game_state.zones, queue=temp_queue))
 
@@ -155,6 +185,17 @@ def _resolve_chameleon(game_state: state.State, card: state.Card, action: action
     temp_state = handler(temp_state, fake_card, copied_action)
 
     temp_state = _swap_card_reference(temp_state, fake_card, card)
+
+    if target_species == "parrot" and len(action.params) >= 2:
+        queue_after = temp_state.zones.queue
+        try:
+            upgraded_index = queue_after.index(card)
+        except ValueError:  # pragma: no cover - defensive safeguard
+            return temp_state
+
+        temp_state, _ = state.remove_queue_card(temp_state, upgraded_index)
+        insert_index = min(action.params[1], len(temp_state.zones.queue))
+        temp_state = state.insert_queue(temp_state, insert_index, card)
     return temp_state
 
 
@@ -174,7 +215,10 @@ def _resolve_skunk(game_state: state.State, card: state.Card, action: actions.Ac
         else:
             remaining.append(c)
 
-    return state.replace_queue(game_state, remaining)
+    skunks = [c for c in remaining if c.species == "skunk"]
+    others = [c for c in remaining if c.species != "skunk"]
+    new_queue = skunks + others
+    return state.replace_queue(game_state, new_queue)
 
 
 def _noop_handler(game_state: state.State, card: state.Card, action: actions.Action) -> state.State:
@@ -195,51 +239,86 @@ def _swap_card_reference(game_state: state.State, old: state.Card, new: state.Ca
     return dc_replace(game_state, zones=swapped_zones)
 
 
-def _recurring_hippo(game_state: state.State, index: int) -> Tuple[state.State, int]:
+def _recurring_hippo(game_state: state.State, index: int) -> Tuple[state.State, int, str]:
     queue = game_state.zones.queue
     hippo = queue[index]
     target = index
+    blocker: Optional[state.Card] = None
     while target > 0:
         ahead = queue[target - 1]
         if ahead.species == "zebra" or ahead.strength >= hippo.strength:
+            blocker = ahead
             break
         target -= 1
     if target == index:
-        return game_state, index + 1
+        if index == 0:
+            message = f"{_card_label(hippo)} already leads the line."
+        elif blocker is not None:
+            message = f"{_card_label(hippo)} is blocked by {_card_label(blocker)}."
+        else:
+            message = f"{_card_label(hippo)} holds position."
+        return game_state, index + 1, message
+
+    passed = queue[target:index]
+    labels = ", ".join(_card_label(card) for card in passed)
+    if labels:
+        message = f"{_card_label(hippo)} charges past {labels}."
+    else:
+        message = f"{_card_label(hippo)} steps forward."
 
     game_state, _ = state.remove_queue_card(game_state, index)
     game_state = state.insert_queue(game_state, target, hippo)
-    return game_state, target + 1
+    return game_state, target + 1, message
 
 
-def _recurring_crocodile(game_state: state.State, index: int) -> Tuple[state.State, int]:
+def _recurring_crocodile(game_state: state.State, index: int) -> Tuple[state.State, int, str]:
     queue = game_state.zones.queue
     crocodile = queue[index]
     scan = index - 1
+    eaten: List[state.Card] = []
+    blocker: Optional[state.Card] = None
     while scan >= 0:
         queue = game_state.zones.queue
         ahead = queue[scan]
-        if ahead.species == "zebra" or ahead.strength >= crocodile.strength:
+        if ahead.species in {"zebra", "skunk"} or ahead.strength >= crocodile.strength:
+            blocker = ahead
             break
         game_state, removed = state.remove_queue_card(game_state, scan)
         game_state = state.push_to_zone(game_state, rules.ZONE_THATS_IT, removed)
+        eaten.append(removed)
         index -= 1
         scan -= 1
-    return game_state, index + 1
+    if eaten:
+        meal = ", ".join(_card_label(card) for card in eaten)
+        message = f"{_card_label(crocodile)} eats {meal}."
+        if blocker is not None:
+            message += f" Stops before {_card_label(blocker)}."
+    else:
+        if blocker is not None:
+            message = f"{_card_label(crocodile)} is blocked by {_card_label(blocker)}."
+        else:
+            message = f"{_card_label(crocodile)} already leads the line."
+    return game_state, index + 1, message
 
 
-def _recurring_giraffe(game_state: state.State, index: int) -> Tuple[state.State, int]:
-    if index == 0:
-        return game_state, index + 1
+def _recurring_giraffe(game_state: state.State, index: int) -> Tuple[state.State, int, str]:
     queue = game_state.zones.queue
     giraffe = queue[index]
+    if giraffe.entered_turn == game_state.turn:
+        message = f"{_card_label(giraffe)} waits until next turn."
+        return game_state, index + 1, message
+    if index == 0:
+        message = f"{_card_label(giraffe)} already leads the line."
+        return game_state, index + 1, message
     ahead = queue[index - 1]
     if ahead.strength >= giraffe.strength:
-        return game_state, index + 1
+        message = f"{_card_label(giraffe)} is blocked by {_card_label(ahead)}."
+        return game_state, index + 1, message
 
     game_state, _ = state.remove_queue_card(game_state, index)
     game_state = state.insert_queue(game_state, index - 1, giraffe)
-    return game_state, index
+    message = f"{_card_label(giraffe)} threads ahead of {_card_label(ahead)}."
+    return game_state, index, message
 
 
 _HANDLERS: Dict[str, Handler] = {
@@ -258,4 +337,5 @@ _HANDLERS: Dict[str, Handler] = {
 __all__ = [
     "resolve_play",
     "process_recurring",
+    "process_recurring_with_trace",
 ]

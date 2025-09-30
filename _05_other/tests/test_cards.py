@@ -68,6 +68,18 @@ def test_giraffe_jumps_over_one_weaker_animal():
     assert next_state.zones.queue == (giraffe, parrot)
 
 
+def test_giraffe_does_not_recur_on_entry_turn():
+    giraffe = make_card(0, "giraffe")
+    parrot = make_card(1, "parrot")
+    monkey = make_card(1, "monkey")
+
+    game_state = make_state([giraffe], [parrot, monkey])
+
+    next_state = engine.step(game_state, actions.Action(hand_index=0))
+
+    assert [card.species for card in next_state.zones.queue] == ["parrot", "giraffe", "monkey"]
+
+
 def test_kangaroo_jumps_up_to_two_positions():
     kangaroo = make_card(0, "kangaroo")
     parrot = make_card(1, "parrot")
@@ -165,6 +177,18 @@ def test_seal_reverses_queue():
 
     assert next_state.zones.queue == (seal, zebra, parrot)
     assert next_state.zones.thats_it == ()
+
+
+def test_recurring_after_seal_uses_reversed_orientation():
+    seal = make_card(0, "seal")
+    hippo = make_card(0, "hippo")
+    parrot = make_card(1, "parrot")
+
+    game_state = make_state([seal], [hippo, parrot])
+
+    next_state = engine.step(game_state, actions.Action(hand_index=0))
+
+    assert [card.species for card in next_state.zones.queue] == ["hippo", "seal", "parrot"]
 
 
 def test_skunk_expels_top_two_strength_bands():

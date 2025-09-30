@@ -31,3 +31,52 @@ def test_static_index_served():
     response = client.get("/")
     assert response.status_code == 200
     assert "Beasty Bar" in response.text
+
+
+def test_turn_flow_and_hidden_information():
+    app = create_app()
+    client = TestClient(app)
+
+    response = client.post("/api/new-game", json={"seed": 314})
+    assert response.status_code == 200
+    state = response.json()
+
+    assert state["turn"] == 0
+    assert state["turnFlow"] == []
+
+    # Human player's hand remains visible; opponent hand masked as "unknown".
+    human_hand, opponent_hand = state["hands"]
+    assert any(card["species"] != "unknown" for card in human_hand)
+    assert all(card["species"] == "unknown" for card in opponent_hand)
+
+    action_payload = state["legalActions"][0]
+    play = client.post("/api/action", json=action_payload)
+    assert play.status_code == 200
+    after_play = play.json()
+
+    flow = after_play.get("turnFlow")
+    assert isinstance(flow, list) and len(flow) == 5
+    step_names = [step.get("name") for step in flow]
+    assert step_names == ["play", "resolve", "recurring", "five-animal check", "draw"]
+    assert any("Played" in event for event in flow[0]["events"])
+
+
+def test_replay_endpoint_matches_recorded_sequence():
+    app = create_app()
+    client = TestClient(app)
+
+    start = client.post("/api/new-game", json={"seed": 2718})
+    assert start.status_code == 200
+    state = start.json()
+
+    first = client.post("/api/action", json=state["legalActions"][0])
+    assert first.status_code == 200
+    second_state = first.json()
+
+    second = client.post("/api/action", json=second_state["legalActions"][0])
+    assert second.status_code == 200
+    latest_state = second.json()
+
+    replay = client.post("/api/replay")
+    assert replay.status_code == 200
+    assert replay.json() == latest_state

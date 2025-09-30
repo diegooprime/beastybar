@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ConfigDict
 
-from _01_simulator import actions, simulate, state
+from _01_simulator import actions, engine, simulate, state
 from _02_agents import DiegoAgent, FirstLegalAgent, GreedyAgent, RandomAgent
 from _02_agents.base import Agent
 
@@ -29,6 +29,7 @@ class TurnLogEntry:
     player: Optional[int]
     action: str
     effects: Tuple[str, ...]
+    steps: Tuple[engine.TurnStep, ...] = field(default_factory=tuple)
 
 
 @dataclass
@@ -42,6 +43,8 @@ class SessionStore:
     opponent: Optional[str] = None
     agent: Optional[Agent] = None
     log: List[TurnLogEntry] = field(default_factory=list)
+    history: List[actions.Action] = field(default_factory=list)
+    starting_player: int = 0
 
     def require_state(self) -> state.State:
         if self.state is None:
@@ -89,8 +92,10 @@ def create_app() -> FastAPI:
         if store.agent:
             store.agent = None
 
+        store.starting_player = request.starting_player
         store.state = simulate.new_game(seed, starting_player=request.starting_player)
         store.log.clear()
+        store.history.clear()
         _log_new_game(store, starting_player=request.starting_player)
 
         if request.opponent:
@@ -131,17 +136,28 @@ def create_app() -> FastAPI:
 
         _apply_action(store, action)
 
-        if store.agent is not None:
-            current = store.require_state()
-            if simulate.is_terminal(current):
-                if store.agent_player is None:
-                    raise RuntimeError("Agent player index is not set")
-                view = state.mask_state_for_player(current, store.agent_player)
-                store.agent.end_game(view)
-            else:
-                _auto_play(store)
-
         return _serialize(store.require_state(), store.seed, store)
+
+    @app.post("/api/replay")
+    def api_replay() -> dict:
+        current = store.require_state()
+        if store.seed is None:
+            raise HTTPException(status_code=400, detail="No seed available to replay")
+
+        candidate = simulate.new_game(store.seed, starting_player=store.starting_player)
+        for index, action in enumerate(store.history, start=1):
+            try:
+                candidate = engine.step(candidate, action)
+            except Exception as exc:  # pragma: no cover - defensive safeguard
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Replay failed while applying action {index}",
+                ) from exc
+
+        if candidate != current:
+            raise HTTPException(status_code=409, detail="Replay diverged from recorded state")
+
+        return _serialize(current, store.seed, store)
 
     return app
 
@@ -150,6 +166,7 @@ def _serialize(game_state: state.State, seed: Optional[int], store: SessionStore
     active_player = game_state.active_player
     legal = simulate.legal_actions(game_state, active_player) if not simulate.is_terminal(game_state) else ()
     log_entries = list(store.log)
+    visible_state = state.mask_state_for_player(game_state, store.human_player)
     return {
         "seed": seed,
         "turn": game_state.turn,
@@ -159,18 +176,19 @@ def _serialize(game_state: state.State, seed: Optional[int], store: SessionStore
         "humanPlayer": store.human_player,
         "agentPlayer": store.agent_player,
         "opponent": store.opponent,
-        "queue": [_card_view(card) for card in game_state.zones.queue],
+        "queue": [_card_view(card) for card in visible_state.zones.queue],
         "zones": {
-            "beastyBar": [_card_view(card) for card in game_state.zones.beasty_bar],
-            "thatsIt": [_card_view(card) for card in game_state.zones.thats_it],
+            "beastyBar": [_card_view(card) for card in visible_state.zones.beasty_bar],
+            "thatsIt": [_card_view(card) for card in visible_state.zones.thats_it],
         },
         "hands": [
             [_card_view(card) for card in player_state.hand]
-            for player_state in game_state.players
+            for player_state in visible_state.players
         ],
         "legalActions": [_serialize_action(game_state, action) for action in legal],
         "log": [_serialize_log_entry(entry) for entry in log_entries],
         "logText": _format_log_text(store, log_entries),
+        "turnFlow": _serialize_turn_steps(log_entries[-1].steps) if log_entries else [],
     }
 
 
@@ -246,7 +264,7 @@ def _auto_play(store: SessionStore) -> None:
             raise RuntimeError("Agent player index is not set")
         view = state.mask_state_for_player(store.require_state(), store.agent_player)
         action = store.agent.select_action(view, legal)
-        _apply_action(store, action)
+        _apply_action(store, action, trigger_agent=False)
 
     if simulate.is_terminal(store.state):
         if store.agent_player is None:
@@ -255,7 +273,13 @@ def _auto_play(store: SessionStore) -> None:
         store.agent.end_game(terminal_view)
 
 
-def _apply_action(store: SessionStore, action: actions.Action) -> None:
+def _apply_action(
+    store: SessionStore,
+    action: actions.Action,
+    *,
+    trigger_agent: bool = True,
+    record_history: bool = True,
+) -> None:
     before = store.require_state()
     player = before.active_player
     try:
@@ -263,9 +287,13 @@ def _apply_action(store: SessionStore, action: actions.Action) -> None:
     except IndexError as exc:  # pragma: no cover - validation upstream should prevent this
         raise HTTPException(status_code=400, detail="Invalid hand index") from exc
 
-    after = simulate.apply(before, action)
+    after, steps = engine.step_with_trace(before, action)
     store.state = after
-    effects = _describe_action_effects(store, before, after, player)
+    if record_history:
+        store.history.append(action)
+
+    effects = _turn_flow_summary(steps)
+    effects.extend(_describe_action_effects(store, before, after, player, include_draw=False))
     if simulate.is_terminal(after):
         final_score = simulate.score(after)
         summary = "Game over: " + " – ".join(
@@ -279,8 +307,21 @@ def _apply_action(store: SessionStore, action: actions.Action) -> None:
         player=player,
         action=_action_label(card, action),
         effects=tuple(effects),
+        steps=steps,
     )
     _append_log_entry(store, entry)
+
+    if trigger_agent and store.agent is not None:
+        current = store.require_state()
+        if simulate.is_terminal(current):
+            if store.agent_player is None:
+                raise RuntimeError("Agent player index is not set")
+            view = state.mask_state_for_player(current, store.agent_player)
+            store.agent.end_game(view)
+        else:
+            _auto_play(store)
+
+
 
 
 def _log_new_game(store: SessionStore, *, starting_player: int) -> None:
@@ -302,6 +343,7 @@ def _log_new_game(store: SessionStore, *, starting_player: int) -> None:
         player=None,
         action="New game started",
         effects=tuple(details),
+        steps=(),
     )
     _append_log_entry(store, entry)
 
@@ -316,7 +358,27 @@ def _make_log_id() -> str:
     return uuid.uuid4().hex
 
 
-def _describe_action_effects(store: SessionStore, before: state.State, after: state.State, player: int) -> List[str]:
+def _turn_flow_summary(steps: Tuple[engine.TurnStep, ...]) -> List[str]:
+    lines: List[str] = []
+    for idx, step in enumerate(steps, start=1):
+        title = step.name.title()
+        if step.events:
+            lines.append(f"Step {idx} – {title}: {step.events[0]}")
+            for extra in step.events[1:]:
+                lines.append(f"  ↳ {extra}")
+        else:
+            lines.append(f"Step {idx} – {title}: No effect.")
+    return lines
+
+
+def _describe_action_effects(
+    store: SessionStore,
+    before: state.State,
+    after: state.State,
+    player: int,
+    *,
+    include_draw: bool = True,
+) -> List[str]:
     effects: List[str] = []
 
     scored = _zone_new_cards(before.zones.beasty_bar, after.zones.beasty_bar)
@@ -331,15 +393,16 @@ def _describe_action_effects(store: SessionStore, before: state.State, after: st
     if bounced:
         effects.append(f"Sent to THAT'S IT: {_format_card_list(bounced)}")
 
-    draw = _drawn_cards(before, after, player)
-    if draw:
-        is_visible = player == store.human_player or store.opponent is None
-        if is_visible:
-            effects.append(f"Drew {_format_card_list(draw)}")
-        else:
-            count = len(draw)
-            label = "card" if count == 1 else "cards"
-            effects.append(f"Drew {count} {label}")
+    if include_draw:
+        draw = _drawn_cards(before, after, player)
+        if draw:
+            is_visible = player == store.human_player or store.opponent is None
+            if is_visible:
+                effects.append(f"Drew {_format_card_list(draw)}")
+            else:
+                count = len(draw)
+                label = "card" if count == 1 else "cards"
+                effects.append(f"Drew {count} {label}")
 
     return effects
 
@@ -372,7 +435,18 @@ def _serialize_log_entry(entry: TurnLogEntry) -> dict:
         "effects": list(entry.effects),
         "timestamp": iso_ts,
         "timestampMs": epoch_ms,
+        "steps": _serialize_turn_steps(entry.steps),
     }
+
+
+def _serialize_turn_steps(steps: Tuple[engine.TurnStep, ...]) -> List[dict]:
+    return [
+        {
+            "name": step.name,
+            "events": list(step.events),
+        }
+        for step in steps
+    ]
 
 
 def _format_log_text(store: SessionStore, entries: List[TurnLogEntry]) -> str:

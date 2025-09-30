@@ -1,0 +1,15 @@
+{
+  "timestamp": "2025-09-30T01:10:24.268666+00:00",
+  "iteration": 27,
+  "steps": 55437,
+  "episodes": 4785,
+  "rolloutSteps": 2058,
+  "batchEpisodes": 178,
+  "avgEpisodeReward": -0.24143661695930474,
+  "meanEntropy": 0.2076176255941391,
+  "policy_loss": -0.022867967141792178,
+  "value_loss": 0.46279922127723694,
+  "entropy": 0.1981578253209591,
+  "approx_kl": 0.006884092234405959,
+  "clip_fraction": 0.058632812649011615
+}

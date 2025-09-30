@@ -16,12 +16,15 @@ class Card:
 
     owner: int
     species: str
+    entered_turn: int = -1
 
     def __post_init__(self) -> None:
         if self.species not in rules.SPECIES:
             raise ValueError(f"Unknown species: {self.species}")
         if not (0 <= self.owner < rules.PLAYER_COUNT):
             raise ValueError("Owner index out of range")
+        if not isinstance(self.entered_turn, int):
+            raise TypeError("entered_turn must be an integer")
 
     @property
     def strength(self) -> int:
@@ -124,7 +127,7 @@ def append_queue(game_state: State, card: Card) -> State:
     """Add a card to the back of the queue."""
 
     queue = game_state.zones.queue
-    if len(queue) >= rules.MAX_QUEUE_LENGTH:
+    if len(queue) >= rules.MAX_QUEUE_LENGTH + 1:
         raise ValueError("Queue is at maximum capacity")
     new_queue = queue + (card,)
     return _replace_zones(game_state, queue=new_queue)
@@ -191,7 +194,7 @@ def mask_state_for_player(game_state: State, perspective: int) -> State:
         raise ValueError("Perspective player index out of range")
 
     def _mask(cards: Sequence[Card]) -> CardTuple:
-        return tuple(Card(owner=card.owner, species="unknown") for card in cards)
+        return tuple(Card(owner=card.owner, species="unknown", entered_turn=-1) for card in cards)
 
     masked_players: list[PlayerState] = []
     for index, player_state in enumerate(game_state.players):

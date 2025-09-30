@@ -1,0 +1,41 @@
+{
+  "runId": "loop_cli",
+  "phase": "loop",
+  "seed": 1234,
+  "gitSha": "cda91c9777b23c0676dc339a23e04445a0f17f31",
+  "createdAt": "2025-09-30T01:09:51+00:00",
+  "totalSteps": 100000,
+  "evalFrequency": 20000,
+  "opponents": [
+    "first",
+    "random",
+    "greedy",
+    "diego"
+  ],
+  "artifactRoot": "_03_training/artifacts",
+  "hyperparameters": {
+    "rolloutSteps": 2048,
+    "reservoirSize": 3,
+    "evalGames": 1000,
+    "evalSeed": 4321,
+    "gamma": 0.99,
+    "gaeLambda": 0.95,
+    "marginWeight": 0.25,
+    "jitterScale": 0.01,
+    "learningRate": 0.0003,
+    "ppoEpochs": 4,
+    "ppoBatchSize": 512,
+    "clipCoef": 0.2,
+    "valueCoef": 0.5,
+    "entropyCoef": 0.01,
+    "maxGradNorm": 0.5,
+    "device": "auto"
+  },
+  "promotionCriteria": {
+    "minGames": 4000,
+    "minWinRate": 0.55,
+    "minEloDelta": 25.0
+  },
+  "sourceConfig": "_03_training/configs/self_play_local.json",
+  "manifestVersion": 1
+}
