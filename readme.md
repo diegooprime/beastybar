@@ -22,9 +22,9 @@ The code for each section is independent so we can modify one without fucking up
 
 ###
 run the ui with:
-uvicorn _04_ui.app:create_app --reload
 source .venv/bin/activate
 pip install -e .
+uvicorn _04_ui.app:create_app --reload
 python -m _03_training.tournament first diego --games 25 --seed 2025
 
 Self-play runs accept `--eval-games` to control how many games each baseline plays per promotion check and `--eval-seed` to keep those tournaments deterministic. Drop the same knobs into a JSON config as `eval_games` / `eval_seed` when you want to drive `_03_training.self_play` from a file instead of the CLI.

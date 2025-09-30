@@ -1470,8 +1470,10 @@
 
         hands.forEach((hand, playerIndex) => {
           const wrapper = handWrappers[playerIndex];
-          const isHuman = typeof currentState.humanPlayer === "number" && playerIndex === currentState.humanPlayer;
-          const hideHand = !isHuman;
+          const isHumanControlled =
+            !currentState.opponent ||
+            (typeof currentState.humanPlayer === "number" && playerIndex === currentState.humanPlayer);
+          const hideHand = currentState.opponent ? !isHumanControlled : false;
           wrapper.classList.toggle("hand-active", playerIndex === activePlayer && !hideHand);
           wrapper.classList.toggle("hand-hidden", hideHand);
 

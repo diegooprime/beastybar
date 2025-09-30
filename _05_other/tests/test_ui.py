@@ -37,7 +37,10 @@ def test_turn_flow_and_hidden_information():
     app = create_app()
     client = TestClient(app)
 
-    response = client.post("/api/new-game", json={"seed": 314})
+    response = client.post(
+        "/api/new-game",
+        json={"seed": 314, "opponent": "random", "humanPlayer": 0},
+    )
     assert response.status_code == 200
     state = response.json()
 
@@ -45,7 +48,9 @@ def test_turn_flow_and_hidden_information():
     assert state["turnFlow"] == []
 
     # Human player's hand remains visible; opponent hand masked as "unknown".
-    human_hand, opponent_hand = state["hands"]
+    human_index = state["humanPlayer"]
+    human_hand = state["hands"][human_index]
+    opponent_hand = state["hands"][1 - human_index]
     assert any(card["species"] != "unknown" for card in human_hand)
     assert all(card["species"] == "unknown" for card in opponent_hand)
 
@@ -59,6 +64,20 @@ def test_turn_flow_and_hidden_information():
     step_names = [step.get("name") for step in flow]
     assert step_names == ["play", "resolve", "recurring", "five-animal check", "draw"]
     assert any("Played" in event for event in flow[0]["events"])
+
+
+def test_human_vs_human_hands_visible():
+    app = create_app()
+    client = TestClient(app)
+
+    response = client.post("/api/new-game", json={"seed": 8080})
+    assert response.status_code == 200
+    state = response.json()
+
+    assert state["humanPlayer"] == 0  # default selection
+    player0, player1 = state["hands"]
+    assert any(card["species"] != "unknown" for card in player0)
+    assert any(card["species"] != "unknown" for card in player1)
 
 
 def test_replay_endpoint_matches_recorded_sequence():

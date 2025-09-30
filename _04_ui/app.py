@@ -166,7 +166,10 @@ def _serialize(game_state: state.State, seed: Optional[int], store: SessionStore
     active_player = game_state.active_player
     legal = simulate.legal_actions(game_state, active_player) if not simulate.is_terminal(game_state) else ()
     log_entries = list(store.log)
-    visible_state = state.mask_state_for_player(game_state, store.human_player)
+    if store.opponent is None:
+        visible_state = game_state
+    else:
+        visible_state = state.mask_state_for_player(game_state, store.human_player)
     return {
         "seed": seed,
         "turn": game_state.turn,
