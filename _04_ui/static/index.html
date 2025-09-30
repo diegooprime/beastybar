@@ -239,11 +239,76 @@
         box-shadow: 0 18px 35px rgba(15, 23, 42, 0.08);
         transition: transform 0.18s ease, box-shadow 0.18s ease;
         min-height: 260px;
+        overflow: hidden;
       }
 
       .pile:hover {
         transform: translateY(-3px);
         box-shadow: 0 30px 60px rgba(30, 64, 175, 0.25);
+      }
+
+      .pile::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background-size: cover;
+        background-position: center;
+        background-repeat: no-repeat;
+        opacity: 0;
+        transition: opacity 0.18s ease;
+        z-index: 0;
+        pointer-events: none;
+      }
+
+      .pile.has-art::before {
+        opacity: 0.85;
+      }
+
+      .pile.has-art > * {
+        position: relative;
+        z-index: 1;
+      }
+
+      .pile.has-art > .pile-label,
+      .pile.has-art > .pile-count {
+        color: #f8fafc;
+        text-shadow: 0 1px 4px rgba(15, 23, 42, 0.65);
+      }
+
+      .pile.has-art > .pile-preview {
+        background: rgba(15, 23, 42, 0.45);
+        border-radius: 14px;
+        padding: 0.6rem 0.55rem;
+        gap: 0.65rem;
+        box-shadow: inset 0 0 0 1px rgba(248, 250, 252, 0.1);
+      }
+
+      .pile.has-art .pile-mini-card {
+        background: rgba(248, 250, 252, 0.85);
+      }
+
+      #gate-pile {
+        color: #f8fafc;
+      }
+
+      #gate-pile::before {
+        background-image: linear-gradient(180deg, rgba(9, 13, 28, 0.25) 0%, rgba(9, 13, 28, 0.75) 100%), url(/static/cards/heaven.jpg);
+      }
+
+      #gate-pile.has-art:hover::before {
+        opacity: 1;
+      }
+
+      #thats-it-pile {
+        color: #f8fafc;
+      }
+
+      #thats-it-pile::before {
+        background-image: linear-gradient(180deg, rgba(24, 6, 6, 0.35) 0%, rgba(15, 5, 5, 0.8) 100%), url(/static/cards/dead.jpg);
+      }
+
+      #thats-it-pile.has-art:hover::before {
+        opacity: 1;
       }
 
       .pile-label {
@@ -381,6 +446,7 @@
         gap: 0.55rem;
         box-shadow: 0 18px 35px rgba(15, 23, 42, 0.08);
         transition: transform 0.18s ease, box-shadow 0.18s ease;
+        overflow: hidden;
       }
 
       .card.player-0 {
@@ -391,6 +457,28 @@
       .card.player-1 {
         border-color: rgba(249, 115, 22, 0.6);
         box-shadow: 0 18px 35px rgba(249, 115, 22, 0.15);
+      }
+
+      .card.card--with-art {
+        color: #f8fafc;
+        border-color: rgba(248, 250, 252, 0.65);
+        background-image: var(--card-art-gradient), var(--card-art-image);
+        background-size: cover, contain;
+        background-position: center, center;
+        background-repeat: no-repeat, no-repeat;
+        position: relative;
+        isolation: isolate;
+      }
+
+      .card.card--with-art > * {
+        position: relative;
+        z-index: 1;
+        text-shadow: 0 1px 4px rgba(15, 23, 42, 0.6);
+      }
+
+      .card.card--with-art .card-top,
+      .card.card--with-art .card-species {
+        display: none;
       }
 
       .card--queue {
@@ -531,6 +619,16 @@
         border-radius: 12px;
         padding: 0.4rem 0.5rem;
         font-size: 0.85rem;
+      }
+
+      .card.card--with-art .card-actions button {
+        background: rgba(15, 23, 42, 0.7);
+        border-color: rgba(248, 250, 252, 0.35);
+        color: #f8fafc;
+      }
+
+      .card.card--with-art .card-actions button:hover {
+        background: rgba(30, 41, 59, 0.85);
       }
 
       .hands {
@@ -826,7 +924,7 @@
       <div id="hint" class="hint"></div>
       <div class="main">
         <section class="board">
-          <button id="gate-pile" class="pile" type="button" data-pile="beastyBar">
+          <button id="gate-pile" class="pile has-art" type="button" data-pile="beastyBar">
             <div class="pile-label">Heaven's Gate</div>
             <div id="beasty-preview" class="pile-preview"></div>
             <div id="beasty-count" class="pile-count"></div>
@@ -837,7 +935,7 @@
               <div id="queue" class="queue-cards"></div>
             </div>
           </div>
-          <button id="thats-it-pile" class="pile" type="button" data-pile="thatsIt">
+          <button id="thats-it-pile" class="pile has-art" type="button" data-pile="thatsIt">
             <div class="pile-label">THAT'S IT</div>
             <div id="thats-preview" class="pile-preview"></div>
             <div id="thats-count" class="pile-count"></div>
@@ -889,6 +987,13 @@
       let localLogEntries = [];
       let pendingSelection = null;
       let availableAgents = [];
+
+      const CARD_ART_BASE_PATH = "/static/cards";
+      const CARD_ART_STRENGTHS = Array.from({ length: 12 }, (_, idx) => idx + 1);
+      const CARD_ART_AVAILABILITY = new Map([
+        [0, new Set(CARD_ART_STRENGTHS)],
+        [1, new Set(CARD_ART_STRENGTHS)],
+      ]);
 
       const statusEl = document.getElementById("status");
       const scoreEl = document.getElementById("score");
@@ -1242,6 +1347,22 @@
         renderLog();
       }
 
+      function getCardArtUrl(card) {
+        if (!card || typeof card.owner !== "number" || typeof card.strength !== "number") {
+          return null;
+        }
+        const owner = card.owner;
+        const strength = Math.trunc(card.strength);
+        if (!Number.isFinite(strength)) {
+          return null;
+        }
+        const ownerArt = CARD_ART_AVAILABILITY.get(owner);
+        if (!ownerArt || !ownerArt.has(strength)) {
+          return null;
+        }
+        return `${CARD_ART_BASE_PATH}/${owner}${strength}.jpg`;
+      }
+
       function createCard(card, options = {}) {
         const {
           actions = [],
@@ -1305,6 +1426,16 @@
               onClick(event);
             }
           });
+        }
+
+        const artUrl = hidden ? null : getCardArtUrl(sourceCard);
+        if (artUrl) {
+          div.classList.add("card--with-art");
+          div.style.setProperty(
+            "--card-art-gradient",
+            "linear-gradient(180deg, rgba(9, 13, 28, 0.08) 0%, rgba(9, 13, 28, 0.45) 100%)",
+          );
+          div.style.setProperty("--card-art-image", `url(${artUrl})`);
         }
 
         const top = document.createElement("div");

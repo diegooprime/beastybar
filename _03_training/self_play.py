@@ -9,9 +9,12 @@ from __future__ import annotations
 import argparse
 import itertools
 import json
+import numbers
 import os
 import random
+import statistics
 import subprocess
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,6 +34,16 @@ _DEFAULT_EVAL_GAMES = 200
 _DEFAULT_EVAL_SEED = 4_096
 _EVAL_ELO_BASE = 1500.0
 _EVAL_ELO_K = 32.0
+_ROLLING_METRIC_WINDOW = 50
+_PROMOTION_WIN_RATE_THRESHOLD = 0.55
+_PROMOTION_ELO_DELTA_THRESHOLD = 25.0
+
+try:  # Optional Parquet support
+    import pyarrow as _pa
+    import pyarrow.parquet as _pq
+except ModuleNotFoundError:  # pragma: no cover - pyarrow not required for JSON output
+    _pa = None
+    _pq = None
 
 
 @dataclass
@@ -50,6 +63,9 @@ class TrainingConfig:
     reservoir_size: int
     eval_games: int
     eval_seed: int
+    promotion_min_games: int
+    promotion_min_win_rate: float
+    promotion_min_elo_delta: float
     gamma: float
     gae_lambda: float
     margin_weight: float
@@ -74,8 +90,318 @@ class RunArtifacts:
     rollouts: Path
     eval: Path
     manifest: Path
+    champion_manifest: Path
 
 
+class RollingMetricAggregator:
+    """Maintain rolling statistics and persist them for dashboards."""
+
+    _IGNORED_KEYS = {"timestamp", "iteration", "steps", "episodes"}
+
+    def __init__(
+        self,
+        *,
+        directory: Path,
+        window_size: int = _ROLLING_METRIC_WINDOW,
+        json_name: str = "rolling_metrics.json",
+        parquet_name: str = "rolling_metrics.parquet",
+    ) -> None:
+        self._directory = directory
+        self._window_size = max(1, int(window_size))
+        self._records: deque[dict[str, Any]] = deque(maxlen=self._window_size)
+        self._history: list[dict[str, Any]] = []
+        self._metric_keys: list[str] = []
+        self._json_path = self._directory / json_name
+        self._parquet_path = self._directory / parquet_name
+        self._parquet_supported = _pa is not None and _pq is not None
+        self._bootstrapped = False
+
+    def bootstrap(self) -> None:
+        """Seed the aggregator from existing step metrics."""
+
+        if self._bootstrapped:
+            return
+        step_files = sorted(self._directory.glob("step_*.json"))
+        for path in step_files:
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):  # pragma: no cover - corrupted metrics
+                continue
+            self.record(payload, persist=False)
+        if self._history:
+            self._write_outputs()
+        else:
+            self._remove_outputs()
+        self._bootstrapped = True
+
+    def record(self, payload: Mapping[str, Any], *, persist: bool = True) -> dict[str, Any]:
+        entry = dict(payload)
+        aggregated = self._ingest(entry)
+        if persist:
+            self._write_outputs()
+        return aggregated
+
+    def _ingest(self, entry: dict[str, Any]) -> dict[str, Any]:
+        self._records.append(entry)
+        self._update_metric_keys(entry)
+        aggregated = self._aggregate(entry)
+        self._history.append(aggregated)
+        return aggregated
+
+    def _update_metric_keys(self, entry: Mapping[str, Any]) -> None:
+        for key, value in entry.items():
+            if key in self._IGNORED_KEYS:
+                continue
+            if isinstance(value, numbers.Real) and key not in self._metric_keys:
+                self._metric_keys.append(key)
+
+    def _aggregate(self, latest: Mapping[str, Any]) -> dict[str, Any]:
+        window_entries = list(self._records)
+        aggregated: dict[str, Any] = {
+            "timestamp": latest.get("timestamp"),
+            "iteration": int(latest.get("iteration", 0)),
+            "steps": int(latest.get("steps", 0)),
+            "episodes": int(latest.get("episodes", 0)),
+            "window": len(window_entries),
+        }
+        for key in self._metric_keys:
+            values: list[float] = []
+            for record in window_entries:
+                value = record.get(key)
+                if isinstance(value, numbers.Real):
+                    values.append(float(value))
+            if not values:
+                continue
+            aggregated[f"{key}_mean"] = statistics.fmean(values)
+            aggregated[f"{key}_std"] = statistics.pstdev(values) if len(values) > 1 else 0.0
+            aggregated[f"{key}_min"] = min(values)
+            aggregated[f"{key}_max"] = max(values)
+        return aggregated
+
+    def _write_outputs(self) -> None:
+        self._directory.mkdir(parents=True, exist_ok=True)
+        self._json_path.write_text(json.dumps(self._history, indent=2) + "\n", encoding="utf-8")
+        if self._parquet_supported and self._history:
+            table = _pa.Table.from_pylist(self._history)
+            _pq.write_table(table, self._parquet_path)
+
+    def _remove_outputs(self) -> None:
+        try:
+            self._json_path.unlink(missing_ok=True)
+        except TypeError:  # pragma: no cover - Python < 3.8 fallback
+            if self._json_path.exists():
+                self._json_path.unlink()
+        if self._parquet_supported:
+            try:
+                self._parquet_path.unlink(missing_ok=True)
+            except TypeError:  # pragma: no cover - Python < 3.8 fallback
+                if self._parquet_path.exists():
+                    self._parquet_path.unlink()
+
+
+@dataclass
+class EvaluationSummary:
+    path: Path
+    iteration: int
+    step: int
+    final_elo: float
+    win_rate: float
+    games: int
+    elo_delta: float
+    payload: dict[str, Any]
+
+    @property
+    def opponents(self) -> Sequence[Mapping[str, Any]]:
+        return list(self.payload.get("opponents", []))
+
+    @property
+    def timestamp(self) -> str | None:
+        return self.payload.get("timestamp")
+
+
+@dataclass
+class ChampionRecord:
+    checkpoint: Path
+    win_rate: float
+    final_elo: float
+    elo_delta: float
+    games: int
+    iteration: int
+    step: int
+    promoted_at: str
+
+    def relative_checkpoint(self, root: Path) -> str:
+        try:
+            return str(self.checkpoint.relative_to(root))
+        except ValueError:
+            return str(self.checkpoint)
+
+
+def _relative_path(target: Path, base: Path) -> str:
+    try:
+        return str(target.resolve().relative_to(base.resolve()))
+    except ValueError:
+        return str(target.resolve())
+
+
+def _load_champion_record(path: Path) -> ChampionRecord | None:
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):  # pragma: no cover - corrupted champion manifest
+        return None
+
+    checkpoint_str = payload.get("checkpoint")
+    if not checkpoint_str:
+        return None
+    checkpoint_path = Path(checkpoint_str)
+    if not checkpoint_path.is_absolute():
+        checkpoint_path = (path.parent / checkpoint_path).resolve()
+
+    evaluation = payload.get("evaluation", {})
+    win_rate = float(evaluation.get("winRate", 0.0))
+    final_elo = float(evaluation.get("finalElo", _EVAL_ELO_BASE))
+    games = int(evaluation.get("games", 0))
+    iteration = int(evaluation.get("iteration", 0))
+    step = int(evaluation.get("step", 0))
+    elo_delta = float(evaluation.get("eloDelta", final_elo - _EVAL_ELO_BASE))
+    promoted_at = str(payload.get("promotedAt", "")) or str(evaluation.get("timestamp", ""))
+
+    return ChampionRecord(
+        checkpoint=checkpoint_path,
+        win_rate=win_rate,
+        final_elo=final_elo,
+        elo_delta=elo_delta,
+        games=games,
+        iteration=iteration,
+        step=step,
+        promoted_at=promoted_at,
+    )
+
+
+def _maybe_promote_checkpoint(
+    *,
+    checkpoint: Path,
+    summary: EvaluationSummary,
+    config: TrainingConfig,
+    artifacts: RunArtifacts,
+    champion: ChampionRecord | None,
+) -> tuple[bool, ChampionRecord | None]:
+    min_games = max(0, config.promotion_min_games)
+    if summary.games < min_games:
+        return False, champion
+    if summary.win_rate < config.promotion_min_win_rate:
+        return False, champion
+    if summary.elo_delta < config.promotion_min_elo_delta:
+        return False, champion
+
+    resolved_checkpoint = checkpoint.resolve()
+    if champion is not None:
+        if resolved_checkpoint == champion.checkpoint:
+            return False, champion
+        if summary.final_elo <= champion.final_elo and summary.win_rate <= champion.win_rate:
+            return False, champion
+
+    promoted_at = datetime.now(tz=timezone.utc).replace(microsecond=0).isoformat()
+    new_champion = ChampionRecord(
+        checkpoint=resolved_checkpoint,
+        win_rate=summary.win_rate,
+        final_elo=summary.final_elo,
+        elo_delta=summary.elo_delta,
+        games=summary.games,
+        iteration=summary.iteration,
+        step=summary.step,
+        promoted_at=promoted_at,
+    )
+
+    _persist_champion_manifest(
+        champion_record=new_champion,
+        summary=summary,
+        artifacts=artifacts,
+        config=config,
+    )
+    _update_run_manifest_champion(
+        manifest_path=artifacts.manifest,
+        champion=new_champion,
+        summary=summary,
+        config=config,
+        champion_manifest=artifacts.champion_manifest,
+    )
+    return True, new_champion
+
+
+def _persist_champion_manifest(
+    *,
+    champion_record: ChampionRecord,
+    summary: EvaluationSummary,
+    artifacts: RunArtifacts,
+    config: TrainingConfig,
+) -> None:
+    run_root = artifacts.root
+    summary_payload = summary.payload.copy()
+    summary_payload["winRate"] = summary.win_rate
+    summary_payload["games"] = summary.games
+    summary_payload["finalElo"] = summary.final_elo
+    summary_payload["eloDelta"] = summary.elo_delta
+    summary_payload["iteration"] = summary.iteration
+    summary_payload["step"] = summary.step
+    summary_payload["summaryPath"] = _relative_path(summary.path, run_root)
+
+    payload: dict[str, Any] = {
+        "model": "_03_training.policy_loader:load_policy",
+        "checkpoint": champion_record.relative_checkpoint(run_root),
+        "factoryKwargs": {"device": "cpu"},
+        "runId": config.run_id or "unknown",
+        "promotedAt": champion_record.promoted_at,
+        "evaluation": summary_payload,
+        "promotionCriteria": {
+            "minGames": config.promotion_min_games,
+            "minWinRate": config.promotion_min_win_rate,
+            "minEloDelta": config.promotion_min_elo_delta,
+        },
+        "opponents": config.opponents,
+    }
+
+    artifacts.champion_manifest.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def _update_run_manifest_champion(
+    *,
+    manifest_path: Path,
+    champion: ChampionRecord,
+    summary: EvaluationSummary,
+    config: TrainingConfig,
+    champion_manifest: Path,
+) -> None:
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):  # pragma: no cover - manifest corruption
+        return
+
+    champion_entry = {
+        "checkpoint": champion.relative_checkpoint(manifest_path.parent),
+        "step": champion.step,
+        "iteration": champion.iteration,
+        "promotedAt": champion.promoted_at,
+        "winRate": champion.win_rate,
+        "games": champion.games,
+        "finalElo": champion.final_elo,
+        "eloDelta": champion.elo_delta,
+        "manifest": _relative_path(champion_manifest, manifest_path.parent),
+        "evaluation": {
+            "path": _relative_path(summary.path, manifest_path.parent),
+            "timestamp": summary.timestamp,
+        },
+        "criteria": {
+            "minGames": config.promotion_min_games,
+            "minWinRate": config.promotion_min_win_rate,
+            "minEloDelta": config.promotion_min_elo_delta,
+        },
+        "opponents": config.opponents,
+    }
+    manifest["champion"] = champion_entry
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 @dataclass
 class SelfPlayRunContext:
     """Summary of the seeded run."""
@@ -273,6 +599,24 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         help="Base seed used for evaluation tournaments (default: 4096)",
     )
     parser.add_argument(
+        "--promotion-min-games",
+        type=int,
+        default=None,
+        help="Minimum total games before a checkpoint can be promoted (default: opponents * eval_games)",
+    )
+    parser.add_argument(
+        "--promotion-min-win-rate",
+        type=float,
+        default=None,
+        help="Average win rate threshold for champion promotion (default: 0.55)",
+    )
+    parser.add_argument(
+        "--promotion-min-elo-delta",
+        type=float,
+        default=None,
+        help="Minimum Elo delta above baseline required for promotion (default: 25.0)",
+    )
+    parser.add_argument(
         "--learning-rate",
         type=float,
         default=None,
@@ -415,6 +759,26 @@ def _merge_config(base: Mapping[str, Any], args: argparse.Namespace) -> Training
     eval_seed_value = args.eval_seed if args.eval_seed is not None else _config_lookup(base, "eval_seed", "evalSeed")
     eval_seed = int(eval_seed_value) if eval_seed_value is not None else _DEFAULT_EVAL_SEED
 
+    promotion_games_value = args.promotion_min_games if args.promotion_min_games is not None else _config_lookup(base, "promotion_min_games", "promotionMinGames")
+    if promotion_games_value is not None:
+        promotion_min_games = max(0, int(promotion_games_value))
+    else:
+        promotion_min_games = max(0, len(opponents) * max(eval_games, 0))
+
+    promotion_win_rate_value = (
+        args.promotion_min_win_rate if args.promotion_min_win_rate is not None else _config_lookup(base, "promotion_min_win_rate", "promotionMinWinRate")
+    )
+    promotion_min_win_rate = (
+        float(promotion_win_rate_value) if promotion_win_rate_value is not None else _PROMOTION_WIN_RATE_THRESHOLD
+    )
+
+    promotion_elo_delta_value = (
+        args.promotion_min_elo_delta if args.promotion_min_elo_delta is not None else _config_lookup(base, "promotion_min_elo_delta", "promotionMinEloDelta")
+    )
+    promotion_min_elo_delta = (
+        float(promotion_elo_delta_value) if promotion_elo_delta_value is not None else _PROMOTION_ELO_DELTA_THRESHOLD
+    )
+
     learning_rate_value = args.learning_rate if args.learning_rate is not None else _config_lookup(base, "learning_rate", "learningRate")
     learning_rate = float(learning_rate_value) if learning_rate_value is not None else 3e-4
 
@@ -465,6 +829,9 @@ def _merge_config(base: Mapping[str, Any], args: argparse.Namespace) -> Training
         reservoir_size=reservoir_size,
         eval_games=eval_games,
         eval_seed=eval_seed,
+        promotion_min_games=promotion_min_games,
+        promotion_min_win_rate=promotion_min_win_rate,
+        promotion_min_elo_delta=promotion_min_elo_delta,
         gamma=gamma,
         gae_lambda=gae_lambda,
         margin_weight=margin_weight,
@@ -548,6 +915,16 @@ def _run_training(config: TrainingConfig, artifacts: RunArtifacts) -> tuple[int,
         max_grad_norm=config.max_grad_norm,
     )
 
+    metrics_aggregator = RollingMetricAggregator(directory=artifacts.metrics, window_size=_ROLLING_METRIC_WINDOW)
+    metrics_aggregator.bootstrap()
+    champion = _load_champion_record(artifacts.champion_manifest)
+    if champion is not None:
+        print(
+            "Loaded champion: "
+            f"{champion.relative_checkpoint(artifacts.root)} "
+            f"(elo={champion.final_elo:.1f}, win_rate={champion.win_rate:.3f})"
+        )
+
     iteration = 0
     last_checkpoint_step = global_steps
 
@@ -596,6 +973,7 @@ def _run_training(config: TrainingConfig, artifacts: RunArtifacts) -> tuple[int,
         }
         metrics_path = artifacts.metrics / f"step_{global_steps}.json"
         metrics_path.write_text(json.dumps(metrics_payload, indent=2) + "\n", encoding="utf-8")
+        metrics_aggregator.record(metrics_payload)
 
         print(
             f"[iter {iteration:03d}] steps={global_steps} episodes={episodes} "
@@ -625,7 +1003,7 @@ def _run_training(config: TrainingConfig, artifacts: RunArtifacts) -> tuple[int,
             except FileNotFoundError:
                 print(f"Warning: checkpoint missing for reservoir registration: {checkpoint_path}")
 
-            eval_path = _run_evaluation_suite(
+            evaluation = _run_evaluation_suite(
                 checkpoint=checkpoint_path,
                 config=config,
                 artifacts=artifacts,
@@ -633,9 +1011,25 @@ def _run_training(config: TrainingConfig, artifacts: RunArtifacts) -> tuple[int,
                 step=global_steps,
                 eval_device=reservoir_device,
             )
-            if eval_path is not None:
-                last_evaluation = eval_path
-                print(f"Evaluation summary saved to {eval_path}")
+            if evaluation is not None:
+                last_evaluation = evaluation.path
+                print(
+                    "Evaluation summary saved to "
+                    f"{evaluation.path} (win_rate={evaluation.win_rate:.3f}, elo={evaluation.final_elo:.1f})"
+                )
+                promoted, champion = _maybe_promote_checkpoint(
+                    checkpoint=checkpoint_path,
+                    summary=evaluation,
+                    config=config,
+                    artifacts=artifacts,
+                    champion=champion,
+                )
+                if promoted:
+                    print(
+                        "Promoted new champion: "
+                        f"{checkpoint_path.name} "
+                        f"(elo={evaluation.final_elo:.1f}, win_rate={evaluation.win_rate:.3f})"
+                    )
 
     return global_steps, episodes, last_checkpoint, last_evaluation
 
@@ -685,6 +1079,7 @@ def _prepare_artifacts(root: Path, run_id: str) -> RunArtifacts:
     rollouts = run_root / "rollouts"
     eval_dir = run_root / "eval"
     manifest = run_root / "run_manifest.json"
+    champion_manifest = run_root / "champion.json"
 
     for path in (run_root, checkpoints, metrics, rollouts, eval_dir):
         path.mkdir(parents=True, exist_ok=True)
@@ -696,6 +1091,7 @@ def _prepare_artifacts(root: Path, run_id: str) -> RunArtifacts:
         rollouts=rollouts,
         eval=eval_dir,
         manifest=manifest,
+        champion_manifest=champion_manifest,
     )
 
 
@@ -735,6 +1131,11 @@ def _write_manifest(
             "entropyCoef": config.entropy_coef,
             "maxGradNorm": config.max_grad_norm,
             "device": config.device,
+        },
+        "promotionCriteria": {
+            "minGames": config.promotion_min_games,
+            "minWinRate": config.promotion_min_win_rate,
+            "minEloDelta": config.promotion_min_elo_delta,
         },
     }
     if config.resume_from is not None:
@@ -777,7 +1178,7 @@ def _run_evaluation_suite(
     iteration: int,
     step: int,
     eval_device: torch.device,
-) -> Path | None:
+) -> EvaluationSummary | None:
     if not config.opponents:
         return None
     if config.eval_games <= 0:
@@ -857,7 +1258,22 @@ def _run_evaluation_suite(
 
     eval_path = eval_dir / f"step_{step}_eval.json"
     eval_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    return eval_path
+
+    total_games = sum(entry.get("games", 0) for entry in results)
+    total_wins = sum(entry.get("wins", 0) + 0.5 * entry.get("ties", 0) for entry in results)
+    average_win_rate = total_wins / total_games if total_games else 0.0
+    elo_delta = candidate_rating - _EVAL_ELO_BASE
+
+    return EvaluationSummary(
+        path=eval_path,
+        iteration=iteration,
+        step=step,
+        final_elo=candidate_rating,
+        win_rate=average_win_rate,
+        games=total_games,
+        elo_delta=elo_delta,
+        payload=payload,
+    )
 
 
 def _policy_agent_from_checkpoint(checkpoint: Path, device: str) -> Agent:

@@ -120,6 +120,67 @@ def test_checkpoint_reservoir_produces_agents(tmp_path: Path) -> None:
     assert reservoir.paths == [second_checkpoint.resolve(), third_checkpoint.resolve()]
 
 
+def test_rolling_metric_aggregator_outputs(tmp_path: Path) -> None:
+    aggregator = self_play.RollingMetricAggregator(directory=tmp_path, window_size=3)
+    aggregator.bootstrap()
+
+    for idx in range(4):
+        payload = {
+            "timestamp": f"2024-01-0{idx + 1}T00:00:00+00:00",
+            "iteration": idx + 1,
+            "steps": (idx + 1) * 100,
+            "episodes": (idx + 1) * 5,
+            "rolloutSteps": 64 + idx,
+            "batchEpisodes": 4 + idx,
+            "avgEpisodeReward": 0.1 * (idx + 1),
+            "meanEntropy": 0.2 + 0.01 * idx,
+            "policy_loss": -0.05 * (idx + 1),
+            "value_loss": 0.5 + 0.05 * idx,
+            "entropy": 0.1 + 0.02 * idx,
+            "approx_kl": 0.01 + 0.001 * idx,
+            "clip_fraction": 0.02 + 0.002 * idx,
+        }
+        aggregator.record(payload)
+
+    json_path = tmp_path / "rolling_metrics.json"
+    assert json_path.exists()
+    history = json.loads(json_path.read_text(encoding="utf-8"))
+    assert len(history) == 4
+
+    last_entry = history[-1]
+    assert last_entry["window"] == 3
+    assert last_entry["steps"] == 400
+    assert last_entry["avgEpisodeReward_mean"] == pytest.approx((0.2 + 0.3 + 0.4) / 3)
+    assert last_entry["policy_loss_min"] == pytest.approx(-0.2)
+    assert last_entry["value_loss_max"] == pytest.approx(0.65)
+
+    parquet_path = tmp_path / "rolling_metrics.parquet"
+    if parquet_path.exists():
+        import pyarrow.parquet as pq  # type: ignore[import]
+
+        table = pq.read_table(parquet_path)
+        assert table.num_rows == 4
+        last_row = table.to_pylist()[-1]
+        assert last_row["window"] == 3
+        assert last_row["avgEpisodeReward_mean"] == pytest.approx((0.2 + 0.3 + 0.4) / 3)
+
+
+def test_eval_knobs_round_trip_config(tmp_path: Path) -> None:
+    config_path = tmp_path / "self_play.json"
+    config_payload = {"eval_games": 42, "eval_seed": 9876}
+    config_path.write_text(json.dumps(config_payload) + "\n", encoding="utf-8")
+
+    args = self_play._parse_args(["--config", str(config_path)])
+    base_config = self_play._load_config(args.config)
+    resolved = self_play._merge_config(base_config, args)
+
+    assert resolved.eval_games == 42
+    assert resolved.eval_seed == 9876
+
+    expected_min_games = len(resolved.opponents) * resolved.eval_games
+    assert resolved.promotion_min_games == expected_min_games
+
+
 def test_run_evaluation_suite_writes_summary(tmp_path: Path) -> None:
     observation_size = encoders.observation_size()
     action_size = len(action_space.canonical_actions())
@@ -155,6 +216,9 @@ def test_run_evaluation_suite_writes_summary(tmp_path: Path) -> None:
         reservoir_size=2,
         eval_games=2,
         eval_seed=321,
+        promotion_min_games=2,
+        promotion_min_win_rate=0.0,
+        promotion_min_elo_delta=-100.0,
         gamma=0.99,
         gae_lambda=0.95,
         margin_weight=0.25,
@@ -176,9 +240,10 @@ def test_run_evaluation_suite_writes_summary(tmp_path: Path) -> None:
         rollouts=rollouts_dir,
         eval=eval_dir,
         manifest=tmp_path / "manifest.json",
+        champion_manifest=tmp_path / "champion.json",
     )
 
-    eval_path = self_play._run_evaluation_suite(
+    eval_summary = self_play._run_evaluation_suite(
         checkpoint=checkpoint_path,
         config=config,
         artifacts=artifacts,
@@ -187,13 +252,38 @@ def test_run_evaluation_suite_writes_summary(tmp_path: Path) -> None:
         eval_device=torch.device("cpu"),
     )
 
-    assert eval_path is not None
-    assert eval_path.exists()
+    assert eval_summary is not None
+    assert eval_summary.path.exists()
+    assert eval_summary.games == config.eval_games
+    assert eval_summary.win_rate >= 0.0
 
-    payload = json.loads(eval_path.read_text(encoding="utf-8"))
+    payload = json.loads(eval_summary.path.read_text(encoding="utf-8"))
     assert payload["step"] == 12
     assert payload["gamesPerOpponent"] == config.eval_games
     assert payload["opponents"]
     opponent_entry = payload["opponents"][0]
     assert opponent_entry["opponent"] == "first"
     assert opponent_entry["games"] == config.eval_games
+
+    artifacts.manifest.write_text(json.dumps({"runId": config.run_id}) + "\n", encoding="utf-8")
+
+    promoted, champion = self_play._maybe_promote_checkpoint(
+        checkpoint=checkpoint_path,
+        summary=eval_summary,
+        config=config,
+        artifacts=artifacts,
+        champion=None,
+    )
+
+    assert promoted is True
+    assert champion is not None
+    assert artifacts.champion_manifest.exists()
+
+    champion_payload = json.loads(artifacts.champion_manifest.read_text(encoding="utf-8"))
+    assert champion_payload["model"] == "_03_training.policy_loader:load_policy"
+    assert champion_payload["checkpoint"].endswith("candidate.pt")
+    assert champion_payload["evaluation"]["winRate"] == pytest.approx(eval_summary.win_rate)
+
+    manifest_payload = json.loads(artifacts.manifest.read_text(encoding="utf-8"))
+    assert manifest_payload["champion"]["checkpoint"].endswith("candidate.pt")
+    assert manifest_payload["champion"]["games"] == eval_summary.games

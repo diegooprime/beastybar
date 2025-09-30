@@ -14,7 +14,7 @@
 - `pytest _05_other/tests -ra`: run the regression suite with failure summaries; add `-k` to focus subsets.
 - `python3 -m _03_training.tournament first diego --games 25 --seed 2025`: sample tournament invocation; tweak agent names, game count, or seeds when experimenting.
 - `python3 -m _03_training.tournament self-play diego --self-play-manifest _03_training/artifacts/champion.json --games 200`: evaluate the latest self-play checkpoint against a baseline using the manifest-driven loader.
-- `python3 -m _03_training.self_play --config path/to/self_play_config.json`: stage artifact directories and a manifest before launching PPO workers (config file optional).
+- `python3 -m _03_training.self_play --config path/to/self_play_config.json`: stage artifact directories and a manifest before launching PPO workers (config file optional). Use `--eval-games N` and `--eval-seed S` to tune evaluation tournaments; JSON configs mirror these flags via `eval_games` / `eval_seed` keys so runs stay reproducible.
 
 ## Coding Style & Naming Conventions
 - Code targets Python 3.10+; rely on `python3` when invoking modules or tooling, use 4-space indentation, type hints, and dataclasses (see `_01_simulator/state.py`).

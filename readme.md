@@ -17,6 +17,7 @@ The code for each section is independent so we can modify one without fucking up
 - Built in Python. Fast to build. I want to get better at it.
 - FastAPI + static html. Fast, simple and zero build.
 - Beasty Bar intro: https://tesera.ru/images/items/1525203/BeastyBar_EN-online.pdf
+- Beady Bar more rules: https://www.ultraboardgames.com/beasty-bar/game-rules.php
 
 
 ###
@@ -26,3 +27,4 @@ source .venv/bin/activate
 pip install -e .
 python -m _03_training.tournament first diego --games 25 --seed 2025
 
+Self-play runs accept `--eval-games` to control how many games each baseline plays per promotion check and `--eval-seed` to keep those tournaments deterministic. Drop the same knobs into a JSON config as `eval_games` / `eval_seed` when you want to drive `_03_training.self_play` from a file instead of the CLI.
