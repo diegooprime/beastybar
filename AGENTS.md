@@ -42,10 +42,11 @@
 - Example manifest:
   ```json
   {
-    "model": "rl_backend.loader:create_model",
+    "model": "_03_training.policy_loader:load_policy",
     "checkpoint": "checkpoints/step_120000.pt",
     "factoryKwargs": {"device": "cpu"},
     "exploration": {"temperature": 0.0, "epsilon": 0.05}
   }
   ```
 - Place shared manifests alongside checkpoints so round-robin tournaments can include `self-play` automatically by passing `--self-play-manifest`.
+- Sample CLI config: `_03_training/configs/self_play_local.json` seeds a short CPU-friendly run you can tweak locally.

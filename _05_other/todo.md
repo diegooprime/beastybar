@@ -29,10 +29,13 @@
 - [x] Write smoke tests that confirm deterministic outputs when exploration is disabled and seeds match.
 
 ## Phase 3 — Training pipeline
-- [ ] Create a self-play training entry point (e.g., `_03_training/self_play.py`) that wires up configs, seeding, and logging.
-- [ ] Build rollout workers that sample opponents (current policy + checkpoint reservoir) and collect trajectories.
-- [ ] Implement PPO/actor-critic update loop with advantage computation, gradient clipping, and optimizer state saves.
-- [ ] Store checkpoints and metrics under `_03_training/artifacts/` with manifest files describing hyperparameters.
+- [x] Create a self-play training entry point (e.g., `_03_training/self_play.py`) that wires up configs, seeding, and logging.
+- [x] Build rollout workers that sample opponents (current policy + checkpoint reservoir) and collect trajectories.
+- [x] Implement PPO/actor-critic update loop with advantage computation, gradient clipping, and optimizer state saves.
+- [x] Store checkpoints and metrics under `_03_training/artifacts/` with manifest files describing hyperparameters.
+- [x] Introduce a checkpoint reservoir so rollouts mix current policy self-play with prior champions.
+- [x] Trigger evaluation tournaments from the training loop whenever checkpoints are saved; persist win-rate/Elo summaries alongside metrics.
+- [ ] Aggregate training metrics into a rolling summary (JSON/Parquet) for dashboards and future Phase 5 UI integration.
 
 ## Phase 4 — Evaluation & promotion
 - [ ] Automate periodic tournaments against the baseline pool and recent checkpoints; record win rates and Elo changes.

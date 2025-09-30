@@ -1,12 +1,13 @@
-"""Self-play RL training entry point scaffolding.
+"""Self-play RL training entry point.
 
-This module seeds the environment, prepares artifact directories, and writes a
-run manifest according to the Phase 3 design brief. The actual rollout and
-optimization logic will be added in subsequent iterations.
-"""
+This CLI seeds run metadata, prepares artifact directories, and executes a basic
+self-play PPO loop using the simulator. Checkpoints and metrics are written to
+`_03_training/artifacts/<run_id>/` so tournaments and the UI can pick up the
+latest policy."""
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import os
 import random
@@ -14,10 +15,22 @@ import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
+
+import torch
+
+from _01_simulator import action_space
+from _02_agents import DiegoAgent, FirstLegalAgent, GreedyAgent, RandomAgent, SelfPlayRLAgent
+from _02_agents.base import Agent
+
+from . import encoders, models, policy_loader, ppo, rollout, tournament
 
 _DEFAULT_ARTIFACT_ROOT = Path("_03_training/artifacts")
 _DEFAULT_OPPONENT_POOL = ["first", "random", "greedy", "diego"]
+_DEFAULT_EVAL_GAMES = 200
+_DEFAULT_EVAL_SEED = 4_096
+_EVAL_ELO_BASE = 1500.0
+_EVAL_ELO_K = 32.0
 
 
 @dataclass
@@ -33,6 +46,22 @@ class TrainingConfig:
     run_id: str | None
     resume_from: Path | None
     notes: str | None
+    rollout_steps: int
+    reservoir_size: int
+    eval_games: int
+    eval_seed: int
+    gamma: float
+    gae_lambda: float
+    margin_weight: float
+    jitter_scale: float
+    learning_rate: float
+    ppo_epochs: int
+    ppo_batch_size: int
+    clip_coef: float
+    value_coef: float
+    entropy_coef: float
+    max_grad_norm: float
+    device: str
 
 
 @dataclass
@@ -56,6 +85,10 @@ class SelfPlayRunContext:
     git_sha: str
     created_at: str
     artifacts: RunArtifacts
+    completed_steps: int
+    episodes: int
+    last_checkpoint: Path | None
+    last_evaluation: Path | None
 
 
 def main(argv: Sequence[str] | None = None) -> SelfPlayRunContext:
@@ -86,17 +119,89 @@ def main(argv: Sequence[str] | None = None) -> SelfPlayRunContext:
 
     _print_summary(run_id, merged_config, artifacts, git_sha)
 
+    completed_steps, episodes, last_checkpoint, last_evaluation = _run_training(merged_config, artifacts)
+
     return SelfPlayRunContext(
         config=merged_config,
         run_id=run_id,
         git_sha=git_sha,
         created_at=created_at,
         artifacts=artifacts,
+        completed_steps=completed_steps,
+        episodes=episodes,
+        last_checkpoint=last_checkpoint,
+        last_evaluation=last_evaluation,
     )
 
 
+@dataclass
+class CheckpointEntry:
+    """Metadata for a checkpoint stored in the opponent reservoir."""
+
+    path: Path
+    step: int
+    factory: rollout.AgentFactory
+
+
+class CheckpointReservoir:
+    """Maintain a bounded set of checkpoint-based opponent factories."""
+
+    def __init__(self, *, max_size: int, device: torch.device) -> None:
+        if max_size <= 0:
+            raise ValueError("max_size must be positive")
+        self._max_size = max_size
+        self._device = device
+        self._entries: list[CheckpointEntry] = []
+        self._known_paths: set[Path] = set()
+
+    def bootstrap_from_directory(self, directory: Path) -> None:
+        """Load checkpoints from ``directory`` in sorted order."""
+
+        if not directory.exists():
+            return
+        for checkpoint_path in sorted(directory.glob("*.pt")):
+            self.add_checkpoint(checkpoint_path)
+
+    def add_checkpoint(self, path: Path) -> None:
+        """Load ``path`` and register it as a reservoir opponent."""
+
+        resolved = path.resolve()
+        if resolved in self._known_paths:
+            return
+        if not resolved.exists():
+            raise FileNotFoundError(f"Checkpoint not found: {resolved}")
+
+        model, _, payload = models.load_checkpoint(
+            resolved,
+            device=self._device,
+            include_optimizer=False,
+        )
+        model.eval()
+        factory = _checkpoint_agent_factory(model, self._device)
+        step = int(payload.get("step", 0))
+
+        entry = CheckpointEntry(path=resolved, step=step, factory=factory)
+        self._entries.append(entry)
+        self._known_paths.add(resolved)
+
+        if len(self._entries) > self._max_size:
+            removed = self._entries.pop(0)
+            self._known_paths.discard(removed.path)
+
+    @property
+    def factories(self) -> list[rollout.AgentFactory]:
+        return [entry.factory for entry in self._entries]
+
+    @property
+    def paths(self) -> list[Path]:
+        return [entry.path for entry in self._entries]
+
+    def __len__(self) -> int:
+        return len(self._entries)
+
+
 def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Prepare a self-play RL run")
+    parser = argparse.ArgumentParser(description="Run self-play PPO training")
     parser.add_argument(
         "--config",
         type=Path,
@@ -105,30 +210,30 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument(
         "--phase",
         default=None,
-        help="Project phase tag for the run id (default: p3)",
+        help="Phase tag used in generated run ids (default: p3)",
     )
     parser.add_argument(
         "--seed",
         type=int,
         default=None,
-        help="Global seed for the run (default: 2025)",
+        help="Global seed for reproducibility (default: 2025)",
     )
     parser.add_argument(
         "--opponent",
         action="append",
-        help="Opponent name to include in the evaluation pool (repeatable)",
+        help="Opponent name to include in the evaluation pool; repeat for multiple",
     )
     parser.add_argument(
         "--total-steps",
         type=int,
         default=None,
-        help="Total environment steps to budget for the run (default: 1,000,000)",
+        help="Total learner decisions to train on (default: 1,000,000)",
     )
     parser.add_argument(
         "--eval-frequency",
         type=int,
         default=None,
-        help="How often to schedule evaluation tournaments in steps (default: 50,000)",
+        help="Save checkpoints every N learner steps (default: 50,000)",
     )
     parser.add_argument(
         "--artifact-root",
@@ -136,18 +241,107 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         default=None,
         help="Root directory for artifacts (default: _03_training/artifacts)",
     )
-    parser.add_argument(
-        "--run-id",
-        help="Override the auto-generated run identifier",
-    )
+    parser.add_argument("--run-id", help="Override auto-generated run id")
     parser.add_argument(
         "--resume-from",
         type=Path,
-        help="Optional checkpoint directory to resume from",
+        help="Optional checkpoint file/directory to resume from",
+    )
+    parser.add_argument("--notes", help="Free-form notes stored in the manifest")
+    parser.add_argument(
+        "--rollout-steps",
+        type=int,
+        default=None,
+        help="Minimum learner decisions per rollout batch (default: 2048)",
     )
     parser.add_argument(
-        "--notes",
-        help="Free-form notes stored alongside the manifest",
+        "--reservoir-size",
+        type=int,
+        default=None,
+        help="Maximum checkpoints to retain as self-play opponents (default: 3)",
+    )
+    parser.add_argument(
+        "--eval-games",
+        type=int,
+        default=None,
+        help="Games per opponent when evaluating checkpoints (default: 200)",
+    )
+    parser.add_argument(
+        "--eval-seed",
+        type=int,
+        default=None,
+        help="Base seed used for evaluation tournaments (default: 4096)",
+    )
+    parser.add_argument(
+        "--learning-rate",
+        type=float,
+        default=None,
+        help="Adam learning rate (default: 3e-4)",
+    )
+    parser.add_argument(
+        "--ppo-epochs",
+        type=int,
+        default=None,
+        help="PPO epochs per rollout (default: 4)",
+    )
+    parser.add_argument(
+        "--ppo-batch-size",
+        type=int,
+        default=None,
+        help="PPO minibatch size (default: 512)",
+    )
+    parser.add_argument(
+        "--clip-coef",
+        type=float,
+        default=None,
+        help="PPO clipping coefficient (default: 0.2)",
+    )
+    parser.add_argument(
+        "--value-coef",
+        type=float,
+        default=None,
+        help="Value loss coefficient (default: 0.5)",
+    )
+    parser.add_argument(
+        "--entropy-coef",
+        type=float,
+        default=None,
+        help="Entropy bonus coefficient (default: 0.01)",
+    )
+    parser.add_argument(
+        "--max-grad-norm",
+        type=float,
+        default=None,
+        help="Gradient clipping norm (default: 0.5)",
+    )
+    parser.add_argument(
+        "--gamma",
+        type=float,
+        default=None,
+        help="Discount factor (default: 0.99)",
+    )
+    parser.add_argument(
+        "--gae-lambda",
+        type=float,
+        default=None,
+        help="GAE lambda (default: 0.95)",
+    )
+    parser.add_argument(
+        "--margin-weight",
+        type=float,
+        default=None,
+        help="Weight applied to margin reward shaping (default: 0.25)",
+    )
+    parser.add_argument(
+        "--jitter-scale",
+        type=float,
+        default=None,
+        help="Magnitude of deterministic reward jitter (default: 0.01)",
+    )
+    parser.add_argument(
+        "--device",
+        default=None,
+        help="Torch device to run on (default: auto)",
     )
     return parser.parse_args(argv)
 
@@ -187,42 +381,75 @@ def _merge_config(base: Mapping[str, Any], args: argparse.Namespace) -> Training
         else:
             opponents = list(_DEFAULT_OPPONENT_POOL)
 
-    base_phase = _config_lookup(base, "phase", "Phase")
-    phase = str(args.phase if args.phase is not None else (base_phase or "p3"))
+    phase = str(args.phase if args.phase is not None else _config_lookup(base, "phase", "Phase") or "p3")
 
-    base_seed = _config_lookup(base, "seed", "Seed")
-    seed_value = args.seed if args.seed is not None else base_seed
+    seed_value = args.seed if args.seed is not None else _config_lookup(base, "seed", "Seed")
     seed = int(seed_value) if seed_value is not None else 2025
 
-    base_total_steps = _config_lookup(base, "total_steps", "totalSteps")
-    total_steps_value = args.total_steps if args.total_steps is not None else base_total_steps
+    total_steps_value = args.total_steps if args.total_steps is not None else _config_lookup(base, "total_steps", "totalSteps")
     total_steps = int(total_steps_value) if total_steps_value is not None else 1_000_000
 
-    base_eval_freq = _config_lookup(base, "eval_frequency", "evalFrequency")
-    eval_freq_value = args.eval_frequency if args.eval_frequency is not None else base_eval_freq
+    eval_freq_value = args.eval_frequency if args.eval_frequency is not None else _config_lookup(base, "eval_frequency", "evalFrequency")
     eval_frequency = int(eval_freq_value) if eval_freq_value is not None else 50_000
 
-    base_artifact = _config_lookup(base, "artifact_root", "artifactRoot")
-    if args.artifact_root is not None:
-        artifact_root = Path(args.artifact_root)
-    elif base_artifact is not None:
-        artifact_root = Path(base_artifact)
-    else:
-        artifact_root = _DEFAULT_ARTIFACT_ROOT
+    artifact_root_value = args.artifact_root if args.artifact_root is not None else _config_lookup(base, "artifact_root", "artifactRoot")
+    artifact_root = Path(artifact_root_value) if artifact_root_value is not None else _DEFAULT_ARTIFACT_ROOT
 
-    base_run_id = _config_lookup(base, "run_id", "runId")
-    run_id = args.run_id or base_run_id
+    run_id = args.run_id or _config_lookup(base, "run_id", "runId")
 
-    base_resume = _config_lookup(base, "resume_from", "resumeFrom")
-    if args.resume_from is not None:
-        resume_from = Path(args.resume_from)
-    elif base_resume is not None:
-        resume_from = Path(base_resume)
-    else:
-        resume_from = None
+    resume_value = args.resume_from if args.resume_from is not None else _config_lookup(base, "resume_from", "resumeFrom")
+    resume_from = Path(resume_value) if resume_value is not None else None
 
     notes_value = args.notes if args.notes is not None else _config_lookup(base, "notes")
     notes = str(notes_value) if notes_value is not None else None
+
+    rollout_steps_value = args.rollout_steps if args.rollout_steps is not None else _config_lookup(base, "rollout_steps", "rolloutSteps")
+    rollout_steps = int(rollout_steps_value) if rollout_steps_value is not None else 2048
+
+    reservoir_size_value = args.reservoir_size if args.reservoir_size is not None else _config_lookup(base, "reservoir_size", "reservoirSize")
+    reservoir_size = int(reservoir_size_value) if reservoir_size_value is not None else 3
+
+    eval_games_value = args.eval_games if args.eval_games is not None else _config_lookup(base, "eval_games", "evalGames")
+    eval_games = int(eval_games_value) if eval_games_value is not None else _DEFAULT_EVAL_GAMES
+
+    eval_seed_value = args.eval_seed if args.eval_seed is not None else _config_lookup(base, "eval_seed", "evalSeed")
+    eval_seed = int(eval_seed_value) if eval_seed_value is not None else _DEFAULT_EVAL_SEED
+
+    learning_rate_value = args.learning_rate if args.learning_rate is not None else _config_lookup(base, "learning_rate", "learningRate")
+    learning_rate = float(learning_rate_value) if learning_rate_value is not None else 3e-4
+
+    ppo_epochs_value = args.ppo_epochs if args.ppo_epochs is not None else _config_lookup(base, "ppo_epochs", "ppoEpochs")
+    ppo_epochs = int(ppo_epochs_value) if ppo_epochs_value is not None else 4
+
+    ppo_batch_value = args.ppo_batch_size if args.ppo_batch_size is not None else _config_lookup(base, "ppo_batch_size", "ppoBatchSize")
+    ppo_batch_size = int(ppo_batch_value) if ppo_batch_value is not None else 512
+
+    clip_value = args.clip_coef if args.clip_coef is not None else _config_lookup(base, "clip_coef", "clipCoef")
+    clip_coef = float(clip_value) if clip_value is not None else 0.2
+
+    value_coef_value = args.value_coef if args.value_coef is not None else _config_lookup(base, "value_coef", "valueCoef")
+    value_coef = float(value_coef_value) if value_coef_value is not None else 0.5
+
+    entropy_coef_value = args.entropy_coef if args.entropy_coef is not None else _config_lookup(base, "entropy_coef", "entropyCoef")
+    entropy_coef = float(entropy_coef_value) if entropy_coef_value is not None else 0.01
+
+    grad_norm_value = args.max_grad_norm if args.max_grad_norm is not None else _config_lookup(base, "max_grad_norm", "maxGradNorm")
+    max_grad_norm = float(grad_norm_value) if grad_norm_value is not None else 0.5
+
+    gamma_value = args.gamma if args.gamma is not None else _config_lookup(base, "gamma")
+    gamma = float(gamma_value) if gamma_value is not None else 0.99
+
+    gae_lambda_value = args.gae_lambda if args.gae_lambda is not None else _config_lookup(base, "gae_lambda", "gaeLambda")
+    gae_lambda = float(gae_lambda_value) if gae_lambda_value is not None else 0.95
+
+    margin_value = args.margin_weight if args.margin_weight is not None else _config_lookup(base, "margin_weight", "marginWeight")
+    margin_weight = float(margin_value) if margin_value is not None else 0.25
+
+    jitter_value = args.jitter_scale if args.jitter_scale is not None else _config_lookup(base, "jitter_scale", "jitterScale")
+    jitter_scale = float(jitter_value) if jitter_value is not None else 0.01
+
+    device_value = args.device if args.device is not None else _config_lookup(base, "device")
+    device = str(device_value) if device_value is not None else "auto"
 
     return TrainingConfig(
         phase=phase,
@@ -234,7 +461,183 @@ def _merge_config(base: Mapping[str, Any], args: argparse.Namespace) -> Training
         run_id=run_id if run_id is None else str(run_id),
         resume_from=resume_from,
         notes=notes,
+        rollout_steps=rollout_steps,
+        reservoir_size=reservoir_size,
+        eval_games=eval_games,
+        eval_seed=eval_seed,
+        gamma=gamma,
+        gae_lambda=gae_lambda,
+        margin_weight=margin_weight,
+        jitter_scale=jitter_scale,
+        learning_rate=learning_rate,
+        ppo_epochs=ppo_epochs,
+        ppo_batch_size=ppo_batch_size,
+        clip_coef=clip_coef,
+        value_coef=value_coef,
+        entropy_coef=entropy_coef,
+        max_grad_norm=max_grad_norm,
+        device=device,
     )
+
+
+def _run_training(config: TrainingConfig, artifacts: RunArtifacts) -> tuple[int, int, Path | None, Path | None]:
+    device = _resolve_device(config.device)
+    print(f"Using device: {device}")
+
+    observation_size = encoders.observation_size()
+    action_size = len(action_space.canonical_actions())
+    policy_config = models.PolicyConfig(
+        observation_size=observation_size,
+        action_size=action_size,
+    )
+
+    global_steps = 0
+    episodes = 0
+    last_checkpoint = None
+    last_evaluation: Path | None = None
+
+    if config.resume_from is not None:
+        checkpoint_path = _resolve_resume_checkpoint(config.resume_from)
+        print(f"Resuming from checkpoint: {checkpoint_path}")
+        model, optimizer_state, payload = models.load_checkpoint(
+            checkpoint_path,
+            device=device,
+            include_optimizer=True,
+        )
+        if (
+            model.config.observation_size != observation_size
+            or model.config.action_size != action_size
+        ):
+            raise SystemExit(
+                "Checkpoint architecture mismatch; ensure observation/action schemas align",
+            )
+        global_steps = int(payload.get("step", 0))
+        metadata = payload.get("metadata", {}) or {}
+        episodes = int(metadata.get("episodes", episodes))
+        last_checkpoint = checkpoint_path
+        optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate, eps=1e-5)
+        if optimizer_state is not None:
+            optimizer.load_state_dict(optimizer_state)
+    else:
+        model = models.PolicyValueNet(policy_config).to(device)
+        optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate, eps=1e-5)
+
+    baseline_factories = _build_opponent_factories(config.opponents, config.seed)
+    reservoir_device = _reservoir_device(device)
+    reservoir = CheckpointReservoir(
+        max_size=config.reservoir_size,
+        device=reservoir_device,
+    )
+    reservoir.bootstrap_from_directory(artifacts.checkpoints)
+    if last_checkpoint is not None:
+        reservoir.add_checkpoint(last_checkpoint)
+    rollout_config = rollout.RolloutConfig(
+        min_steps=config.rollout_steps,
+        gamma=config.gamma,
+        gae_lambda=config.gae_lambda,
+        margin_weight=config.margin_weight,
+        jitter_scale=config.jitter_scale,
+    )
+    ppo_config = ppo.PPOConfig(
+        learning_rate=config.learning_rate,
+        epochs=config.ppo_epochs,
+        batch_size=config.ppo_batch_size,
+        clip_coef=config.clip_coef,
+        value_coef=config.value_coef,
+        entropy_coef=config.entropy_coef,
+        max_grad_norm=config.max_grad_norm,
+    )
+
+    iteration = 0
+    last_checkpoint_step = global_steps
+
+    while global_steps < config.total_steps:
+        iteration += 1
+        model.eval()
+        active_factories = list(baseline_factories) + reservoir.factories
+        if not active_factories:
+            raise SystemExit("No opponents available for rollouts; configure opponents or reservoir size > 0")
+        batch = rollout.collect_rollouts(
+            model=model,
+            opponent_factories=active_factories,
+            config=rollout_config,
+            base_seed=config.seed + iteration,
+            device=device,
+        )
+        if batch.steps == 0:
+            print("Rollout produced zero learner decisions; retrying...")
+            continue
+
+        model.train()
+        metrics = ppo.ppo_update(
+            model=model,
+            optimizer=optimizer,
+            batch=batch,
+            config=ppo_config,
+            device=device,
+        )
+
+        global_steps += batch.steps
+        episodes += batch.episodes
+
+        avg_reward = sum(batch.episode_rewards) / max(len(batch.episode_rewards), 1)
+        mean_entropy = batch.entropies.mean().item()
+
+        metrics_payload = {
+            "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+            "iteration": iteration,
+            "steps": global_steps,
+            "episodes": episodes,
+            "rolloutSteps": batch.steps,
+            "batchEpisodes": batch.episodes,
+            "avgEpisodeReward": avg_reward,
+            "meanEntropy": mean_entropy,
+            **metrics,
+        }
+        metrics_path = artifacts.metrics / f"step_{global_steps}.json"
+        metrics_path.write_text(json.dumps(metrics_payload, indent=2) + "\n", encoding="utf-8")
+
+        print(
+            f"[iter {iteration:03d}] steps={global_steps} episodes={episodes} "
+            f"avg_reward={avg_reward:.3f} policy_loss={metrics['policy_loss']:.4f} "
+            f"value_loss={metrics['value_loss']:.4f} entropy={metrics['entropy']:.4f}"
+        )
+
+        if global_steps - last_checkpoint_step >= config.eval_frequency or global_steps >= config.total_steps:
+            checkpoint_path = artifacts.checkpoints / f"step_{global_steps}.pt"
+            models.save_checkpoint(
+                checkpoint_path,
+                model=model,
+                optimizer=optimizer,
+                step=global_steps,
+                metadata={
+                    "iteration": iteration,
+                    "episodes": episodes,
+                    "avgEpisodeReward": avg_reward,
+                },
+            )
+            last_checkpoint = checkpoint_path
+            last_checkpoint_step = global_steps
+            print(f"Saved checkpoint: {checkpoint_path}")
+            try:
+                reservoir.add_checkpoint(checkpoint_path)
+                print(f"Reservoir size={len(reservoir)} (added {checkpoint_path.name})")
+            except FileNotFoundError:
+                print(f"Warning: checkpoint missing for reservoir registration: {checkpoint_path}")
+
+            eval_path = _run_evaluation_suite(
+                checkpoint=checkpoint_path,
+                config=config,
+                artifacts=artifacts,
+                iteration=iteration,
+                step=global_steps,
+                eval_device=reservoir_device,
+            )
+            if eval_path is not None:
+                last_evaluation = eval_path
+                print(f"Evaluation summary saved to {eval_path}")
+
+    return global_steps, episodes, last_checkpoint, last_evaluation
 
 
 def _git_sha() -> str:
@@ -268,8 +671,6 @@ def _seed_everything(seed: int) -> None:
         pass
 
     try:  # Optional torch seeding
-        import torch
-
         torch.manual_seed(seed)
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(seed)
@@ -317,6 +718,24 @@ def _write_manifest(
         "evalFrequency": config.eval_frequency,
         "opponents": config.opponents,
         "artifactRoot": str(config.artifact_root),
+        "hyperparameters": {
+            "rolloutSteps": config.rollout_steps,
+            "reservoirSize": config.reservoir_size,
+            "evalGames": config.eval_games,
+            "evalSeed": config.eval_seed,
+            "gamma": config.gamma,
+            "gaeLambda": config.gae_lambda,
+            "marginWeight": config.margin_weight,
+            "jitterScale": config.jitter_scale,
+            "learningRate": config.learning_rate,
+            "ppoEpochs": config.ppo_epochs,
+            "ppoBatchSize": config.ppo_batch_size,
+            "clipCoef": config.clip_coef,
+            "valueCoef": config.value_coef,
+            "entropyCoef": config.entropy_coef,
+            "maxGradNorm": config.max_grad_norm,
+            "device": config.device,
+        },
     }
     if config.resume_from is not None:
         payload["resumeFrom"] = str(config.resume_from)
@@ -330,7 +749,7 @@ def _write_manifest(
 
 
 def _print_summary(run_id: str, config: TrainingConfig, artifacts: RunArtifacts, git_sha: str) -> None:
-    print("=== Self-play run prepared ===")
+    print("=== Self-play run configuration ===")
     print(f"run_id      : {run_id}")
     print(f"git_sha     : {git_sha}")
     print(f"seed        : {config.seed}")
@@ -338,12 +757,232 @@ def _print_summary(run_id: str, config: TrainingConfig, artifacts: RunArtifacts,
     print(f"opponents   : {', '.join(config.opponents)}")
     print(f"total_steps : {config.total_steps}")
     print(f"eval_freq   : {config.eval_frequency}")
+    print(f"rollout     : {config.rollout_steps}")
+    print(f"reservoir   : {config.reservoir_size}")
+    print(f"eval_games  : {config.eval_games}")
+    print(f"device      : {config.device}")
     print(f"artifacts   : {artifacts.root}")
     if config.resume_from is not None:
         print(f"resume_from : {config.resume_from}")
     if config.notes:
         print(f"notes       : {config.notes}")
     print(f"manifest    : {artifacts.manifest}")
+
+
+def _run_evaluation_suite(
+    *,
+    checkpoint: Path,
+    config: TrainingConfig,
+    artifacts: RunArtifacts,
+    iteration: int,
+    step: int,
+    eval_device: torch.device,
+) -> Path | None:
+    if not config.opponents:
+        return None
+    if config.eval_games <= 0:
+        return None
+
+    eval_dir = artifacts.eval
+    eval_dir.mkdir(parents=True, exist_ok=True)
+
+    candidate_rating = _EVAL_ELO_BASE
+    opponent_ratings = {name: float(_EVAL_ELO_BASE) for name in config.opponents}
+
+    results: list[dict[str, Any]] = []
+    base_seed = config.eval_seed + iteration * 10_000
+    eval_device_str = str(eval_device)
+
+    for index, name in enumerate(config.opponents):
+        series_seed = base_seed + index * max(config.eval_games, 1)
+        opponent_seed = base_seed + 97 * (index + 1)
+        candidate_agent = _policy_agent_from_checkpoint(checkpoint, eval_device_str)
+        opponent_agent = _build_evaluation_opponent(name, opponent_seed)
+
+        series = tournament.SeriesConfig(
+            games=config.eval_games,
+            seed=series_seed,
+            agent_a=candidate_agent,
+            agent_b=opponent_agent,
+            alternate_start=True,
+            collect_actions=False,
+        )
+        result = tournament.play_series(series)
+        summary = result.summary
+        wins_a, wins_b = summary.wins
+        ties = summary.ties
+        rating_before = candidate_rating
+        candidate_rating, opponent_rating = _elo_series_update(
+            candidate_rating,
+            opponent_ratings[name],
+            wins_a=wins_a,
+            wins_b=wins_b,
+            ties=ties,
+            k_factor=_EVAL_ELO_K,
+        )
+        opponent_ratings[name] = opponent_rating
+        total_games = summary.games
+        win_rate = wins_a / total_games if total_games else 0.0
+
+        results.append(
+            {
+                "opponent": name,
+                "games": total_games,
+                "wins": wins_a,
+                "losses": wins_b,
+                "ties": ties,
+                "winRate": win_rate,
+                "averageScore": summary.average_scores[0],
+                "averageOpponentScore": summary.average_scores[1],
+                "averageTurns": summary.average_turns,
+                "elo": {
+                    "before": rating_before,
+                    "after": candidate_rating,
+                    "delta": candidate_rating - rating_before,
+                    "opponentAfter": opponent_rating,
+                },
+            }
+        )
+
+    payload = {
+        "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+        "step": step,
+        "iteration": iteration,
+        "checkpoint": str(checkpoint),
+        "gamesPerOpponent": config.eval_games,
+        "seedBase": config.eval_seed,
+        "opponents": results,
+        "finalElo": candidate_rating,
+    }
+
+    eval_path = eval_dir / f"step_{step}_eval.json"
+    eval_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return eval_path
+
+
+def _policy_agent_from_checkpoint(checkpoint: Path, device: str) -> Agent:
+    model_fn = policy_loader.load_policy(checkpoint=checkpoint, device=device)
+    return SelfPlayRLAgent(model_factory=lambda: model_fn)
+
+
+def _build_evaluation_opponent(name: str, seed: int) -> Agent:
+    normalized = name.lower()
+    if normalized == "first":
+        return FirstLegalAgent()
+    if normalized == "random":
+        return RandomAgent(seed=seed)
+    if normalized == "greedy":
+        return GreedyAgent()
+    if normalized == "diego":
+        return DiegoAgent()
+    raise SystemExit(f"Unsupported evaluation opponent: {name}")
+
+
+def _elo_series_update(
+    rating_a: float,
+    rating_b: float,
+    *,
+    wins_a: int,
+    wins_b: int,
+    ties: int,
+    k_factor: float,
+) -> tuple[float, float]:
+    def expected(r_a: float, r_b: float) -> float:
+        return 1.0 / (1.0 + 10 ** ((r_b - r_a) / 400.0))
+
+    for _ in range(wins_a):
+        exp_a = expected(rating_a, rating_b)
+        exp_b = 1.0 - exp_a
+        rating_a += k_factor * (1.0 - exp_a)
+        rating_b += k_factor * (0.0 - exp_b)
+
+    for _ in range(ties):
+        exp_a = expected(rating_a, rating_b)
+        exp_b = 1.0 - exp_a
+        rating_a += k_factor * (0.5 - exp_a)
+        rating_b += k_factor * (0.5 - exp_b)
+
+    for _ in range(wins_b):
+        exp_a = expected(rating_a, rating_b)
+        exp_b = 1.0 - exp_a
+        rating_a += k_factor * (0.0 - exp_a)
+        rating_b += k_factor * (1.0 - exp_b)
+
+    return rating_a, rating_b
+
+
+def _checkpoint_agent_factory(model: models.PolicyValueNet, device: torch.device) -> rollout.AgentFactory:
+    """Create a factory that wraps ``model`` in a :class:`SelfPlayRLAgent`."""
+
+    model = model.to(device)
+    model.eval()
+    model.requires_grad_(False)
+
+    def model_factory() -> Callable[[Any], Sequence[float]]:
+        def logits_fn(obs: Any) -> Sequence[float]:
+            encoded = encoders.encode_observation(obs).to(device)
+            with torch.no_grad():
+                logits, _ = model(encoded)
+            return logits.squeeze(0).cpu().tolist()
+
+        return logits_fn
+
+    def factory() -> Agent:
+        return SelfPlayRLAgent(model_factory=model_factory)
+
+    return factory
+
+
+def _reservoir_device(training_device: torch.device) -> torch.device:
+    if training_device.type == "cpu":
+        return training_device
+    return torch.device("cpu")
+
+
+def _build_opponent_factories(names: Sequence[str], seed: int) -> list[rollout.AgentFactory]:
+    factories: list[rollout.AgentFactory] = []
+    for name in names:
+        normalized = name.lower()
+        if normalized == "first":
+            factories.append(FirstLegalAgent)
+        elif normalized == "random":
+            counter = itertools.count()
+
+            def factory(counter=counter) -> Agent:
+                agent_seed = seed + next(counter)
+                return RandomAgent(seed=agent_seed)
+
+            factories.append(factory)
+        elif normalized == "greedy":
+            factories.append(GreedyAgent)
+        elif normalized == "diego":
+            factories.append(DiegoAgent)
+        else:
+            raise SystemExit(f"Unsupported opponent: {name}")
+    return factories
+
+
+def _resolve_device(requested: str) -> torch.device:
+    if requested == "auto":
+        if torch.cuda.is_available():
+            return torch.device("cuda")
+        return torch.device("cpu")
+    device = torch.device(requested)
+    if device.type == "cuda" and not torch.cuda.is_available():
+        print("Requested CUDA device but CUDA is unavailable; falling back to CPU")
+        return torch.device("cpu")
+    return device
+
+
+def _resolve_resume_checkpoint(path: Path) -> Path:
+    if path.is_file():
+        return path
+    if not path.exists():
+        raise FileNotFoundError(f"Resume path not found: {path}")
+    candidates = sorted(path.glob("*.pt"))
+    if not candidates:
+        raise FileNotFoundError(f"No checkpoint files found under {path}")
+    return candidates[-1]
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI support
