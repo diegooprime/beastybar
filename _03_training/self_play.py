@@ -287,6 +287,7 @@ def _maybe_promote_checkpoint(
     config: TrainingConfig,
     artifacts: RunArtifacts,
     champion: ChampionRecord | None,
+    artifact_manager: ArtifactManager | None = None,
 ) -> tuple[bool, ChampionRecord | None]:
     min_games = max(0, config.promotion_min_games)
     if summary.games < min_games:
@@ -315,19 +316,31 @@ def _maybe_promote_checkpoint(
         promoted_at=promoted_at,
     )
 
-    _persist_champion_manifest(
-        champion_record=new_champion,
-        summary=summary,
-        artifacts=artifacts,
-        config=config,
-    )
-    _update_run_manifest_champion(
-        manifest_path=artifacts.manifest,
-        champion=new_champion,
-        summary=summary,
-        config=config,
-        champion_manifest=artifacts.champion_manifest,
-    )
+    # Use ArtifactManager if available, otherwise fall back to legacy functions
+    if artifact_manager is not None:
+        artifact_manager.handle_promotion(
+            checkpoint=resolved_checkpoint,
+            win_rate=summary.win_rate,
+            final_elo=summary.final_elo,
+            elo_delta=summary.elo_delta,
+            games=summary.games,
+            iteration=summary.iteration,
+            step=summary.step,
+        )
+    else:
+        _persist_champion_manifest(
+            champion_record=new_champion,
+            summary=summary,
+            artifacts=artifacts,
+            config=config,
+        )
+        _update_run_manifest_champion(
+            manifest_path=artifacts.manifest,
+            champion=new_champion,
+            summary=summary,
+            config=config,
+            champion_manifest=artifacts.champion_manifest,
+        )
     return True, new_champion
 
 
@@ -524,6 +537,260 @@ class CheckpointReservoir:
 
     def __len__(self) -> int:
         return len(self._entries)
+
+
+class ArtifactManager:
+    """Manages checkpoint archival, pruning, and promotion bookkeeping.
+
+    Enforces retention policy: keep latest N checkpoints + current champion.
+    Archives or deletes defeated checkpoints based on configuration.
+    Updates run_manifest.json and champion.json when promotions occur.
+    """
+
+    def __init__(
+        self,
+        *,
+        artifacts: RunArtifacts,
+        max_checkpoints: int = 5,
+        archive_defeated: bool = False,
+    ) -> None:
+        """Initialize artifact manager.
+
+        Args:
+            artifacts: Artifact directory structure
+            max_checkpoints: Maximum number of checkpoints to retain (default: 5)
+            archive_defeated: If True, move defeated checkpoints to archive/ subdirectory.
+                             If False, delete them. (default: False)
+        """
+        if max_checkpoints <= 0:
+            raise ValueError("max_checkpoints must be positive")
+        self._artifacts = artifacts
+        self._max_checkpoints = max_checkpoints
+        self._archive_defeated = archive_defeated
+        self._archive_dir = artifacts.checkpoints.parent / "archive"
+        self._champion_path: Path | None = None
+
+    def set_champion(self, checkpoint_path: Path) -> None:
+        """Track the current champion checkpoint to prevent pruning."""
+        self._champion_path = checkpoint_path.resolve()
+
+    def prune_checkpoints(self) -> dict[str, Any]:
+        """Remove old checkpoints exceeding the retention limit.
+
+        Keeps the latest max_checkpoints checkpoints plus the current champion.
+        Defeated checkpoints are either archived or deleted based on archive_defeated flag.
+
+        Returns:
+            Dictionary with pruning statistics: {
+                'pruned': list of pruned checkpoint names,
+                'archived': list of archived checkpoint names (if archive_defeated=True),
+                'retained': list of retained checkpoint names
+            }
+        """
+        # Sort checkpoints by step number (extracted from filename)
+        def extract_step(path: Path) -> int:
+            try:
+                return int(path.stem.split("_")[1])
+            except (IndexError, ValueError):
+                return 0
+
+        checkpoints = sorted(self._artifacts.checkpoints.glob("step_*.pt"), key=extract_step)
+
+        if len(checkpoints) <= self._max_checkpoints:
+            return {
+                "pruned": [],
+                "archived": [],
+                "retained": [cp.name for cp in checkpoints],
+            }
+
+        # Keep latest N checkpoints
+        to_keep = set(checkpoints[-self._max_checkpoints :])
+
+        # Always keep champion if it exists
+        if self._champion_path and self._champion_path in checkpoints:
+            to_keep.add(self._champion_path)
+
+        to_remove = [cp for cp in checkpoints if cp not in to_keep]
+
+        pruned_names = []
+        archived_names = []
+
+        for checkpoint in to_remove:
+            if self._archive_defeated:
+                # Archive the checkpoint
+                self._archive_dir.mkdir(parents=True, exist_ok=True)
+                archive_dest = self._archive_dir / checkpoint.name
+                checkpoint.rename(archive_dest)
+                archived_names.append(checkpoint.name)
+            else:
+                # Delete the checkpoint
+                checkpoint.unlink()
+                pruned_names.append(checkpoint.name)
+
+        retained_names = [cp.name for cp in to_keep]
+
+        return {
+            "pruned": pruned_names,
+            "archived": archived_names,
+            "retained": sorted(retained_names),
+        }
+
+    def update_champion_manifest(
+        self,
+        *,
+        checkpoint: Path,
+        win_rate: float,
+        final_elo: float,
+        elo_delta: float,
+        games: int,
+        iteration: int,
+        step: int,
+    ) -> None:
+        """Update champion.json with new champion metadata.
+
+        Args:
+            checkpoint: Path to the promoted checkpoint
+            win_rate: Champion's win rate in evaluation tournament
+            final_elo: Champion's final Elo rating
+            elo_delta: Elo improvement over previous champion
+            games: Number of games played in evaluation
+            iteration: Training iteration number
+            step: Global training step
+        """
+        promoted_at = datetime.now(tz=timezone.utc).replace(microsecond=0).isoformat()
+
+        # Build champion manifest in policy_loader format
+        relative_checkpoint = _relative_path(checkpoint, self._artifacts.root)
+
+        champion_data = {
+            "model": "_03_training.policy_loader:load_policy",
+            "checkpoint": relative_checkpoint,
+            "factoryKwargs": {"device": "cpu"},
+            "exploration": {
+                "temperature": 0.0,
+                "epsilon": 0.05,
+            },
+            "metadata": {
+                "winRate": win_rate,
+                "finalElo": final_elo,
+                "eloDelta": elo_delta,
+                "games": games,
+                "iteration": iteration,
+                "step": step,
+                "promotedAt": promoted_at,
+            },
+        }
+
+        self._artifacts.champion_manifest.write_text(
+            json.dumps(champion_data, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+        # Update champion tracking
+        self.set_champion(checkpoint)
+
+    def update_run_manifest_champion(
+        self,
+        *,
+        checkpoint: Path,
+        win_rate: float,
+        final_elo: float,
+        elo_delta: float,
+        games: int,
+        iteration: int,
+        step: int,
+    ) -> None:
+        """Update the champion entry in run_manifest.json.
+
+        Reads the existing run_manifest.json, updates the 'champion' field,
+        and writes it back.
+
+        Args:
+            checkpoint: Path to the promoted checkpoint
+            win_rate: Champion's win rate
+            final_elo: Champion's final Elo
+            elo_delta: Elo improvement
+            games: Games played
+            iteration: Training iteration
+            step: Global step
+        """
+        if not self._artifacts.manifest.exists():
+            # No manifest to update yet
+            return
+
+        try:
+            manifest = json.loads(self._artifacts.manifest.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):  # pragma: no cover
+            # Corrupted manifest, skip update
+            return
+
+        promoted_at = datetime.now(tz=timezone.utc).replace(microsecond=0).isoformat()
+        relative_checkpoint = _relative_path(checkpoint, self._artifacts.root)
+
+        champion_entry = {
+            "checkpoint": relative_checkpoint,
+            "winRate": win_rate,
+            "finalElo": final_elo,
+            "eloDelta": elo_delta,
+            "games": games,
+            "iteration": iteration,
+            "step": step,
+            "promotedAt": promoted_at,
+        }
+
+        manifest["champion"] = champion_entry
+
+        self._artifacts.manifest.write_text(
+            json.dumps(manifest, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+    def handle_promotion(
+        self,
+        *,
+        checkpoint: Path,
+        win_rate: float,
+        final_elo: float,
+        elo_delta: float,
+        games: int,
+        iteration: int,
+        step: int,
+    ) -> None:
+        """Complete promotion workflow: update both manifests and set champion tracking.
+
+        This is the primary interface for promotion events. It handles all bookkeeping
+        required when a new champion is promoted.
+
+        Args:
+            checkpoint: Path to the promoted checkpoint
+            win_rate: Champion's win rate
+            final_elo: Champion's final Elo
+            elo_delta: Elo improvement
+            games: Games played
+            iteration: Training iteration
+            step: Global step
+        """
+        # Update champion.json
+        self.update_champion_manifest(
+            checkpoint=checkpoint,
+            win_rate=win_rate,
+            final_elo=final_elo,
+            elo_delta=elo_delta,
+            games=games,
+            iteration=iteration,
+            step=step,
+        )
+
+        # Update run_manifest.json
+        self.update_run_manifest_champion(
+            checkpoint=checkpoint,
+            win_rate=win_rate,
+            final_elo=final_elo,
+            elo_delta=elo_delta,
+            games=games,
+            iteration=iteration,
+            step=step,
+        )
 
 
 def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
@@ -918,7 +1185,17 @@ def _run_training(config: TrainingConfig, artifacts: RunArtifacts) -> tuple[int,
     metrics_aggregator = RollingMetricAggregator(directory=artifacts.metrics, window_size=_ROLLING_METRIC_WINDOW)
     metrics_aggregator.bootstrap()
     champion = _load_champion_record(artifacts.champion_manifest)
+
+    # Initialize artifact manager for checkpoint pruning and promotion bookkeeping
+    artifact_manager = ArtifactManager(
+        artifacts=artifacts,
+        max_checkpoints=5,  # Keep latest 5 checkpoints + champion
+        archive_defeated=False,  # Delete defeated checkpoints instead of archiving
+    )
+
+    # Set initial champion if exists
     if champion is not None:
+        artifact_manager.set_champion(champion.checkpoint)
         print(
             "Loaded champion: "
             f"{champion.relative_checkpoint(artifacts.root)} "
@@ -1023,6 +1300,7 @@ def _run_training(config: TrainingConfig, artifacts: RunArtifacts) -> tuple[int,
                     config=config,
                     artifacts=artifacts,
                     champion=champion,
+                    artifact_manager=artifact_manager,
                 )
                 if promoted:
                     print(
@@ -1030,6 +1308,13 @@ def _run_training(config: TrainingConfig, artifacts: RunArtifacts) -> tuple[int,
                         f"{checkpoint_path.name} "
                         f"(elo={evaluation.final_elo:.1f}, win_rate={evaluation.win_rate:.3f})"
                     )
+
+                # Prune old checkpoints after evaluation
+                prune_stats = artifact_manager.prune_checkpoints()
+                if prune_stats["pruned"]:
+                    print(f"Pruned checkpoints: {', '.join(prune_stats['pruned'])}")
+                if prune_stats["archived"]:
+                    print(f"Archived checkpoints: {', '.join(prune_stats['archived'])}")
 
     return global_steps, episodes, last_checkpoint, last_evaluation
 
