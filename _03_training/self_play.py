@@ -319,13 +319,9 @@ def _maybe_promote_checkpoint(
     # Use ArtifactManager if available, otherwise fall back to legacy functions
     if artifact_manager is not None:
         artifact_manager.handle_promotion(
-            checkpoint=resolved_checkpoint,
-            win_rate=summary.win_rate,
-            final_elo=summary.final_elo,
-            elo_delta=summary.elo_delta,
-            games=summary.games,
-            iteration=summary.iteration,
-            step=summary.step,
+            champion_record=new_champion,
+            summary=summary,
+            config=config,
         )
     else:
         _persist_champion_manifest(
@@ -540,6 +536,15 @@ class CheckpointReservoir:
     def __len__(self) -> int:
         return len(self._entries)
 
+    def remove_checkpoint(self, path: Path) -> None:
+        """Drop ``path`` from the reservoir if present."""
+
+        resolved = path.resolve()
+        if resolved not in self._known_paths:
+            return
+        self._entries = [entry for entry in self._entries if entry.path != resolved]
+        self._known_paths.discard(resolved)
+
 
 class ArtifactManager:
     """Manages checkpoint archival, pruning, and promotion bookkeeping.
@@ -603,6 +608,8 @@ class ArtifactManager:
                 "pruned": [],
                 "archived": [],
                 "retained": [cp.name for cp in checkpoints],
+                "pruned_paths": [],
+                "archived_paths": [],
             }
 
         # Keep latest N checkpoints
@@ -614,18 +621,22 @@ class ArtifactManager:
 
         to_remove = [cp for cp in checkpoints if cp not in to_keep]
 
-        pruned_names = []
-        archived_names = []
+        pruned_names: list[str] = []
+        archived_names: list[str] = []
+        pruned_paths: list[Path] = []
+        archived_paths: list[Path] = []
 
         for checkpoint in to_remove:
             if self._archive_defeated:
                 # Archive the checkpoint
                 self._archive_dir.mkdir(parents=True, exist_ok=True)
                 archive_dest = self._archive_dir / checkpoint.name
+                archived_paths.append(checkpoint.resolve())
                 checkpoint.rename(archive_dest)
                 archived_names.append(checkpoint.name)
             else:
                 # Delete the checkpoint
+                pruned_paths.append(checkpoint.resolve())
                 checkpoint.unlink()
                 pruned_names.append(checkpoint.name)
 
@@ -635,164 +646,35 @@ class ArtifactManager:
             "pruned": pruned_names,
             "archived": archived_names,
             "retained": sorted(retained_names),
+            "pruned_paths": pruned_paths,
+            "archived_paths": archived_paths,
         }
-
-    def update_champion_manifest(
-        self,
-        *,
-        checkpoint: Path,
-        win_rate: float,
-        final_elo: float,
-        elo_delta: float,
-        games: int,
-        iteration: int,
-        step: int,
-    ) -> None:
-        """Update champion.json with new champion metadata.
-
-        Args:
-            checkpoint: Path to the promoted checkpoint
-            win_rate: Champion's win rate in evaluation tournament
-            final_elo: Champion's final Elo rating
-            elo_delta: Elo improvement over previous champion
-            games: Number of games played in evaluation
-            iteration: Training iteration number
-            step: Global training step
-        """
-        promoted_at = datetime.now(tz=timezone.utc).replace(microsecond=0).isoformat()
-
-        # Build champion manifest in policy_loader format
-        relative_checkpoint = _relative_path(checkpoint, self._artifacts.root)
-
-        champion_data = {
-            "model": "_03_training.policy_loader:load_policy",
-            "checkpoint": relative_checkpoint,
-            "factoryKwargs": {"device": "cpu"},
-            "exploration": {
-                "temperature": 0.0,
-                "epsilon": 0.05,
-            },
-            "metadata": {
-                "winRate": win_rate,
-                "finalElo": final_elo,
-                "eloDelta": elo_delta,
-                "games": games,
-                "iteration": iteration,
-                "step": step,
-                "promotedAt": promoted_at,
-            },
-        }
-
-        self._artifacts.champion_manifest.write_text(
-            json.dumps(champion_data, indent=2) + "\n",
-            encoding="utf-8",
-        )
-
-        # Update champion tracking
-        self.set_champion(checkpoint)
-
-    def update_run_manifest_champion(
-        self,
-        *,
-        checkpoint: Path,
-        win_rate: float,
-        final_elo: float,
-        elo_delta: float,
-        games: int,
-        iteration: int,
-        step: int,
-    ) -> None:
-        """Update the champion entry in run_manifest.json.
-
-        Reads the existing run_manifest.json, updates the 'champion' field,
-        and writes it back.
-
-        Args:
-            checkpoint: Path to the promoted checkpoint
-            win_rate: Champion's win rate
-            final_elo: Champion's final Elo
-            elo_delta: Elo improvement
-            games: Games played
-            iteration: Training iteration
-            step: Global step
-        """
-        if not self._artifacts.manifest.exists():
-            # No manifest to update yet
-            return
-
-        try:
-            manifest = json.loads(self._artifacts.manifest.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):  # pragma: no cover
-            # Corrupted manifest, skip update
-            return
-
-        promoted_at = datetime.now(tz=timezone.utc).replace(microsecond=0).isoformat()
-        relative_checkpoint = _relative_path(checkpoint, self._artifacts.root)
-
-        champion_entry = {
-            "checkpoint": relative_checkpoint,
-            "winRate": win_rate,
-            "finalElo": final_elo,
-            "eloDelta": elo_delta,
-            "games": games,
-            "iteration": iteration,
-            "step": step,
-            "promotedAt": promoted_at,
-        }
-
-        manifest["champion"] = champion_entry
-
-        self._artifacts.manifest.write_text(
-            json.dumps(manifest, indent=2) + "\n",
-            encoding="utf-8",
-        )
 
     def handle_promotion(
         self,
         *,
-        checkpoint: Path,
-        win_rate: float,
-        final_elo: float,
-        elo_delta: float,
-        games: int,
-        iteration: int,
-        step: int,
+        champion_record: ChampionRecord,
+        summary: EvaluationSummary,
+        config: TrainingConfig,
     ) -> None:
-        """Complete promotion workflow: update both manifests and set champion tracking.
+        """Complete promotion workflow: update manifests and track champion."""
 
-        This is the primary interface for promotion events. It handles all bookkeeping
-        required when a new champion is promoted.
-
-        Args:
-            checkpoint: Path to the promoted checkpoint
-            win_rate: Champion's win rate
-            final_elo: Champion's final Elo
-            elo_delta: Elo improvement
-            games: Games played
-            iteration: Training iteration
-            step: Global step
-        """
-        # Update champion.json
-        self.update_champion_manifest(
-            checkpoint=checkpoint,
-            win_rate=win_rate,
-            final_elo=final_elo,
-            elo_delta=elo_delta,
-            games=games,
-            iteration=iteration,
-            step=step,
+        _persist_champion_manifest(
+            champion_record=champion_record,
+            summary=summary,
+            artifacts=self._artifacts,
+            config=config,
+        )
+        _update_run_manifest_champion(
+            manifest_path=self._artifacts.manifest,
+            champion=champion_record,
+            summary=summary,
+            config=config,
+            champion_manifest=self._artifacts.champion_manifest,
         )
 
-        # Update run_manifest.json
-        self.update_run_manifest_champion(
-            checkpoint=checkpoint,
-            win_rate=win_rate,
-            final_elo=final_elo,
-            elo_delta=elo_delta,
-            games=games,
-            iteration=iteration,
-            step=step,
-        )
+        # Update champion tracking
+        self.set_champion(champion_record.checkpoint)
 
 
 def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
@@ -1315,6 +1197,9 @@ def _run_training(config: TrainingConfig, artifacts: RunArtifacts) -> tuple[int,
 
                 # Prune old checkpoints after evaluation
                 prune_stats = artifact_manager.prune_checkpoints()
+                removed_paths = prune_stats.get("pruned_paths", []) + prune_stats.get("archived_paths", [])
+                for removed_path in removed_paths:
+                    reservoir.remove_checkpoint(removed_path)
                 if prune_stats["pruned"]:
                     print(f"Pruned checkpoints: {', '.join(prune_stats['pruned'])}")
                 if prune_stats["archived"]:
