@@ -8,13 +8,68 @@
 - `_05_other/tests/`: pytest suite covering rules, agents, replay, and UI glue; add new coverage with `test_*.py` modules.
 
 ## Build, Test, and Development Commands
-- `python3 -m venv .venv && source .venv/bin/activate`: create an isolated Python 3 environment before installing deps.
-- `python3 -m pip install -e .`: install the package in editable mode so cross-package imports resolve while iterating.
-- `uvicorn _04_ui.app:create_app --reload`: launch the API and static viewer with auto-reload for local testing.
-- `pytest _05_other/tests -ra`: run the regression suite with failure summaries; add `-k` to focus subsets.
-- `python3 -m _03_training.tournament first diego --games 25 --seed 2025`: sample tournament invocation; tweak agent names, game count, or seeds when experimenting.
-- `python3 -m _03_training.tournament self-play diego --self-play-manifest _03_training/artifacts/champion.json --games 200`: evaluate the latest self-play checkpoint against a baseline using the manifest-driven loader.
-- `python3 -m _03_training.self_play --config path/to/self_play_config.json`: stage artifact directories and a manifest before launching PPO workers (config file optional). Use `--eval-games N` and `--eval-seed S` to tune evaluation tournaments; JSON configs mirror these flags via `eval_games` / `eval_seed` keys so runs stay reproducible.
+
+### Environment Setup
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+python3 -m pip install -e .
+```
+
+### Running the UI
+```bash
+uvicorn _04_ui.app:create_app --reload
+# Visit http://localhost:8000 to play against any agent
+```
+
+### Running Tournaments
+```bash
+# Basic tournament between baselines
+python3 -m _03_training.tournament first diego --games 25 --seed 2025
+
+# Evaluate trained RL agent against baseline
+python3 -m _03_training.tournament self-play diego \
+  --self-play-manifest _03_training/artifacts/champion.json \
+  --games 200
+
+# Multi-agent round-robin
+python3 -m _03_training.tournament first random greedy diego \
+  --games 100 --seed 2025
+```
+
+### Self-Play RL Training
+```bash
+# Quick local smoke test (recommended for first run)
+python3 -m _03_training.self_play \
+  --config _03_training/configs/self_play_local.json
+
+# Full training run with CLI flags
+python3 -m _03_training.self_play \
+  --phase p3 \
+  --seed 2025 \
+  --opponent first --opponent random --opponent greedy --opponent diego \
+  --total-steps 1000000 \
+  --eval-frequency 50000 \
+  --rollout-steps 2048 \
+  --eval-games 200 \
+  --eval-seed 4096
+
+# Resume from existing checkpoint
+python3 -m _03_training.self_play \
+  --config _03_training/configs/self_play_local.json \
+  --resume-from _03_training/artifacts/<run_id>/checkpoints/step_10000.pt
+```
+
+See `_03_training/training_loop.md` for complete CLI reference and training walkthrough.
+
+### Testing
+```bash
+# Run all tests
+pytest _05_other/tests -ra
+
+# Run specific test modules
+pytest _05_other/tests/test_simulate.py -v
+pytest _05_other/tests -k "test_action" -v
+```
 
 ## Coding Style & Naming Conventions
 - Code targets Python 3.10+; rely on `python3` when invoking modules or tooling, use 4-space indentation, type hints, and dataclasses (see `_01_simulator/state.py`).
