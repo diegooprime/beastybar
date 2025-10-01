@@ -863,6 +863,125 @@
         display: none;
       }
 
+      .telemetry {
+        margin: 1rem 1.75rem;
+        padding: 1.25rem;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+      }
+
+      .telemetry-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+      }
+
+      .telemetry h2 {
+        margin: 0;
+        font-size: 1rem;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        color: var(--subtle-text);
+      }
+
+      .telemetry-collapsed {
+        display: none;
+      }
+
+      .telemetry.collapsed .telemetry-collapsed {
+        display: none;
+      }
+
+      .telemetry-controls {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+      }
+
+      .telemetry-controls select {
+        min-width: 160px;
+      }
+
+      .telemetry-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 1rem;
+        margin-bottom: 1rem;
+      }
+
+      .telemetry-card {
+        padding: 1rem;
+        background: var(--surface-muted);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+      }
+
+      .telemetry-card h3 {
+        margin: 0 0 0.5rem;
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        color: var(--subtle-text);
+        letter-spacing: 0.02em;
+      }
+
+      .telemetry-value {
+        font-size: 1.8rem;
+        font-weight: 700;
+        color: var(--text);
+      }
+
+      .telemetry-chart {
+        width: 100%;
+        height: 300px;
+        background: var(--surface-muted);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .telemetry-chart canvas {
+        width: 100%;
+        height: 100%;
+      }
+
+      .telemetry-checkpoints {
+        margin-top: 1rem;
+      }
+
+      .checkpoint-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        max-height: 200px;
+        overflow-y: auto;
+        padding: 0.5rem;
+        background: var(--surface-muted);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+      }
+
+      .checkpoint-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.5rem;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        font-size: 0.85rem;
+      }
+
+      .checkpoint-step {
+        font-weight: 600;
+      }
+
+      .checkpoint-elo {
+        color: var(--subtle-text);
+      }
+
       .modal {
         position: fixed;
         inset: 0;
@@ -1027,6 +1146,48 @@
         </div>
       </header>
       <div id="hint" class="hint"></div>
+      <section id="telemetry-section" class="telemetry" style="display: none;">
+        <div class="telemetry-header">
+          <h2>RL Training Telemetry</h2>
+          <div class="telemetry-controls">
+            <select id="telemetry-run-select">
+              <option value="">Select a run...</option>
+            </select>
+            <button id="telemetry-toggle" type="button" class="log-toggle" aria-expanded="true">Collapse</button>
+          </div>
+        </div>
+        <div class="telemetry-collapsed">
+          <div class="telemetry-grid">
+            <div class="telemetry-card">
+              <h3>Latest Step</h3>
+              <div id="telemetry-step" class="telemetry-value">-</div>
+            </div>
+            <div class="telemetry-card">
+              <h3>Total Episodes</h3>
+              <div id="telemetry-episodes" class="telemetry-value">-</div>
+            </div>
+            <div class="telemetry-card">
+              <h3>Avg Episode Reward</h3>
+              <div id="telemetry-reward" class="telemetry-value">-</div>
+            </div>
+            <div class="telemetry-card">
+              <h3>Latest Elo</h3>
+              <div id="telemetry-elo" class="telemetry-value">-</div>
+            </div>
+          </div>
+          <div id="telemetry-charts">
+            <div class="telemetry-chart">
+              <canvas id="reward-chart"></canvas>
+            </div>
+          </div>
+          <div class="telemetry-checkpoints">
+            <h3 style="margin: 0 0 0.75rem; font-size: 0.9rem; color: var(--subtle-text);">Evaluations</h3>
+            <div id="checkpoint-list" class="checkpoint-list">
+              <div style="color: var(--subtle-text); font-size: 0.85rem;">Select a run to view evaluations</div>
+            </div>
+          </div>
+        </div>
+      </section>
       <div class="main">
         <section class="board">
           <button id="gate-pile" class="pile has-art" type="button" data-pile="beastyBar">
@@ -1099,6 +1260,9 @@
       let serverLogEntries = [];
       let localLogEntries = [];
       let pendingSelection = null;
+      let telemetryRuns = [];
+      let selectedRun = null;
+      let rewardChart = null;
       let availableAgents = [];
 
       const CARD_ART_BASE_PATH = "/static/cards";
@@ -2238,7 +2402,213 @@
         return `log-${Date.now()}-${Math.random().toString(16).slice(2)}`;
       }
 
+      // Telemetry functions
+      async function loadTelemetryRuns() {
+        try {
+          const response = await fetch("/api/telemetry/runs");
+          if (!response.ok) return;
+          const runs = await response.json();
+          telemetryRuns = Array.isArray(runs) ? runs : [];
+
+          const telemetrySection = document.getElementById("telemetry-section");
+          const runSelect = document.getElementById("telemetry-run-select");
+
+          if (telemetryRuns.length > 0) {
+            telemetrySection.style.display = "block";
+            runSelect.innerHTML = '<option value="">Select a run...</option>';
+            telemetryRuns.forEach(run => {
+              const option = document.createElement("option");
+              option.value = run.runId;
+              option.textContent = run.runId;
+              runSelect.appendChild(option);
+            });
+          }
+        } catch (error) {
+          console.error("Failed to load telemetry runs:", error);
+        }
+      }
+
+      async function loadTelemetryData(runId) {
+        if (!runId) return;
+        selectedRun = runId;
+
+        try {
+          const [metricsResponse, evalsResponse] = await Promise.all([
+            fetch(`/api/telemetry/runs/${runId}/metrics/rolling`),
+            fetch(`/api/telemetry/runs/${runId}/evaluations`)
+          ]);
+
+          if (metricsResponse.ok) {
+            const data = await metricsResponse.json();
+            const metrics = data.metrics || [];
+            renderMetricsSummary(metrics);
+            renderRewardChart(metrics);
+          }
+
+          if (evalsResponse.ok) {
+            const evals = await evalsResponse.json();
+            renderEvaluations(evals);
+          }
+        } catch (error) {
+          console.error("Failed to load telemetry data:", error);
+        }
+      }
+
+      function renderMetricsSummary(metrics) {
+        if (!metrics || metrics.length === 0) return;
+
+        const latest = metrics[metrics.length - 1];
+        document.getElementById("telemetry-step").textContent = latest.steps?.toLocaleString() || "-";
+        document.getElementById("telemetry-episodes").textContent = latest.episodes?.toLocaleString() || "-";
+        document.getElementById("telemetry-reward").textContent =
+          latest.avgEpisodeReward_mean?.toFixed(3) || "-";
+        document.getElementById("telemetry-elo").textContent = "-";
+      }
+
+      function renderRewardChart(metrics) {
+        if (!metrics || metrics.length === 0) return;
+
+        const canvas = document.getElementById("reward-chart");
+        const ctx = canvas.getContext("2d");
+
+        // Set canvas size
+        canvas.width = canvas.offsetWidth;
+        canvas.height = canvas.offsetHeight;
+
+        const width = canvas.width;
+        const height = canvas.height;
+        const padding = 40;
+
+        // Clear canvas
+        ctx.clearRect(0, 0, width, height);
+
+        // Extract data
+        const steps = metrics.map(m => m.steps);
+        const rewards = metrics.map(m => m.avgEpisodeReward_mean);
+
+        if (steps.length === 0) return;
+
+        // Calculate bounds
+        const minStep = Math.min(...steps);
+        const maxStep = Math.max(...steps);
+        const minReward = Math.min(...rewards);
+        const maxReward = Math.max(...rewards);
+        const rewardRange = maxReward - minReward || 1;
+
+        // Draw axes
+        ctx.strokeStyle = "#d0d7de";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(padding, padding);
+        ctx.lineTo(padding, height - padding);
+        ctx.lineTo(width - padding, height - padding);
+        ctx.stroke();
+
+        // Draw grid lines
+        ctx.strokeStyle = "#e5e7eb";
+        ctx.lineWidth = 0.5;
+        for (let i = 0; i <= 4; i++) {
+          const y = padding + (height - 2 * padding) * i / 4;
+          ctx.beginPath();
+          ctx.moveTo(padding, y);
+          ctx.lineTo(width - padding, y);
+          ctx.stroke();
+        }
+
+        // Draw line
+        ctx.strokeStyle = "#2563eb";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+
+        steps.forEach((step, idx) => {
+          const x = padding + (width - 2 * padding) * (step - minStep) / (maxStep - minStep || 1);
+          const y = height - padding - (height - 2 * padding) * (rewards[idx] - minReward) / rewardRange;
+
+          if (idx === 0) {
+            ctx.moveTo(x, y);
+          } else {
+            ctx.lineTo(x, y);
+          }
+        });
+        ctx.stroke();
+
+        // Draw labels
+        ctx.fillStyle = "#64748b";
+        ctx.font = "12px Inter, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("Steps", width / 2, height - 10);
+
+        ctx.save();
+        ctx.translate(15, height / 2);
+        ctx.rotate(-Math.PI / 2);
+        ctx.fillText("Avg Reward", 0, 0);
+        ctx.restore();
+
+        // Draw axis labels
+        ctx.textAlign = "right";
+        for (let i = 0; i <= 4; i++) {
+          const y = padding + (height - 2 * padding) * i / 4;
+          const value = maxReward - rewardRange * i / 4;
+          ctx.fillText(value.toFixed(2), padding - 5, y + 4);
+        }
+      }
+
+      function renderEvaluations(evals) {
+        const container = document.getElementById("checkpoint-list");
+        container.innerHTML = "";
+
+        if (!evals || evals.length === 0) {
+          container.innerHTML = '<div style="color: var(--subtle-text); font-size: 0.85rem;">No evaluations found</div>';
+          return;
+        }
+
+        // Update latest Elo
+        const latest = evals[evals.length - 1];
+        if (latest.finalElo) {
+          document.getElementById("telemetry-elo").textContent = latest.finalElo.toFixed(1);
+        }
+
+        evals.forEach(evalData => {
+          const item = document.createElement("div");
+          item.className = "checkpoint-item";
+
+          const stepSpan = document.createElement("span");
+          stepSpan.className = "checkpoint-step";
+          stepSpan.textContent = `Step ${evalData.step.toLocaleString()}`;
+
+          const eloSpan = document.createElement("span");
+          eloSpan.className = "checkpoint-elo";
+          eloSpan.textContent = `Elo: ${evalData.finalElo?.toFixed(1) || "N/A"}`;
+
+          item.appendChild(stepSpan);
+          item.appendChild(eloSpan);
+          container.appendChild(item);
+        });
+      }
+
+      // Event listeners for telemetry
+      document.getElementById("telemetry-run-select")?.addEventListener("change", (e) => {
+        loadTelemetryData(e.target.value);
+      });
+
+      document.getElementById("telemetry-toggle")?.addEventListener("click", () => {
+        const section = document.getElementById("telemetry-section");
+        const collapsed = section.querySelector(".telemetry-collapsed");
+        const button = document.getElementById("telemetry-toggle");
+
+        if (collapsed.style.display === "none") {
+          collapsed.style.display = "block";
+          button.textContent = "Collapse";
+          button.setAttribute("aria-expanded", "true");
+        } else {
+          collapsed.style.display = "none";
+          button.textContent = "Expand";
+          button.setAttribute("aria-expanded", "false");
+        }
+      });
+
       loadAgents();
+      loadTelemetryRuns();
       refreshState();
     </script>
   </body>
