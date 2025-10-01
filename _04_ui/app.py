@@ -1,6 +1,7 @@
 """FastAPI application exposing the Beasty Bar simulator."""
 from __future__ import annotations
 
+import json
 import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -158,6 +159,85 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=409, detail="Replay diverged from recorded state")
 
         return _serialize(current, store.seed, store)
+
+    @app.get("/api/telemetry/runs")
+    def api_telemetry_runs() -> List[dict]:
+        """List all available training run artifacts."""
+        artifacts_dir = Path(__file__).parent.parent / "_03_training" / "artifacts"
+        if not artifacts_dir.exists():
+            return []
+
+        runs = []
+        for run_dir in artifacts_dir.iterdir():
+            if not run_dir.is_dir():
+                continue
+
+            run_info = {"runId": run_dir.name, "hasMetrics": False, "hasEvals": False, "hasCheckpoints": False}
+
+            metrics_dir = run_dir / "metrics"
+            if metrics_dir.exists():
+                run_info["hasMetrics"] = True
+
+            eval_dir = run_dir / "eval"
+            if eval_dir.exists():
+                run_info["hasEvals"] = True
+
+            checkpoints_dir = run_dir / "checkpoints"
+            if checkpoints_dir.exists():
+                run_info["hasCheckpoints"] = True
+
+            runs.append(run_info)
+
+        return sorted(runs, key=lambda r: r["runId"])
+
+    @app.get("/api/telemetry/runs/{run_id}/metrics/rolling")
+    def api_telemetry_rolling_metrics(run_id: str) -> dict:
+        """Get rolling metrics for a training run."""
+        artifacts_dir = Path(__file__).parent.parent / "_03_training" / "artifacts"
+        rolling_file = artifacts_dir / run_id / "metrics" / "rolling_metrics.json"
+
+        if not rolling_file.exists():
+            raise HTTPException(status_code=404, detail=f"Rolling metrics not found for run '{run_id}'")
+
+        with rolling_file.open() as f:
+            return {"runId": run_id, "metrics": json.load(f)}
+
+    @app.get("/api/telemetry/runs/{run_id}/evaluations")
+    def api_telemetry_evaluations(run_id: str) -> List[dict]:
+        """List all evaluation results for a training run."""
+        artifacts_dir = Path(__file__).parent.parent / "_03_training" / "artifacts"
+        eval_dir = artifacts_dir / run_id / "eval"
+
+        if not eval_dir.exists():
+            return []
+
+        evals = []
+        for eval_file in sorted(eval_dir.glob("step_*_eval.json")):
+            with eval_file.open() as f:
+                evals.append(json.load(f))
+
+        return evals
+
+    @app.get("/api/telemetry/runs/{run_id}/checkpoints")
+    def api_telemetry_checkpoints(run_id: str) -> List[dict]:
+        """List all checkpoints for a training run."""
+        artifacts_dir = Path(__file__).parent.parent / "_03_training" / "artifacts"
+        checkpoints_dir = artifacts_dir / run_id / "checkpoints"
+
+        if not checkpoints_dir.exists():
+            return []
+
+        checkpoints = []
+        for checkpoint_file in sorted(checkpoints_dir.glob("step_*.pt")):
+            step = int(checkpoint_file.stem.split("_")[1])
+            checkpoints.append({
+                "step": step,
+                "filename": checkpoint_file.name,
+                "path": str(checkpoint_file.relative_to(artifacts_dir.parent.parent)),
+                "size": checkpoint_file.stat().st_size,
+            })
+
+        return checkpoints
 
     return app
 
