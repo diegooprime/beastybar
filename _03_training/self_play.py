@@ -392,6 +392,8 @@ def _update_run_manifest_champion(
         "evaluation": {
             "path": _relative_path(summary.path, manifest_path.parent),
             "timestamp": summary.timestamp,
+            "championMatchups": summary.payload.get("championMatchups", []),
+            "reservoirMatchups": summary.payload.get("reservoirMatchups", []),
         },
         "criteria": {
             "minGames": config.promotion_min_games,
@@ -1010,6 +1012,8 @@ def _run_training(config: TrainingConfig, artifacts: RunArtifacts) -> tuple[int,
                 iteration=iteration,
                 step=global_steps,
                 eval_device=reservoir_device,
+                champion=champion,
+                reservoir=reservoir,
             )
             if evaluation is not None:
                 last_evaluation = evaluation.path
@@ -1178,6 +1182,8 @@ def _run_evaluation_suite(
     iteration: int,
     step: int,
     eval_device: torch.device,
+    champion: ChampionRecord | None = None,
+    reservoir: CheckpointReservoir | None = None,
 ) -> EvaluationSummary | None:
     if not config.opponents:
         return None
@@ -1191,9 +1197,12 @@ def _run_evaluation_suite(
     opponent_ratings = {name: float(_EVAL_ELO_BASE) for name in config.opponents}
 
     results: list[dict[str, Any]] = []
+    champion_results: list[dict[str, Any]] = []
+    reservoir_results: list[dict[str, Any]] = []
     base_seed = config.eval_seed + iteration * 10_000
     eval_device_str = str(eval_device)
 
+    # Evaluate against heuristic opponents
     for index, name in enumerate(config.opponents):
         series_seed = base_seed + index * max(config.eval_games, 1)
         opponent_seed = base_seed + 97 * (index + 1)
@@ -1245,6 +1254,117 @@ def _run_evaluation_suite(
             }
         )
 
+    # Evaluate against champion if present
+    if champion is not None and champion.checkpoint != checkpoint.resolve():
+        champion_key = f"champion@step_{champion.step}"
+        opponent_ratings[champion_key] = float(_EVAL_ELO_BASE)
+        series_seed = base_seed + 90_000
+        candidate_agent = _policy_agent_from_checkpoint(checkpoint, eval_device_str)
+        champion_agent = _policy_agent_from_checkpoint(champion.checkpoint, eval_device_str)
+
+        series = tournament.SeriesConfig(
+            games=config.eval_games,
+            seed=series_seed,
+            agent_a=candidate_agent,
+            agent_b=champion_agent,
+            alternate_start=True,
+            collect_actions=False,
+        )
+        result = tournament.play_series(series)
+        summary = result.summary
+        wins_a, wins_b = summary.wins
+        ties = summary.ties
+        rating_before = candidate_rating
+        candidate_rating, opponent_rating = _elo_series_update(
+            candidate_rating,
+            opponent_ratings[champion_key],
+            wins_a=wins_a,
+            wins_b=wins_b,
+            ties=ties,
+            k_factor=_EVAL_ELO_K,
+        )
+        opponent_ratings[champion_key] = opponent_rating
+        total_games = summary.games
+        win_rate = wins_a / total_games if total_games else 0.0
+
+        champion_results.append(
+            {
+                "opponent": champion_key,
+                "checkpoint": str(champion.checkpoint.relative_to(artifacts.root)),
+                "games": total_games,
+                "wins": wins_a,
+                "losses": wins_b,
+                "ties": ties,
+                "winRate": win_rate,
+                "averageScore": summary.average_scores[0],
+                "averageOpponentScore": summary.average_scores[1],
+                "averageTurns": summary.average_turns,
+                "elo": {
+                    "before": rating_before,
+                    "after": candidate_rating,
+                    "delta": candidate_rating - rating_before,
+                    "opponentAfter": opponent_rating,
+                },
+            }
+        )
+
+    # Evaluate against reservoir checkpoints
+    if reservoir is not None:
+        for res_index, res_path in enumerate(reservoir.paths):
+            if res_path == checkpoint.resolve():
+                continue
+            reservoir_key = f"reservoir@{res_path.stem}"
+            opponent_ratings[reservoir_key] = float(_EVAL_ELO_BASE)
+            series_seed = base_seed + 95_000 + res_index * max(config.eval_games, 1)
+            candidate_agent = _policy_agent_from_checkpoint(checkpoint, eval_device_str)
+            reservoir_agent = _policy_agent_from_checkpoint(res_path, eval_device_str)
+
+            series = tournament.SeriesConfig(
+                games=config.eval_games,
+                seed=series_seed,
+                agent_a=candidate_agent,
+                agent_b=reservoir_agent,
+                alternate_start=True,
+                collect_actions=False,
+            )
+            result = tournament.play_series(series)
+            summary = result.summary
+            wins_a, wins_b = summary.wins
+            ties = summary.ties
+            rating_before = candidate_rating
+            candidate_rating, opponent_rating = _elo_series_update(
+                candidate_rating,
+                opponent_ratings[reservoir_key],
+                wins_a=wins_a,
+                wins_b=wins_b,
+                ties=ties,
+                k_factor=_EVAL_ELO_K,
+            )
+            opponent_ratings[reservoir_key] = opponent_rating
+            total_games = summary.games
+            win_rate = wins_a / total_games if total_games else 0.0
+
+            reservoir_results.append(
+                {
+                    "opponent": reservoir_key,
+                    "checkpoint": str(res_path.relative_to(artifacts.root)),
+                    "games": total_games,
+                    "wins": wins_a,
+                    "losses": wins_b,
+                    "ties": ties,
+                    "winRate": win_rate,
+                    "averageScore": summary.average_scores[0],
+                    "averageOpponentScore": summary.average_scores[1],
+                    "averageTurns": summary.average_turns,
+                    "elo": {
+                        "before": rating_before,
+                        "after": candidate_rating,
+                        "delta": candidate_rating - rating_before,
+                        "opponentAfter": opponent_rating,
+                    },
+                }
+            )
+
     payload = {
         "timestamp": datetime.now(tz=timezone.utc).isoformat(),
         "step": step,
@@ -1253,6 +1373,8 @@ def _run_evaluation_suite(
         "gamesPerOpponent": config.eval_games,
         "seedBase": config.eval_seed,
         "opponents": results,
+        "championMatchups": champion_results,
+        "reservoirMatchups": reservoir_results,
         "finalElo": candidate_rating,
     }
 
