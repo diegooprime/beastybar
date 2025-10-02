@@ -154,12 +154,22 @@
 
       .board {
         display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-columns: 180px minmax(0, 1fr) 180px;
         gap: 1rem;
         align-items: start;
       }
 
-      .pile,
+      .pile {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 0.8rem;
+        padding: 0.75rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.6rem;
+        min-height: 140px;
+      }
+
       .queue-section {
         background: var(--surface);
         border: 1px solid var(--border);
@@ -168,7 +178,6 @@
         display: flex;
         flex-direction: column;
         gap: 0.75rem;
-        min-height: 180px;
       }
 
       .pile-header,
@@ -207,9 +216,11 @@
 
       .queue-cards {
         display: flex;
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
         gap: 0.75rem;
-        min-height: 110px;
+        min-height: 210px;
+        overflow-x: auto;
+        padding-bottom: 0.25rem;
       }
 
       .card {
@@ -220,8 +231,42 @@
         display: flex;
         flex-direction: column;
         gap: 0.45rem;
-        min-width: 120px;
+        width: 140px;
+        min-height: 210px;
         transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .card.with-art {
+        color: #f8fafc;
+        border-color: transparent;
+      }
+
+      .card.with-art::before,
+      .card.with-art::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        z-index: 0;
+        pointer-events: none;
+      }
+
+      .card.with-art::before {
+        background-image: var(--card-art-image);
+        background-size: cover;
+        background-position: center;
+        filter: saturate(1.05);
+      }
+
+      .card.with-art::after {
+        background: linear-gradient(180deg, rgba(15, 23, 42, 0.2), rgba(15, 23, 42, 0.65));
+      }
+
+      .card.with-art > * {
+        position: relative;
+        z-index: 1;
+        text-shadow: 0 1px 4px rgba(15, 23, 42, 0.7);
       }
 
       .card.highlight {
@@ -262,8 +307,18 @@
       .card-meta {
         display: flex;
         justify-content: space-between;
+        align-items: center;
         font-size: 0.85rem;
         color: var(--muted);
+        gap: 0.35rem;
+      }
+
+      .card-meta span:last-child {
+        font-weight: 600;
+      }
+
+      .card.with-art .card-meta {
+        color: rgba(248, 250, 252, 0.88);
       }
 
       .card-species {
@@ -292,6 +347,18 @@
       .card-actions button:focus {
         border-color: var(--accent);
         background: var(--accent-soft);
+      }
+
+      .card.with-art .card-actions button {
+        background: rgba(15, 23, 42, 0.55);
+        border-color: rgba(248, 250, 252, 0.35);
+        color: #f8fafc;
+      }
+
+      .card.with-art .card-actions button:hover,
+      .card.with-art .card-actions button:focus {
+        background: rgba(15, 23, 42, 0.7);
+        border-color: rgba(248, 250, 252, 0.5);
       }
 
       .hands {
@@ -467,6 +534,13 @@
       let bootstrapped = false;
       let pendingSelection = null;
       let availableAgents = [];
+
+      const CARD_ART_BASE_PATH = "/static/cards";
+      const CARD_ART_STRENGTHS = Array.from({ length: 12 }, (_, idx) => idx + 1);
+      const CARD_ART_AVAILABILITY = new Map([
+        [0, new Set(CARD_ART_STRENGTHS)],
+        [1, new Set(CARD_ART_STRENGTHS)],
+      ]);
 
       const statusEl = document.getElementById("status");
       const scoreEl = document.getElementById("score");
@@ -677,6 +751,7 @@
             targetable,
             dimmed,
             queueIndex,
+            artCard: card,
             onClick: targetable ? () => handleQueueCardClick(queueIndex) : null,
           });
         });
@@ -736,6 +811,7 @@
                   : null,
               inlineOptions,
               disabled: !hidden && actions.length === 0 && playerIndex === activePlayer,
+              artCard: card,
             });
           });
           renderNodes(handContainers[playerIndex], nodes, { emptyText: "No cards in hand" });
@@ -817,10 +893,12 @@
           handIndex = null,
           queueIndex = null,
           disabled = false,
+          artCard = null,
         } = options;
 
         const el = document.createElement("div");
         el.className = "card";
+        const artSource = artCard ?? card;
         if (queue) {
           el.dataset.queueCard = "true";
         }
@@ -862,15 +940,26 @@
           });
         }
 
-        const meta = document.createElement("div");
-        meta.className = "card-meta";
-        meta.innerHTML = `<span>STR ${card.strength}</span><span>${card.points >= 0 ? '+' : ''}${card.points}</span>`;
-        el.appendChild(meta);
+        const artUrl = hidden ? null : getCardArtUrl(artSource);
+        if (artUrl) {
+          el.classList.add("with-art");
+          el.style.setProperty("--card-art-image", `url(${artUrl})`);
+        }
 
-        const species = document.createElement("div");
-        species.className = "card-species";
-        species.textContent = card.species;
-        el.appendChild(species);
+        const showOverlay = hidden || !artUrl;
+        if (showOverlay) {
+          const meta = document.createElement("div");
+          meta.className = "card-meta";
+          const ownerLabel = typeof artSource?.owner === "number" ? `P${artSource.owner}` : "";
+          const formattedPoints = typeof card.points === "number" ? `${card.points >= 0 ? '+' : ''}${card.points}` : card.points;
+          meta.innerHTML = `<span>${ownerLabel}</span><span>STR ${card.strength}</span><span>${formattedPoints}</span>`;
+          el.appendChild(meta);
+
+          const species = document.createElement("div");
+          species.className = "card-species";
+          species.textContent = card.species;
+          el.appendChild(species);
+        }
 
         if (inlineOptions && inlineOptions.length) {
           const actionsEl = document.createElement("div");
@@ -889,6 +978,22 @@
         }
 
         return el;
+      }
+
+      function getCardArtUrl(card) {
+        if (!card || typeof card.owner !== "number" || typeof card.strength !== "number") {
+          return null;
+        }
+        const owner = card.owner;
+        const strength = Math.trunc(card.strength);
+        if (!Number.isFinite(strength)) {
+          return null;
+        }
+        const ownerArt = CARD_ART_AVAILABILITY.get(owner);
+        if (!ownerArt || !ownerArt.has(strength)) {
+          return null;
+        }
+        return `${CARD_ART_BASE_PATH}/${owner}${strength}.jpg`;
       }
 
       function getQueueTargetState() {
