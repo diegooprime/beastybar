@@ -16,6 +16,7 @@
         --accent-orange: #f97316;
         --queue-gradient: linear-gradient(90deg, rgba(37, 99, 235, 0.08), rgba(249, 115, 22, 0.08));
         --queue-track-height: 260px;
+        --pile-height: 260px;
       }
 
       * {
@@ -239,7 +240,9 @@
         background: var(--surface);
         box-shadow: 0 18px 35px rgba(15, 23, 42, 0.08);
         transition: transform 0.18s ease, box-shadow 0.18s ease;
-        min-height: 260px;
+        min-height: var(--pile-height);
+        max-height: var(--pile-height);
+        height: var(--pile-height);
         overflow: hidden;
       }
 
@@ -330,6 +333,10 @@
         flex-direction: column;
         gap: 0.45rem;
         align-items: stretch;
+        flex: 1 1 auto;
+        overflow-y: auto;
+        padding-right: 0.25rem;
+        min-height: 0;
       }
 
       .pile-mini-card {
@@ -701,95 +708,6 @@
         overflow: hidden;
       }
 
-      .turn-flow {
-        flex: 0 0 280px;
-        display: flex;
-        flex-direction: column;
-        background: var(--surface);
-        border-radius: 18px;
-        border: 1px solid rgba(148, 163, 184, 0.4);
-        box-shadow: 0 18px 35px rgba(15, 23, 42, 0.08);
-        max-height: 100%;
-        overflow: hidden;
-      }
-
-      .turn-flow__header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 1rem 1.25rem;
-        border-bottom: 1px solid rgba(148, 163, 184, 0.24);
-      }
-
-      .turn-flow__header h2 {
-        margin: 0;
-        font-size: 1rem;
-        letter-spacing: 0.02em;
-        text-transform: uppercase;
-        color: var(--subtle-text);
-      }
-
-      .turn-flow__list {
-        list-style: none;
-        margin: 0;
-        padding: 1rem 1.25rem 1.25rem;
-        display: flex;
-        flex-direction: column;
-        gap: 0.75rem;
-        overflow-y: auto;
-      }
-
-      .turn-flow__item {
-        border-left: 3px solid rgba(148, 163, 184, 0.35);
-        padding: 0.6rem 0.75rem 0.6rem 1rem;
-        border-radius: 12px;
-        background: rgba(15, 23, 42, 0.02);
-        transition: border-color 0.3s ease, background 0.3s ease, transform 0.3s ease;
-      }
-
-      .turn-flow__item--active {
-        border-color: rgba(37, 99, 235, 0.55);
-        background: rgba(37, 99, 235, 0.08);
-        transform: translateX(4px);
-      }
-
-      .turn-flow__step {
-        font-weight: 600;
-        color: var(--text);
-        margin: 0 0 0.35rem;
-      }
-
-      .turn-flow__events {
-        margin: 0;
-        padding-left: 1.1rem;
-        list-style: disc;
-        color: var(--muted-text, rgba(71, 85, 105, 0.85));
-        display: flex;
-        flex-direction: column;
-        gap: 0.25rem;
-        font-size: 0.92rem;
-        transition: color 0.3s ease;
-      }
-
-      .turn-flow__events li::marker {
-        color: rgba(37, 99, 235, 0.45);
-      }
-
-      .turn-flow__events li {
-        transition: color 0.25s ease;
-      }
-
-      .turn-flow__event--active {
-        color: var(--text);
-      }
-
-      .turn-flow__empty {
-        padding: 1.2rem 0.75rem;
-        text-align: center;
-        color: rgba(71, 85, 105, 0.7);
-        font-size: 0.9rem;
-      }
-
       .log-header {
         display: flex;
         align-items: center;
@@ -1053,27 +971,19 @@
           grid-template-columns: minmax(0, 1fr);
         }
 
-        .pile {
-          min-height: 220px;
-        }
-
         :root {
           --queue-track-height: 220px;
+          --pile-height: 220px;
         }
 
         .queue-track {
           flex-wrap: wrap;
         }
 
-        .turn-flow {
-          flex: 1 1 100%;
-          order: 1;
-        }
-
         .log {
           flex: 1 1 100%;
           min-height: 240px;
-          order: 2;
+          order: 1;
         }
       }
 
@@ -1211,20 +1121,12 @@
             <div id="thats-count" class="pile-count"></div>
           </button>
         </section>
-        <aside id="turn-flow" class="turn-flow">
-          <div class="turn-flow__header">
-            <h2>Turn Flow</h2>
-          </div>
-          <ol id="turn-flow-list" class="turn-flow__list">
-            <li class="turn-flow__empty">No turns yet</li>
-          </ol>
-        </aside>
-        <aside id="log" class="log">
+        <aside id="log" class="log log-collapsed">
           <div class="log-header">
             <h2>Turn Log</h2>
             <div class="log-actions">
               <button id="log-copy" type="button" class="log-toggle">Copy Transcript</button>
-              <button id="log-toggle" type="button" class="log-toggle" aria-expanded="true">Collapse</button>
+              <button id="log-toggle" type="button" class="log-toggle" aria-expanded="false">Expand</button>
             </div>
           </div>
           <ol id="log-list" class="log-list">
@@ -1305,7 +1207,6 @@
       const logToggleBtn = document.getElementById("log-toggle");
       const logCopyBtn = document.getElementById("log-copy");
       const logList = document.getElementById("log-list");
-      const turnFlowList = document.getElementById("turn-flow-list");
       const replayBtn = document.getElementById("replay");
 
       const modalEl = document.getElementById("modal");
@@ -1314,8 +1215,11 @@
       const modalClose = document.getElementById("modal-close");
       const modalBackdrop = document.getElementById("modal-backdrop");
 
-      let turnFlowTimers = [];
-      let lastTurnFlowKey = "";
+      if (logEl && logToggleBtn) {
+        logEl.classList.add("log-collapsed");
+        logToggleBtn.textContent = "Expand";
+        logToggleBtn.setAttribute("aria-expanded", "false");
+      }
 
       if (logCopyBtn) {
         logCopyBtn.disabled = true;
@@ -1540,8 +1444,6 @@
         }
         const { turn, activePlayer, isTerminal, score, zones, queue, hands, seed, log, logText } = currentState;
         serverLogEntries = Array.isArray(log) ? log : [];
-        const flowSteps = Array.isArray(currentState.turnFlow) ? currentState.turnFlow : [];
-        renderTurnFlow(flowSteps);
         if (replayBtn) {
           const disable = typeof turn !== "number" || turn === 0;
           replayBtn.disabled = disable;
@@ -2104,7 +2006,6 @@
         updateHint();
         serverLogEntries = [];
         renderLog();
-        renderTurnFlow([]);
         if (logCopyBtn) {
           logCopyBtn.disabled = true;
         }
@@ -2137,81 +2038,6 @@
           });
         }
         await refreshState();
-      }
-
-      function renderTurnFlow(flow) {
-        if (!turnFlowList) {
-          return;
-        }
-
-        turnFlowTimers.forEach((timer) => clearTimeout(timer));
-        turnFlowTimers = [];
-
-        const normalized = Array.isArray(flow) ? flow : [];
-        const key = JSON.stringify(normalized);
-
-        turnFlowList.innerHTML = "";
-        if (!normalized.length) {
-          const empty = document.createElement("li");
-          empty.className = "turn-flow__empty";
-          empty.textContent = "No turns yet";
-          turnFlowList.appendChild(empty);
-          lastTurnFlowKey = key;
-          return;
-        }
-
-        const stepNodes = normalized.map((step, idx) => {
-          const item = document.createElement("li");
-          item.className = "turn-flow__item";
-          const name = typeof step?.name === "string" ? step.name : "";
-          const prettyName = name.replace(/[\-_]/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-          const heading = document.createElement("div");
-          heading.className = "turn-flow__step";
-          heading.textContent = `Step ${idx + 1} · ${prettyName || "Phase"}`;
-          item.appendChild(heading);
-
-          const events = Array.isArray(step?.events) ? step.events : [];
-          const eventNodes = [];
-          if (events.length) {
-            const list = document.createElement("ul");
-            list.className = "turn-flow__events";
-            events.forEach((event) => {
-              const li = document.createElement("li");
-              li.textContent = event;
-              list.appendChild(li);
-              eventNodes.push(li);
-            });
-            item.appendChild(list);
-          }
-          turnFlowList.appendChild(item);
-          return { item, events: eventNodes };
-        });
-
-        if (key !== lastTurnFlowKey) {
-          stepNodes.forEach(({ item, events }) => {
-            item.classList.remove("turn-flow__item--active");
-            events.forEach((eventNode) => eventNode.classList.remove("turn-flow__event--active"));
-          });
-          stepNodes.forEach(({ item, events }, idx) => {
-            const timer = window.setTimeout(() => {
-              item.classList.add("turn-flow__item--active");
-              events.forEach((eventNode, eventIdx) => {
-                const eventTimer = window.setTimeout(() => {
-                  eventNode.classList.add("turn-flow__event--active");
-                }, eventIdx * 280);
-                turnFlowTimers.push(eventTimer);
-              });
-            }, idx * 450);
-            turnFlowTimers.push(timer);
-          });
-        } else {
-          stepNodes.forEach(({ item, events }) => {
-            item.classList.add("turn-flow__item--active");
-            events.forEach((eventNode) => eventNode.classList.add("turn-flow__event--active"));
-          });
-        }
-
-        lastTurnFlowKey = key;
       }
 
       function renderLog() {
