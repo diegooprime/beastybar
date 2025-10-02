@@ -1,0 +1,6 @@
+# Ignore archived artifacts by default
+*
+
+# Keep documentation of invalidation
+!INVALIDATED.md
+!.gitignore

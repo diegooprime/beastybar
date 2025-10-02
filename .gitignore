@@ -4,3 +4,9 @@ __pycache__/
 *.tar.gz
 logs
 .venv/
+
+# Training artifacts (large checkpoint files)
+_03_training/artifacts/**
+!_03_training/artifacts/.gitkeep
+*.pt
+*.pth
