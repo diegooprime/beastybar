@@ -78,6 +78,20 @@ def test_rulebook_crocodile_eats_until_zebra():
     assert [c.species for c in next_state.zones.thats_it] == ["monkey"]
 
 
+def test_rulebook_crocodile_eats_skunk_and_weaker_cards():
+    crocodile = make_card(0, "crocodile")
+    queue = [
+        make_card(1, "giraffe"),
+        make_card(1, "skunk"),
+    ]
+    game_state = build_state([crocodile], queue)
+
+    next_state = engine.step(game_state, actions.Action(hand_index=0))
+
+    assert [c.species for c in next_state.zones.queue] == ["crocodile"]
+    assert {c.species for c in next_state.zones.thats_it} == {"giraffe", "skunk"}
+
+
 def test_rulebook_snake_orders_by_strength():
     snake = make_card(0, "snake")
     queue = [
@@ -174,5 +188,5 @@ def test_rulebook_skunk_removes_top_two_strength_bands():
 
     next_state = engine.step(game_state, actions.Action(hand_index=0))
 
-    assert [c.species for c in next_state.zones.queue] == ["skunk", "crocodile"]
-    assert [c.species for c in next_state.zones.thats_it] == ["lion", "hippo"]
+    assert [c.species for c in next_state.zones.queue] == ["crocodile"]
+    assert [c.species for c in next_state.zones.thats_it] == ["lion", "hippo", "skunk"]

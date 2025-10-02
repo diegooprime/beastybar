@@ -74,7 +74,8 @@ def collect_rollouts(
         opponent = opponent_factory()
 
         game_seed = rng.randrange(0, 10_000_000)
-        current = simulate.new_game(game_seed, starting_player=0)
+        starting_player = rng.choice((0, 1))
+        current = simulate.new_game(game_seed, starting_player=starting_player)
 
         opponent_view = state.mask_state_for_player(current, 1)
         opponent.start_game(opponent_view)

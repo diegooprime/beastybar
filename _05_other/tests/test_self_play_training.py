@@ -75,6 +75,45 @@ def test_rollout_and_ppo_update() -> None:
     assert "value_loss" in metrics
 
 
+def test_collect_rollouts_randomizes_starting_player(monkeypatch) -> None:
+    torch.manual_seed(0)
+
+    observation_size = encoders.observation_size()
+    action_size = len(action_space.canonical_actions())
+    policy_config = models.PolicyConfig(
+        observation_size=observation_size,
+        action_size=action_size,
+        hidden_sizes=(32,),
+    )
+
+    model = models.PolicyValueNet(policy_config)
+    device = torch.device("cpu")
+    model.to(device)
+
+    captured_starts: list[int] = []
+    original_new_game = simulate.new_game
+
+    def tracking_new_game(seed: int, *, starting_player: int = 0):
+        captured_starts.append(starting_player)
+        return original_new_game(seed, starting_player=starting_player)
+
+    monkeypatch.setattr(simulate, "new_game", tracking_new_game)
+
+    rollout_config = rollout.RolloutConfig(min_steps=32, gamma=0.99, gae_lambda=0.95)
+    batch = rollout.collect_rollouts(
+        model=model,
+        opponent_factories=[FirstLegalAgent],
+        config=rollout_config,
+        base_seed=123,
+        device=device,
+    )
+
+    assert batch.steps >= 32
+    assert captured_starts, "collect_rollouts should start at least one episode"
+    assert 0 in captured_starts
+    assert 1 in captured_starts
+
+
 def test_checkpoint_reservoir_produces_agents(tmp_path: Path) -> None:
     observation_size = encoders.observation_size()
     action_size = len(action_space.canonical_actions())

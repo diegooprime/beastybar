@@ -277,10 +277,11 @@ def _recurring_crocodile(game_state: state.State, index: int) -> Tuple[state.Sta
     scan = index - 1
     eaten: List[state.Card] = []
     blocker: Optional[state.Card] = None
+    blockers = {"zebra"}
     while scan >= 0:
         queue = game_state.zones.queue
         ahead = queue[scan]
-        if ahead.species in {"zebra", "skunk"} or ahead.strength >= crocodile.strength:
+        if ahead.species in blockers or ahead.strength >= crocodile.strength:
             blocker = ahead
             break
         game_state, removed = state.remove_queue_card(game_state, scan)

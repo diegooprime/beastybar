@@ -15,6 +15,7 @@
         --accent-blue: #2563eb;
         --accent-orange: #f97316;
         --queue-gradient: linear-gradient(90deg, rgba(37, 99, 235, 0.08), rgba(249, 115, 22, 0.08));
+        --queue-track-height: 260px;
       }
 
       * {
@@ -390,8 +391,8 @@
       }
 
       .queue-track {
-        flex: 1;
-        min-height: 260px;
+        flex: 0 0 auto;
+        min-height: var(--queue-track-height);
         border-radius: 22px;
         border: 1px dashed rgba(148, 163, 184, 0.6);
         background: var(--queue-gradient);
@@ -1052,9 +1053,12 @@
           grid-template-columns: minmax(0, 1fr);
         }
 
-        .pile,
-        .queue-track {
+        .pile {
           min-height: 220px;
+        }
+
+        :root {
+          --queue-track-height: 220px;
         }
 
         .queue-track {
