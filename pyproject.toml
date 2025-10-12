@@ -11,13 +11,11 @@ dependencies = [
     "fastapi>=0.111,<1.0",
     "uvicorn>=0.30,<0.31",
     "httpx>=0.27,<0.28",
-    "numpy>=1.26,<2.0",
-    "torch>=2.2,<3.0",
 ]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["_01_simulator*", "_02_agents*", "_03_training*", "_04_ui*", "_05_other*"]
+include = ["_01_simulator*", "_04_ui*", "_05_other*"]
 exclude = ["tests*", "logs*", "scripts*"]
 
 [tool.pytest.ini_options]

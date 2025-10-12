@@ -1,14 +1,13 @@
 """FastAPI application exposing the Beasty Bar simulator."""
 from __future__ import annotations
 
-import json
 import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import uuid
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -16,8 +15,6 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ConfigDict
 
 from _01_simulator import actions, engine, simulate, state
-from _02_agents import DiegoAgent, FirstLegalAgent, GreedyAgent, RandomAgent
-from _02_agents.base import Agent
 
 
 @dataclass
@@ -40,9 +37,6 @@ class SessionStore:
     state: Optional[state.State] = None
     seed: Optional[int] = None
     human_player: int = 0
-    agent_player: Optional[int] = None
-    opponent: Optional[str] = None
-    agent: Optional[Agent] = None
     log: List[TurnLogEntry] = field(default_factory=list)
     history: List[actions.Action] = field(default_factory=list)
     starting_player: int = 0
@@ -58,7 +52,6 @@ class NewGameRequest(BaseModel):
     seed: Optional[int] = None
     starting_player: int = Field(default=0, ge=0, le=1, alias="startingPlayer")
     human_player: int = Field(default=0, ge=0, le=1, alias="humanPlayer")
-    opponent: Optional[str] = None
 
 
 class ActionPayload(BaseModel):
@@ -79,33 +72,16 @@ def create_app() -> FastAPI:
     def index() -> FileResponse:
         return FileResponse(static_dir / "index.html")
 
-    @app.get("/api/agents")
-    def api_agents() -> Dict[str, List[str]]:
-        return {"agents": _available_agents()}
-
     @app.post("/api/new-game")
     def api_new_game(request: NewGameRequest) -> dict:
         seed = request.seed if request.seed is not None else secrets.randbits(32)
         store.seed = seed
         store.human_player = request.human_player
-        store.opponent = request.opponent
-        store.agent_player = None
-        if store.agent:
-            store.agent = None
-
         store.starting_player = request.starting_player
         store.state = simulate.new_game(seed, starting_player=request.starting_player)
         store.log.clear()
         store.history.clear()
         _log_new_game(store, starting_player=request.starting_player)
-
-        if request.opponent:
-            agent = _agent_from_name(request.opponent)
-            store.agent = agent
-            store.agent_player = 1 - store.human_player
-            agent_view = state.mask_state_for_player(store.require_state(), store.agent_player)
-            agent.start_game(agent_view)
-            _auto_play(store)
 
         return _serialize(store.require_state(), store.seed, store)
 
@@ -124,8 +100,6 @@ def create_app() -> FastAPI:
     def api_action(payload: ActionPayload) -> dict:
         game_state = store.require_state()
         player = game_state.active_player
-        if store.agent is not None and player != store.human_player:
-            raise HTTPException(status_code=400, detail="It is not the human player's turn")
         legal = simulate.legal_actions(game_state, player)
         params_tuple = tuple(payload.params)
         try:
@@ -160,85 +134,6 @@ def create_app() -> FastAPI:
 
         return _serialize(current, store.seed, store)
 
-    @app.get("/api/telemetry/runs")
-    def api_telemetry_runs() -> List[dict]:
-        """List all available training run artifacts."""
-        artifacts_dir = Path(__file__).parent.parent / "_03_training" / "artifacts"
-        if not artifacts_dir.exists():
-            return []
-
-        runs = []
-        for run_dir in artifacts_dir.iterdir():
-            if not run_dir.is_dir():
-                continue
-
-            run_info = {"runId": run_dir.name, "hasMetrics": False, "hasEvals": False, "hasCheckpoints": False}
-
-            metrics_dir = run_dir / "metrics"
-            if metrics_dir.exists():
-                run_info["hasMetrics"] = True
-
-            eval_dir = run_dir / "eval"
-            if eval_dir.exists():
-                run_info["hasEvals"] = True
-
-            checkpoints_dir = run_dir / "checkpoints"
-            if checkpoints_dir.exists():
-                run_info["hasCheckpoints"] = True
-
-            runs.append(run_info)
-
-        return sorted(runs, key=lambda r: r["runId"])
-
-    @app.get("/api/telemetry/runs/{run_id}/metrics/rolling")
-    def api_telemetry_rolling_metrics(run_id: str) -> dict:
-        """Get rolling metrics for a training run."""
-        artifacts_dir = Path(__file__).parent.parent / "_03_training" / "artifacts"
-        rolling_file = artifacts_dir / run_id / "metrics" / "rolling_metrics.json"
-
-        if not rolling_file.exists():
-            raise HTTPException(status_code=404, detail=f"Rolling metrics not found for run '{run_id}'")
-
-        with rolling_file.open() as f:
-            return {"runId": run_id, "metrics": json.load(f)}
-
-    @app.get("/api/telemetry/runs/{run_id}/evaluations")
-    def api_telemetry_evaluations(run_id: str) -> List[dict]:
-        """List all evaluation results for a training run."""
-        artifacts_dir = Path(__file__).parent.parent / "_03_training" / "artifacts"
-        eval_dir = artifacts_dir / run_id / "eval"
-
-        if not eval_dir.exists():
-            return []
-
-        evals = []
-        for eval_file in sorted(eval_dir.glob("step_*_eval.json")):
-            with eval_file.open() as f:
-                evals.append(json.load(f))
-
-        return evals
-
-    @app.get("/api/telemetry/runs/{run_id}/checkpoints")
-    def api_telemetry_checkpoints(run_id: str) -> List[dict]:
-        """List all checkpoints for a training run."""
-        artifacts_dir = Path(__file__).parent.parent / "_03_training" / "artifacts"
-        checkpoints_dir = artifacts_dir / run_id / "checkpoints"
-
-        if not checkpoints_dir.exists():
-            return []
-
-        checkpoints = []
-        for checkpoint_file in sorted(checkpoints_dir.glob("step_*.pt")):
-            step = int(checkpoint_file.stem.split("_")[1])
-            checkpoints.append({
-                "step": step,
-                "filename": checkpoint_file.name,
-                "path": str(checkpoint_file.relative_to(artifacts_dir.parent.parent)),
-                "size": checkpoint_file.stat().st_size,
-            })
-
-        return checkpoints
-
     return app
 
 
@@ -246,10 +141,7 @@ def _serialize(game_state: state.State, seed: Optional[int], store: SessionStore
     active_player = game_state.active_player
     legal = simulate.legal_actions(game_state, active_player) if not simulate.is_terminal(game_state) else ()
     log_entries = list(store.log)
-    if store.opponent is None:
-        visible_state = game_state
-    else:
-        visible_state = state.mask_state_for_player(game_state, store.human_player)
+    visible_state = game_state
     return {
         "seed": seed,
         "turn": game_state.turn,
@@ -257,8 +149,6 @@ def _serialize(game_state: state.State, seed: Optional[int], store: SessionStore
         "isTerminal": simulate.is_terminal(game_state),
         "score": simulate.score(game_state) if simulate.is_terminal(game_state) else None,
         "humanPlayer": store.human_player,
-        "agentPlayer": store.agent_player,
-        "opponent": store.opponent,
         "queue": [_card_view(card) for card in visible_state.zones.queue],
         "zones": {
             "beastyBar": [_card_view(card) for card in visible_state.zones.beasty_bar],
@@ -308,59 +198,10 @@ def _action_label(card: state.Card, action: actions.Action) -> str:
     return f"Play {species}"
 
 
-def _agent_from_name(name: str) -> Agent:
-    try:
-        factory = _AGENT_FACTORIES[name]
-    except KeyError as exc:
-        raise HTTPException(status_code=400, detail=f"Unknown agent '{name}'") from exc
-    return factory()
-
-
-def _available_agents() -> List[str]:
-    return sorted(_AGENT_FACTORIES.keys())
-
-
-def _auto_play(store: SessionStore) -> None:
-    if store.agent is None or store.agent_player is None:
-        return
-    if store.state is None:
-        return
-
-    while not simulate.is_terminal(store.state) and store.state.active_player == store.agent_player:
-        legal = simulate.legal_actions(store.state, store.agent_player)
-        if not legal:
-            next_player = store.state.next_player()
-            store.state = state.set_active_player(store.state, next_player, advance_turn=True)
-            _append_log_entry(
-                store,
-                TurnLogEntry(
-                    id=_make_log_id(),
-                    timestamp=datetime.now(timezone.utc),
-                    turn=store.state.turn,
-                    player=store.agent_player,
-                    action="No legal actions available",
-                    effects=("Turn passes to next player",),
-                ),
-            )
-            continue
-        if store.agent_player is None:
-            raise RuntimeError("Agent player index is not set")
-        view = state.mask_state_for_player(store.require_state(), store.agent_player)
-        action = store.agent.select_action(view, legal)
-        _apply_action(store, action, trigger_agent=False)
-
-    if simulate.is_terminal(store.state):
-        if store.agent_player is None:
-            raise RuntimeError("Agent player index is not set")
-        terminal_view = state.mask_state_for_player(store.require_state(), store.agent_player)
-        store.agent.end_game(terminal_view)
-
-
 def _apply_action(
     store: SessionStore,
     action: actions.Action,
     *,
-    trigger_agent: bool = True,
     record_history: bool = True,
 ) -> None:
     before = store.require_state()
@@ -394,30 +235,12 @@ def _apply_action(
     )
     _append_log_entry(store, entry)
 
-    if trigger_agent and store.agent is not None:
-        current = store.require_state()
-        if simulate.is_terminal(current):
-            if store.agent_player is None:
-                raise RuntimeError("Agent player index is not set")
-            view = state.mask_state_for_player(current, store.agent_player)
-            store.agent.end_game(view)
-        else:
-            _auto_play(store)
-
-
-
-
 def _log_new_game(store: SessionStore, *, starting_player: int) -> None:
-    opponent = store.opponent
     details: List[str] = []
     if store.seed is not None:
         details.append(f"Seed {store.seed}")
     details.append(f"Starting player P{starting_player}")
-    if opponent:
-        human = store.human_player
-        agent = store.agent_player if store.agent_player is not None else (1 - human)
-        details.append(f"You are P{human}")
-        details.append(f"Opponent {opponent} as P{agent}")
+    details.append(f"You are P{store.human_player}")
 
     entry = TurnLogEntry(
         id=_make_log_id(),
@@ -479,8 +302,7 @@ def _describe_action_effects(
     if include_draw:
         draw = _drawn_cards(before, after, player)
         if draw:
-            is_visible = player == store.human_player or store.opponent is None
-            if is_visible:
+            if player == store.human_player:
                 effects.append(f"Drew {_format_card_list(draw)}")
             else:
                 count = len(draw)
@@ -550,20 +372,9 @@ def _format_log_text(store: SessionStore, entries: List[TurnLogEntry]) -> str:
 
 
 def _log_player_label(store: SessionStore, player: int) -> str:
-    if store.opponent:
-        if player == store.human_player:
-            return f"P{player} (You)"
-        if store.agent_player is not None and player == store.agent_player:
-            return f"P{player} ({store.opponent})"
+    if player == store.human_player:
+        return f"P{player} (You)"
     return f"P{player}"
-
-
-_AGENT_FACTORIES: Dict[str, type[Agent]] = {
-    "first": FirstLegalAgent,
-    "random": RandomAgent,
-    "greedy": GreedyAgent,
-    "diego": DiegoAgent,
-}
 
 
 __all__ = ["create_app"]

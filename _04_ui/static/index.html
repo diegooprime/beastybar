@@ -454,12 +454,6 @@
             <input id="seed-input" type="number" placeholder="Random" />
           </label>
           <label>
-            Opponent
-            <select id="opponent-select">
-              <option value="">Human vs Human</option>
-            </select>
-          </label>
-          <label>
             You play as
             <select id="human-player-select">
               <option value="0">Player 0 (Blue)</option>
@@ -533,8 +527,6 @@
       let currentState = null;
       let bootstrapped = false;
       let pendingSelection = null;
-      let availableAgents = [];
-
       const CARD_ART_BASE_PATH = "/static/cards";
       const CARD_ART_STRENGTHS = Array.from({ length: 12 }, (_, idx) => idx + 1);
       const CARD_ART_AVAILABILITY = new Map([
@@ -569,7 +561,6 @@
 
       const newGameBtn = document.getElementById("new-game");
       const seedInput = document.getElementById("seed-input");
-      const opponentSelect = document.getElementById("opponent-select");
       const humanPlayerSelect = document.getElementById("human-player-select");
       const startingPlayerSelect = document.getElementById("starting-player-select");
 
@@ -604,10 +595,6 @@
           startingPlayer: Number(startingPlayerSelect.value),
           humanPlayer: Number(humanPlayerSelect.value),
         };
-        const opponent = opponentSelect.value;
-        if (opponent) {
-          payload.opponent = opponent;
-        }
         if (overrides && typeof overrides === "object") {
           Object.assign(payload, overrides);
         }
@@ -762,23 +749,16 @@
 
         hands.forEach((hand, playerIndex) => {
           const wrapper = handWrappers[playerIndex];
-          const isHumanControlled =
-            !currentState.opponent ||
-            (typeof currentState.humanPlayer === "number" && playerIndex === currentState.humanPlayer);
-          const hideHand = currentState.opponent ? !isHumanControlled : false;
-          wrapper.classList.toggle("active", playerIndex === activePlayer && !hideHand);
-          wrapper.classList.toggle("hidden", hideHand);
+          const isActive = playerIndex === activePlayer;
+          wrapper.classList.toggle("active", isActive);
+          wrapper.classList.remove("hidden");
 
           const nodes = hand.map((card, handIndex) => {
-            const hidden = hideHand;
-            const actions = hidden ? [] : playerIndex === activePlayer ? legalByHand.get(handIndex) ?? [] : [];
+            const actions = isActive ? legalByHand.get(handIndex) ?? [] : [];
             const isSelected =
-              !hidden &&
-              pendingSelection &&
-              pendingSelection.handIndex === handIndex &&
-              playerIndex === activePlayer;
+              isActive && pendingSelection && pendingSelection.handIndex === handIndex;
             let inlineOptions = null;
-            if (!hidden && isSelected) {
+            if (isSelected) {
               if (pendingSelection.type === "kangaroo") {
                 inlineOptions = pendingSelection.actions.map((action) => ({
                   label: kangarooLabel(action),
@@ -797,23 +777,18 @@
                 inlineOptions = options.length ? options : null;
               }
             }
-            const displayCard = hidden
-              ? { owner: card.owner, species: "Hidden", strength: "?", points: "?" }
-              : card;
-            return createCard(displayCard, {
-              hidden,
-              highlight: !hidden && actions.length > 0 && playerIndex === activePlayer,
+
+            return createCard(card, {
+              highlight: actions.length > 0 && isActive,
               selected: isSelected,
               handIndex,
-              onClick:
-                !hidden && playerIndex === activePlayer && actions.length > 0
-                  ? () => handleHandCardClick(card, handIndex, actions)
-                  : null,
+              onClick: isActive && actions.length > 0 ? () => handleHandCardClick(card, handIndex, actions) : null,
               inlineOptions,
-              disabled: !hidden && actions.length === 0 && playerIndex === activePlayer,
+              disabled: isActive && actions.length === 0,
               artCard: card,
             });
           });
+
           renderNodes(handContainers[playerIndex], nodes, { emptyText: "No cards in hand" });
         });
 
@@ -830,14 +805,8 @@
       }
 
       function playerLabel(playerIndex) {
-        if (currentState && currentState.opponent) {
-          const { humanPlayer, agentPlayer, opponent } = currentState;
-          if (typeof humanPlayer === "number" && playerIndex === humanPlayer) {
-            return "You";
-          }
-          if (opponent && typeof agentPlayer === "number" && playerIndex === agentPlayer) {
-            return opponent;
-          }
+        if (currentState && typeof currentState.humanPlayer === "number" && playerIndex === currentState.humanPlayer) {
+          return "You";
         }
         return `Player ${playerIndex}`;
       }
@@ -1208,50 +1177,10 @@
 
         const active = currentState.activePlayer;
         const label = playerLabel(active);
-        if (currentState.opponent && active !== currentState.humanPlayer) {
-          hintEl.textContent = `${label} is thinking…`;
-          return;
-        }
-
         const prefix = label === "You" ? "Your turn" : label;
         hintEl.textContent = `${prefix}: choose a card from your hand.`;
       }
 
-      function loadAgents() {
-        fetch("/api/agents")
-          .then((response) => (response.ok ? response.json() : null))
-          .then((data) => {
-            if (!data) {
-              return;
-            }
-            const names = Array.isArray(data.agents) ? data.agents : [];
-            availableAgents = names.slice().sort();
-            populateOpponentOptions();
-          })
-          .catch(() => {
-            // optional feature, ignore errors
-          });
-      }
-
-      function populateOpponentOptions() {
-        const previous = opponentSelect.value;
-        opponentSelect.innerHTML = "";
-        const baseOption = document.createElement("option");
-        baseOption.value = "";
-        baseOption.textContent = "Human vs Human";
-        opponentSelect.appendChild(baseOption);
-        availableAgents.forEach((name) => {
-          const option = document.createElement("option");
-          option.value = name;
-          option.textContent = name;
-          opponentSelect.appendChild(option);
-        });
-        if (availableAgents.includes(previous)) {
-          opponentSelect.value = previous;
-        }
-      }
-
-      loadAgents();
       refreshState();
     </script>
   </body>

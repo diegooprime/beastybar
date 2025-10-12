@@ -1,5 +1,0 @@
-_01_simulator
-_02_agents
-_03_training
-_04_ui
-_05_other

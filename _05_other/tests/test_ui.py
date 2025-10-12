@@ -33,13 +33,13 @@ def test_static_index_served():
     assert "Beasty Bar" in response.text
 
 
-def test_turn_flow_and_hidden_information():
+def test_turn_flow_and_hand_visibility():
     app = create_app()
     client = TestClient(app)
 
     response = client.post(
         "/api/new-game",
-        json={"seed": 314, "opponent": "random", "humanPlayer": 0},
+        json={"seed": 314, "humanPlayer": 0},
     )
     assert response.status_code == 200
     state = response.json()
@@ -47,12 +47,11 @@ def test_turn_flow_and_hidden_information():
     assert state["turn"] == 0
     assert state["turnFlow"] == []
 
-    # Human player's hand remains visible; opponent hand masked as "unknown".
     human_index = state["humanPlayer"]
     human_hand = state["hands"][human_index]
     opponent_hand = state["hands"][1 - human_index]
     assert any(card["species"] != "unknown" for card in human_hand)
-    assert all(card["species"] == "unknown" for card in opponent_hand)
+    assert any(card["species"] != "unknown" for card in opponent_hand)
 
     action_payload = state["legalActions"][0]
     play = client.post("/api/action", json=action_payload)
