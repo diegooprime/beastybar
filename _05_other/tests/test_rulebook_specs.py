@@ -191,5 +191,6 @@ def test_rulebook_skunk_removes_top_two_strength_bands():
 
     next_state = engine.step(game_state, actions.Action(hand_index=0))
 
-    assert [c.species for c in next_state.zones.queue] == ["crocodile"]
-    assert [c.species for c in next_state.zones.thats_it] == ["lion", "hippo", "skunk"]
+    # Skunk stays in place after expelling (no repositioning)
+    assert [c.species for c in next_state.zones.queue] == ["crocodile", "skunk"]
+    assert [c.species for c in next_state.zones.thats_it] == ["lion", "hippo"]

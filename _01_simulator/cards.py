@@ -195,10 +195,39 @@ def _resolve_skunk(game_state: state.State, card: state.Card, action: actions.Ac
         else:
             remaining.append(c)
 
-    skunks = [c for c in remaining if c.species == "skunk"]
-    others = [c for c in remaining if c.species != "skunk"]
-    new_queue = skunks + others
-    return state.replace_queue(game_state, new_queue)
+    return state.replace_queue(game_state, remaining)
+
+
+def _resolve_hippo(game_state: state.State, card: state.Card, action: actions.Action) -> state.State:
+    """On-play hippo: push toward front, blocked by zebra/stronger/same-species."""
+    queue = list(game_state.zones.queue)
+    idx = queue.index(card)
+    target = idx
+    while target > 0:
+        ahead = queue[target - 1]
+        if ahead.species == "zebra" or ahead.strength >= card.strength:
+            break
+        target -= 1
+    if target == idx:
+        return game_state
+    queue.pop(idx)
+    queue.insert(target, card)
+    return state.replace_queue(game_state, queue)
+
+
+def _resolve_crocodile(game_state: state.State, card: state.Card, action: actions.Action) -> state.State:
+    """On-play crocodile: eat weaker animals ahead, blocked by zebra/>=strength."""
+    queue = list(game_state.zones.queue)
+    idx = queue.index(card)
+    scan = idx - 1
+    while scan >= 0:
+        ahead = queue[scan]
+        if ahead.species == "zebra" or ahead.strength >= card.strength:
+            break
+        queue.pop(scan)
+        game_state = state.push_to_zone(game_state, rules.ZONE_THATS_IT, ahead)
+        scan -= 1
+    return state.replace_queue(game_state, queue)
 
 
 def _noop_handler(game_state: state.State, card: state.Card, action: actions.Action) -> state.State:
@@ -305,6 +334,8 @@ def _recurring_giraffe(game_state: state.State, index: int) -> tuple[state.State
 
 _HANDLERS: dict[str, Handler] = {
     "lion": _resolve_lion,
+    "hippo": _resolve_hippo,
+    "crocodile": _resolve_crocodile,
     "snake": _resolve_snake,
     "giraffe": _resolve_giraffe,
     "kangaroo": _resolve_kangaroo,
