@@ -1,8 +1,8 @@
 """Action definitions for the Beasty Bar engine."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Tuple
 
 
 @dataclass(frozen=True)
@@ -16,7 +16,7 @@ class Action:
     """
 
     hand_index: int
-    params: Tuple[int, ...] = ()
+    params: tuple[int, ...] = ()
 
 
 __all__ = ["Action"]

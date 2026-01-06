@@ -1,13 +1,17 @@
 """Immutable game state representations and helpers."""
+
 from __future__ import annotations
 
 import random
 from dataclasses import dataclass, replace
-from typing import Optional, Sequence, Tuple
+from typing import TYPE_CHECKING
 
 from . import rules
 
-CardTuple = Tuple["Card", ...]
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+CardTuple = tuple["Card", ...]
 
 
 @dataclass(frozen=True)
@@ -59,7 +63,7 @@ class State:
     seed: int
     turn: int
     active_player: int
-    players: Tuple[PlayerState, ...]
+    players: tuple[PlayerState, ...]
     zones: Zones
 
     def __post_init__(self) -> None:
@@ -96,7 +100,7 @@ def initial_state(seed: int, starting_player: int = 0) -> State:
     )
 
 
-def draw_card(game_state: State, player: int) -> Tuple[State, Optional[Card]]:
+def draw_card(game_state: State, player: int) -> tuple[State, Card | None]:
     """Draw the top card of a player's deck into their hand."""
 
     player_state = game_state.players[player]
@@ -105,12 +109,12 @@ def draw_card(game_state: State, player: int) -> Tuple[State, Optional[Card]]:
 
     card = player_state.deck[0]
     new_deck = player_state.deck[1:]
-    new_hand = player_state.hand + (card,)
+    new_hand = (*player_state.hand, card)
     updated_player = replace(player_state, deck=new_deck, hand=new_hand)
     return _replace_player(game_state, player, updated_player), card
 
 
-def remove_hand_card(game_state: State, player: int, index: int) -> Tuple[State, Card]:
+def remove_hand_card(game_state: State, player: int, index: int) -> tuple[State, Card]:
     """Remove the indexed card from a player's hand."""
 
     player_state = game_state.players[player]
@@ -129,7 +133,7 @@ def append_queue(game_state: State, card: Card) -> State:
     queue = game_state.zones.queue
     if len(queue) >= rules.MAX_QUEUE_LENGTH + 1:
         raise ValueError("Queue is at maximum capacity")
-    new_queue = queue + (card,)
+    new_queue = (*queue, card)
     return _replace_zones(game_state, queue=new_queue)
 
 
@@ -144,11 +148,11 @@ def insert_queue(game_state: State, index: int, card: Card) -> State:
     if not (0 <= index <= len(queue)):
         raise IndexError("Queue insertion index out of range")
 
-    new_queue = queue[:index] + (card,) + queue[index:]
+    new_queue = (*queue[:index], card, *queue[index:])
     return _replace_zones(game_state, queue=new_queue)
 
 
-def remove_queue_card(game_state: State, index: int) -> Tuple[State, Card]:
+def remove_queue_card(game_state: State, index: int) -> tuple[State, Card]:
     """Remove and return a card from the queue."""
 
     queue = game_state.zones.queue
@@ -166,7 +170,7 @@ def push_to_zone(game_state: State, zone: str, card: Card) -> State:
     if zone not in _ZONE_NAMES:
         raise ValueError(f"Unknown zone: {zone}")
     current = getattr(game_state.zones, zone)
-    new_zone = current + (card,)
+    new_zone = (*current, card)
     return _replace_zones(game_state, **{zone: new_zone})
 
 
@@ -226,7 +230,7 @@ def _replace_player(game_state: State, index: int, new_player_state: PlayerState
     return replace(game_state, players=tuple(players))
 
 
-def _replace_zones(game_state: State, **updates) -> State:
+def _replace_zones(game_state: State, **updates: tuple[Card, ...]) -> State:
     zones = replace(game_state.zones, **updates)
     return replace(game_state, zones=zones)
 
@@ -235,16 +239,16 @@ __all__ = [
     "Card",
     "CardTuple",
     "PlayerState",
-    "Zones",
     "State",
-    "initial_state",
-    "draw_card",
-    "remove_hand_card",
+    "Zones",
     "append_queue",
+    "draw_card",
+    "initial_state",
     "insert_queue",
+    "mask_state_for_player",
+    "push_to_zone",
+    "remove_hand_card",
     "remove_queue_card",
     "replace_queue",
-    "push_to_zone",
     "set_active_player",
-    "mask_state_for_player",
 ]

@@ -1,8 +1,9 @@
 """Batch simulation entry point."""
+
 from __future__ import annotations
 
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
-from typing import Callable, Iterable, Iterator, Optional, Sequence, Tuple
 
 from . import actions, engine, state
 
@@ -13,8 +14,8 @@ AgentFn = Callable[[state.State, Sequence[actions.Action]], actions.Action]
 class SimulationConfig:
     seed: int
     games: int = 1
-    agent_a: Optional[AgentFn] = None
-    agent_b: Optional[AgentFn] = None
+    agent_a: AgentFn | None = None
+    agent_b: AgentFn | None = None
 
 
 def new_game(seed: int, *, starting_player: int = 0) -> state.State:
@@ -23,7 +24,7 @@ def new_game(seed: int, *, starting_player: int = 0) -> state.State:
     return state.initial_state(seed=seed, starting_player=starting_player)
 
 
-def legal_actions(game_state: state.State, player: int) -> Tuple[actions.Action, ...]:
+def legal_actions(game_state: state.State, player: int) -> tuple[actions.Action, ...]:
     """Expose the engine legal actions as a tuple for agent consumption."""
 
     return tuple(engine.legal_actions(game_state, player))
@@ -41,7 +42,7 @@ def is_terminal(game_state: state.State) -> bool:
     return engine.is_terminal(game_state)
 
 
-def score(game_state: state.State) -> Tuple[int, ...]:
+def score(game_state: state.State) -> tuple[int, ...]:
     """Return immutable score data for the finished game."""
 
     return tuple(engine.score(game_state))
@@ -58,7 +59,7 @@ def run(config: SimulationConfig) -> Iterator[state.State]:
     if config.games < 1:
         raise ValueError("Number of games must be at least 1")
 
-    agents: Tuple[AgentFn, AgentFn] = (
+    agents: tuple[AgentFn, AgentFn] = (
         config.agent_a or _default_agent,
         config.agent_b or _default_agent,
     )
@@ -69,7 +70,7 @@ def run(config: SimulationConfig) -> Iterator[state.State]:
         yield _play_game(game, agents)
 
 
-def _play_game(game: state.State, agents: Tuple[AgentFn, AgentFn]) -> state.State:
+def _play_game(game: state.State, agents: tuple[AgentFn, AgentFn]) -> state.State:
     current = game
     while not engine.is_terminal(current):
         player = current.active_player
@@ -89,10 +90,10 @@ def _default_agent(game_state: state.State, legal: Sequence[actions.Action]) -> 
 __all__ = [
     "AgentFn",
     "SimulationConfig",
-    "new_game",
-    "legal_actions",
     "apply",
     "is_terminal",
-    "score",
+    "legal_actions",
+    "new_game",
     "run",
+    "score",
 ]

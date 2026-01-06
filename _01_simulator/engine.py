@@ -1,10 +1,14 @@
 """Rule engine entry points."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, List, Optional, Tuple
+from typing import TYPE_CHECKING
 
-from . import actions, cards, rules, state
+from . import actions, cards, formatting, rules, state
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 
 @dataclass(frozen=True)
@@ -12,16 +16,7 @@ class TurnStep:
     """Describes a single phase of turn resolution."""
 
     name: str
-    events: Tuple[str, ...]
-
-
-def _card_label(card: state.Card) -> str:
-    species = card.species.replace("_", " ").title()
-    return f"{species} (P{card.owner})"
-
-
-def _card_list(cards: Iterable[state.Card]) -> str:
-    return ", ".join(_card_label(card) for card in cards)
+    events: tuple[str, ...]
 
 
 def legal_actions(game_state: state.State, player: int) -> Iterable[actions.Action]:
@@ -29,7 +24,7 @@ def legal_actions(game_state: state.State, player: int) -> Iterable[actions.Acti
 
     _validate_player_index(player)
     if player != game_state.active_player:
-        return []
+        return
 
     player_state = game_state.players[player]
     queue = game_state.zones.queue
@@ -54,7 +49,7 @@ def legal_actions(game_state: state.State, player: int) -> Iterable[actions.Acti
                     continue
                 # Allow additional params for the copied species to consume.
                 for extra in _chameleon_params(target_card, len(queue)):
-                    yield actions.Action(hand_index=idx, params=(target,) + extra)
+                    yield actions.Action(hand_index=idx, params=(target, *extra))
         else:
             yield actions.Action(hand_index=idx)
 
@@ -65,7 +60,7 @@ def step(game_state: state.State, action: actions.Action) -> state.State:
     return game_state
 
 
-def step_with_trace(game_state: state.State, action: actions.Action) -> Tuple[state.State, Tuple[TurnStep, ...]]:
+def step_with_trace(game_state: state.State, action: actions.Action) -> tuple[state.State, tuple[TurnStep, ...]]:
     """Advance the game and capture the canonical five-phase resolution trace."""
 
     if is_terminal(game_state):
@@ -74,13 +69,13 @@ def step_with_trace(game_state: state.State, action: actions.Action) -> Tuple[st
     player = game_state.active_player
     _validate_action(game_state, player, action)
 
-    steps: List[TurnStep] = []
+    steps: list[TurnStep] = []
 
     game_state, card = state.remove_hand_card(game_state, player, action.hand_index)
     object.__setattr__(card, "entered_turn", game_state.turn)
 
     game_state = state.append_queue(game_state, card)
-    steps.append(TurnStep(name="play", events=(f"Played {_card_label(card)} to the queue.",)))
+    steps.append(TurnStep(name="play", events=(f"Played {formatting.card_label(card)} to the queue.",)))
 
     before_resolve = game_state
     after_resolve = cards.resolve_play(game_state, card, action)
@@ -116,13 +111,10 @@ def is_terminal(game_state: state.State) -> bool:
     if remaining_cards < rules.MAX_QUEUE_LENGTH:
         return True
 
-    for player_state in game_state.players:
-        if player_state.hand or player_state.deck:
-            return False
-    return True
+    return all(not (player_state.hand or player_state.deck) for player_state in game_state.players)
 
 
-def score(game_state: state.State) -> List[int]:
+def score(game_state: state.State) -> list[int]:
     """Return final scores for each player."""
 
     scores = [0 for _ in range(rules.PLAYER_COUNT)]
@@ -136,7 +128,7 @@ def _resolve_events(
     action: actions.Action,
     before: state.State,
     after: state.State,
-) -> Tuple[str, ...]:
+) -> tuple[str, ...]:
     unchanged = (
         before.zones.queue == after.zones.queue
         and before.zones.beasty_bar == after.zones.beasty_bar
@@ -160,25 +152,25 @@ def _resolve_events(
         queue = before.zones.queue
         if 0 <= target_index < len(queue):
             target = queue[target_index]
-            message = f"{_card_label(card)} imitates {_card_label(target)} on-play."
+            message = f"{formatting.card_label(card)} imitates {formatting.card_label(target)} on-play."
             if unchanged:
                 return (message,)
             return (message,)
 
     if unchanged:
-        return (f"{_card_label(card)} has no immediate effect.",)
+        return (f"{formatting.card_label(card)} has no immediate effect.",)
 
-    message = species_messages.get(card.species)
-    if message is None:
-        message = f"{_card_label(card)} resolves its on-play ability."
+    message = species_messages.get(card.species, f"{formatting.card_label(card)} resolves its on-play ability.")
     return (message,)
 
 
-def _draw_card_with_trace(game_state: state.State, player: int) -> Tuple[state.State, Optional[state.Card], Tuple[str, ...]]:
+def _draw_card_with_trace(
+    game_state: state.State, player: int
+) -> tuple[state.State, state.Card | None, tuple[str, ...]]:
     game_state, card = state.draw_card(game_state, player)
     if card is None:
         return game_state, None, ("Deck empty; no card drawn.",)
-    return game_state, card, (f"Drew {_card_label(card)}.",)
+    return game_state, card, (f"Drew {formatting.card_label(card)}.",)
 
 
 def _apply_five_card_check(game_state: state.State) -> state.State:
@@ -186,7 +178,7 @@ def _apply_five_card_check(game_state: state.State) -> state.State:
     return game_state
 
 
-def _apply_five_card_check_with_trace(game_state: state.State) -> Tuple[state.State, Tuple[str, ...]]:
+def _apply_five_card_check_with_trace(game_state: state.State) -> tuple[state.State, tuple[str, ...]]:
     queue = game_state.zones.queue
     if len(queue) != rules.MAX_QUEUE_LENGTH:
         return game_state, ("Queue below capacity; no animals move.",)
@@ -200,10 +192,10 @@ def _apply_five_card_check_with_trace(game_state: state.State) -> Tuple[state.St
         game_state = state.push_to_zone(game_state, rules.ZONE_BEASTY_BAR, card)
     game_state = state.push_to_zone(game_state, rules.ZONE_THATS_IT, bounced)
 
-    messages: List[str] = []
+    messages: list[str] = []
     if entering:
-        messages.append(f"Heaven's Gate admits {_card_list(entering)}.")
-    messages.append(f"THAT'S IT receives {_card_label(bounced)}.")
+        messages.append(f"Heaven's Gate admits {formatting.card_list(entering)}.")
+    messages.append(f"THAT'S IT receives {formatting.card_label(bounced)}.")
     return game_state, tuple(messages)
 
 
@@ -259,7 +251,7 @@ def _validate_action(game_state: state.State, player: int, action: actions.Actio
             raise ValueError("This card does not accept parameters")
 
 
-def _chameleon_params(target_card: state.Card, queue_len: int):
+def _chameleon_params(target_card: state.Card, queue_len: int) -> Iterable[tuple[int, ...]]:
     species = target_card.species
     if species == "parrot":
         for target in range(queue_len):
@@ -294,14 +286,14 @@ def _validate_chameleon_params(target_card: state.Card, params: tuple[int, ...],
             raise ValueError("Chameleon-as-kangaroo hop distance out of range")
     else:
         if params:
-            raise ValueError("Chameleon-as-%s should not have extra parameters" % species)
+            raise ValueError(f"Chameleon-as-{species} should not have extra parameters")
 
 
 __all__ = [
+    "TurnStep",
+    "is_terminal",
     "legal_actions",
+    "score",
     "step",
     "step_with_trace",
-    "is_terminal",
-    "score",
-    "TurnStep",
 ]

@@ -1,8 +1,8 @@
 """Reward helpers for self-play reinforcement learning."""
+
 from __future__ import annotations
 
 import random
-from typing import Tuple
 
 from . import engine, rules, state
 
@@ -10,7 +10,7 @@ _TOTAL_POINTS_PER_PLAYER = sum(rules.SPECIES[name].points for name in rules.BASE
 _TOTAL_POINTS_BOUNDS = _TOTAL_POINTS_PER_PLAYER or 1
 
 
-def win_loss(game_state: state.State) -> Tuple[int, ...]:
+def win_loss(game_state: state.State) -> tuple[int, ...]:
     """Return +1/-1/0 win-loss reward for each player."""
 
     scores = engine.score(game_state)
@@ -26,7 +26,7 @@ def win_loss(game_state: state.State) -> Tuple[int, ...]:
     return tuple(rewards)
 
 
-def normalized_margin(game_state: state.State) -> Tuple[float, ...]:
+def normalized_margin(game_state: state.State) -> tuple[float, ...]:
     """Return normalized point margin rewards for each player."""
 
     scores = engine.score(game_state)
@@ -44,7 +44,7 @@ def shaped_reward(
     margin_weight: float = 0.25,
     jitter_scale: float = 0.01,
     seed: int | None = None,
-) -> Tuple[float, ...]:
+) -> tuple[float, ...]:
     """Combine win/loss and margin signals with deterministic jitter.
 
     Args:
@@ -70,7 +70,7 @@ def shaped_reward(
 
 
 __all__ = [
-    "win_loss",
     "normalized_margin",
     "shaped_reward",
+    "win_loss",
 ]
