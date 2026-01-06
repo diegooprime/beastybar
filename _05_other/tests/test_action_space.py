@@ -1,11 +1,13 @@
 """Tests for legal action catalog and masks."""
+
 from __future__ import annotations
 
-from typing import Iterable
-
-import pytest
+from typing import TYPE_CHECKING
 
 from _01_simulator import action_space, engine, rules, state
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 
 def _build_state(
@@ -65,7 +67,7 @@ def test_chameleon_parrot_actions_are_present() -> None:
     two_param_actions = [a for a in legal if len(a.params) == 2]
     assert two_param_actions, "Expected chameleon to generate two-parameter actions"
 
-    catalog = action_space.canonical_actions()
+    action_space.canonical_actions()
     for action in two_param_actions:
         index = action_space.action_index(action)
         assert mask.mask[index] == 1

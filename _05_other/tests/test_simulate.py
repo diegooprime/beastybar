@@ -22,14 +22,18 @@ def test_apply_advances_state():
 
 
 def test_run_with_scripted_agents_matches_golden_final_state():
-    agent_a = _recording_agent([
-        ("kangaroo", None),
-        ("seal", None),
-    ])
-    agent_b = _recording_agent([
-        ("monkey", None),
-        ("crocodile", None),
-    ])
+    agent_a = RecordingAgent(
+        [
+            ("kangaroo", None),
+            ("seal", None),
+        ]
+    )
+    agent_b = RecordingAgent(
+        [
+            ("monkey", None),
+            ("crocodile", None),
+        ]
+    )
     config = simulate.SimulationConfig(
         seed=2025,
         games=1,
@@ -47,7 +51,7 @@ def test_run_with_scripted_agents_matches_golden_final_state():
     assert simulate.score(final_state) == tuple(engine.score(final_state))
 
 
-class _recording_agent:
+class RecordingAgent:
     def __init__(self, script):
         self._script = list(script)
         self.history: list[tuple[str, tuple[int, ...]]] = []

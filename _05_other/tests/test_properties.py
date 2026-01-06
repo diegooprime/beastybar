@@ -3,11 +3,7 @@ from _01_simulator import engine, rules, simulate, state
 
 def _total_cards(game_state: state.State) -> int:
     player_cards = sum(len(player.hand) + len(player.deck) for player in game_state.players)
-    shared_cards = (
-        len(game_state.zones.queue)
-        + len(game_state.zones.beasty_bar)
-        + len(game_state.zones.thats_it)
-    )
+    shared_cards = len(game_state.zones.queue) + len(game_state.zones.beasty_bar) + len(game_state.zones.thats_it)
     return player_cards + shared_cards
 
 

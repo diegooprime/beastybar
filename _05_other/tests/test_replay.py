@@ -1,6 +1,5 @@
 from _01_simulator import engine, state
 
-
 PLAN = [
     ("kangaroo", None),
     ("monkey", None),
@@ -93,6 +92,7 @@ def _run_plan(game: state.State, plan):
         snapshots.append(_snapshot(current))
     return current, snapshots
 
+
 def _snapshot(game: state.State) -> dict:
     return {
         "turn": game.turn,
@@ -100,10 +100,7 @@ def _snapshot(game: state.State) -> dict:
         "queue": [card.species for card in game.zones.queue],
         "thats_it": [card.species for card in game.zones.thats_it],
         "beasty_bar": [card.species for card in game.zones.beasty_bar],
-        "hands": [
-            [card.species for card in player.hand]
-            for player in game.players
-        ],
+        "hands": [[card.species for card in player.hand] for player in game.players],
     }
 
 
@@ -112,7 +109,6 @@ def _find_hand_index(hand, species: str) -> int:
         if card.species == species:
             return idx
     raise AssertionError(f"Species {species} not found in hand")
-
 
 
 def _make_card(owner: int, species: str) -> state.Card:
@@ -130,7 +126,6 @@ def _custom_state(p0_hand, p1_hand, queue, *, seed: int = 0):
         ),
         zones=state.Zones(queue=tuple(queue)),
     )
-
 
 
 def test_replay_monkeys_clear_heavies():
@@ -179,7 +174,6 @@ def test_replay_monkeys_clear_heavies():
     assert snapshots == expected
 
 
-
 def test_replay_chameleon_parrot_deep_queue():
     game = _custom_state(
         p0_hand=[_make_card(0, "chameleon")],
@@ -213,7 +207,6 @@ def test_replay_chameleon_parrot_deep_queue():
         },
     ]
     assert snapshots == expected
-
 
 
 def test_replay_seal_triggers_recurring_after_flip():

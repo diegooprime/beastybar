@@ -1,4 +1,5 @@
 """Tests for reward helper utilities."""
+
 from __future__ import annotations
 
 from _01_simulator import rewards, rules, state

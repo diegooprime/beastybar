@@ -6,6 +6,8 @@ Purpose: Have the best Beasty Bar strategy in the world.
 
 ### Project structure:
 - **_01_simulator**: Full game rules and state management (deterministic, side-effect free)
+- **_02_agents**: AI players (Random, Heuristic, MCTS)
+- **_03_training**: Tournament runner and Elo ratings
 - **_04_ui**: FastAPI interface and static viewer for human vs. human play
 - **_05_other**: Tests, utilities, docs, and references
 
@@ -31,10 +33,29 @@ uvicorn _04_ui.app:create_app --reload
 pytest _05_other/tests -ra
 ```
 
+#### 4. Run Training (on NUC)
+All training runs happen on `primenuc@prime-nuc`. Use the remote script:
+
+```bash
+# Sync code and run benchmark
+./scripts/remote.sh sync
+./scripts/remote.sh run --games 100
+
+# Long training in background (tmux)
+./scripts/remote.sh train --games 500 --include-slow
+
+# Monitor
+./scripts/remote.sh status   # check if running
+./scripts/remote.sh attach   # view live (Ctrl+B, D to detach)
+./scripts/remote.sh logs     # tail output
+```
+
 ### How It Works
 
 1. **Simulator** (`_01_simulator/`) provides deterministic game engine with seed-threaded randomness
-2. **UI** (`_04_ui/`) lets humans play both sides of a match, inspect turn history, and replay deterministic seeds
+2. **Agents** (`_02_agents/`) play against each other to find optimal strategies
+3. **Training** (`_03_training/`) runs tournaments and tracks Elo ratings
+4. **UI** (`_04_ui/`) lets humans play both sides of a match, inspect turn history, and replay deterministic seeds
 
 ### Misc
 - Built in Python. Fast to build. I want to get better at it.
