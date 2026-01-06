@@ -1,1187 +1,1461 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <title>Beasty Bar</title>
-    <style>
-      :root {
-        color-scheme: light;
-        --bg: #f3f4f6;
-        --surface: #ffffff;
-        --surface-soft: #f9fafb;
-        --border: #e5e7eb;
-        --border-strong: #d1d5db;
-        --text: #111827;
-        --muted: #6b7280;
-        --accent: #2563eb;
-        --accent-soft: rgba(37, 99, 235, 0.12);
-      }
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Beasty Bar</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-dark: #0f172a;
+      --bg-card: #1e293b;
+      --bg-elevated: #334155;
+      --border: #475569;
+      --border-light: #64748b;
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --accent: #3b82f6;
+      --accent-glow: rgba(59, 130, 246, 0.4);
+      --success: #22c55e;
+      --success-glow: rgba(34, 197, 94, 0.3);
+      --danger: #ef4444;
+      --danger-glow: rgba(239, 68, 68, 0.3);
+      --warning: #f59e0b;
+      --p0-color: #3b82f6;
+      --p1-color: #f97316;
+      --card-width: 100px;
+      --card-height: 140px;
+      --queue-card-width: 120px;
+      --queue-card-height: 168px;
+    }
 
-      * {
-        box-sizing: border-box;
-      }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
 
-      body {
-        margin: 0;
-        font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        background: var(--bg);
-        color: var(--text);
-      }
+    html, body {
+      height: 100%;
+      overflow: hidden;
+    }
 
-      button,
-      select,
-      input {
-        font: inherit;
-      }
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: var(--bg-dark);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+    }
 
-      .app {
-        min-height: 100vh;
-        display: flex;
-        flex-direction: column;
-      }
+    /* Header */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.75rem 1.5rem;
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      gap: 1rem;
+    }
 
-      .top {
-        background: var(--surface);
-        border-bottom: 1px solid var(--border);
-        padding: 1.1rem 1.5rem;
-        display: flex;
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .logo {
+      font-size: 1.25rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--accent), #8b5cf6);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .turn-badge {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.4rem 0.75rem;
+      background: var(--bg-elevated);
+      border-radius: 2rem;
+      font-size: 0.875rem;
+      font-weight: 500;
+    }
+
+    .turn-badge.your-turn {
+      background: var(--accent);
+      color: white;
+      animation: pulse-glow 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse-glow {
+      0%, 100% { box-shadow: 0 0 0 0 var(--accent-glow); }
+      50% { box-shadow: 0 0 20px 4px var(--accent-glow); }
+    }
+
+    .turn-badge.ai-turn {
+      background: var(--p1-color);
+      color: white;
+    }
+
+    .turn-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .header-center {
+      display: flex;
+      align-items: center;
+      gap: 2rem;
+    }
+
+    .scoreboard {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+    }
+
+    .score-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 0.5rem 1rem;
+      border-radius: 0.5rem;
+      background: var(--bg-elevated);
+      min-width: 80px;
+      transition: all 0.2s;
+    }
+
+    .score-item.active {
+      transform: scale(1.05);
+    }
+
+    .score-item[data-player="0"] { border: 2px solid var(--p0-color); }
+    .score-item[data-player="1"] { border: 2px solid var(--p1-color); }
+    .score-item[data-player="0"].active { box-shadow: 0 0 20px var(--p0-color); }
+    .score-item[data-player="1"].active { box-shadow: 0 0 20px var(--p1-color); }
+
+    .score-label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+    }
+
+    .score-value {
+      font-size: 1.5rem;
+      font-weight: 700;
+    }
+
+    .score-divider {
+      font-size: 1.25rem;
+      color: var(--text-dim);
+      font-weight: 300;
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 1rem;
+      border: none;
+      border-radius: 0.5rem;
+      font-family: inherit;
+      font-size: 0.875rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: #2563eb;
+      transform: translateY(-1px);
+    }
+
+    .btn-secondary {
+      background: var(--bg-elevated);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary:hover {
+      background: var(--border);
+    }
+
+    .btn-ai {
+      background: var(--p1-color);
+      color: white;
+      animation: pulse-ai 1.5s ease-in-out infinite;
+    }
+
+    @keyframes pulse-ai {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.4); }
+      50% { box-shadow: 0 0 15px 3px rgba(249, 115, 22, 0.4); }
+    }
+
+    .btn-ai:hover {
+      background: #ea580c;
+    }
+
+    /* Game Area */
+    .game-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* Main Board */
+    .board {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1.5rem;
+      padding: 1.5rem;
+      overflow: hidden;
+    }
+
+    /* Side Piles */
+    .side-pile {
+      width: 140px;
+      background: var(--bg-card);
+      border-radius: 0.75rem;
+      border: 1px solid var(--border);
+      padding: 0.75rem;
+      display: flex;
+      flex-direction: column;
+      max-height: 100%;
+      flex-shrink: 0;
+    }
+
+    .pile-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .pile-title {
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .pile-title.heaven { color: var(--success); }
+    .pile-title.hell { color: var(--danger); }
+
+    .pile-count {
+      font-size: 0.875rem;
+      font-weight: 700;
+      color: var(--text-muted);
+    }
+
+    .pile-cards {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .pile-card {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.4rem 0.5rem;
+      background: var(--bg-elevated);
+      border-radius: 0.375rem;
+      font-size: 0.8rem;
+    }
+
+    .pile-card-owner {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .pile-card-owner[data-owner="0"] { background: var(--p0-color); }
+    .pile-card-owner[data-owner="1"] { background: var(--p1-color); }
+
+    .pile-card-name {
+      flex: 1;
+      text-transform: capitalize;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .pile-card-pts {
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .pile-empty {
+      color: var(--text-dim);
+      font-size: 0.8rem;
+      text-align: center;
+      padding: 1rem 0;
+    }
+
+    /* Queue */
+    .queue-container {
+      flex: 1;
+      max-width: 800px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .queue-label {
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    .queue {
+      display: flex;
+      gap: 0.75rem;
+      padding: 1rem;
+      background: var(--bg-card);
+      border-radius: 1rem;
+      border: 2px dashed var(--border);
+      min-height: calc(var(--queue-card-height) + 2rem);
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+
+    .queue.targeting {
+      border-color: var(--accent);
+      background: rgba(59, 130, 246, 0.1);
+    }
+
+    .queue-slot {
+      width: var(--queue-card-width);
+      height: var(--queue-card-height);
+      border: 2px dashed var(--border);
+      border-radius: 0.75rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-dim);
+      font-size: 0.75rem;
+    }
+
+    .queue-direction {
+      display: flex;
+      justify-content: space-between;
+      width: 100%;
+      max-width: 700px;
+      padding: 0 0.5rem;
+    }
+
+    .queue-direction span {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+    }
+
+    .arrow {
+      font-size: 1rem;
+    }
+
+    /* Cards */
+    .card {
+      width: var(--queue-card-width);
+      height: var(--queue-card-height);
+      border-radius: 0.75rem;
+      background: var(--bg-elevated);
+      border: 2px solid var(--border);
+      position: relative;
+      overflow: hidden;
+      cursor: default;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .card.hand-card {
+      width: var(--card-width);
+      height: var(--card-height);
+    }
+
+    .card-art {
+      position: absolute;
+      inset: 0;
+      background-size: cover;
+      background-position: center;
+      z-index: 0;
+    }
+
+    .card-overlay {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg, transparent 30%, rgba(0,0,0,0.7) 100%);
+      z-index: 1;
+    }
+
+    .card-content {
+      position: relative;
+      z-index: 2;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 0.5rem;
+    }
+
+    .card-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+
+    .card-owner-badge {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      border: 2px solid white;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    }
+
+    .card-owner-badge[data-owner="0"] { background: var(--p0-color); }
+    .card-owner-badge[data-owner="1"] { background: var(--p1-color); }
+
+    .card-strength {
+      background: rgba(0,0,0,0.6);
+      color: white;
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 0.15rem 0.4rem;
+      border-radius: 0.25rem;
+    }
+
+    .card-bottom {
+      margin-top: auto;
+      text-align: center;
+    }
+
+    .card-species {
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: capitalize;
+      color: white;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+    }
+
+    .card-points {
+      font-size: 0.65rem;
+      color: rgba(255,255,255,0.8);
+    }
+
+    /* Card States */
+    .card.playable {
+      cursor: pointer;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 0 var(--accent-glow);
+    }
+
+    .card.playable:hover {
+      transform: translateY(-8px) scale(1.02);
+      box-shadow: 0 8px 25px var(--accent-glow);
+    }
+
+    .card.selected {
+      border-color: var(--success);
+      box-shadow: 0 0 20px var(--success-glow);
+      transform: translateY(-8px) scale(1.05);
+    }
+
+    .card.targetable {
+      cursor: pointer;
+      border-color: var(--warning);
+      box-shadow: 0 0 15px rgba(245, 158, 11, 0.3);
+      animation: target-pulse 1s ease-in-out infinite;
+    }
+
+    @keyframes target-pulse {
+      0%, 100% { box-shadow: 0 0 10px rgba(245, 158, 11, 0.3); }
+      50% { box-shadow: 0 0 25px rgba(245, 158, 11, 0.5); }
+    }
+
+    .card.targetable:hover {
+      transform: scale(1.05);
+    }
+
+    .card.dimmed {
+      opacity: 0.3;
+      filter: grayscale(0.5);
+    }
+
+    .card.disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .card.no-art {
+      background: linear-gradient(135deg, var(--bg-elevated) 0%, var(--bg-card) 100%);
+    }
+
+    .card.no-art .card-content {
+      justify-content: space-between;
+    }
+
+    .card.no-art .card-species {
+      font-size: 0.85rem;
+    }
+
+    /* Hand */
+    .hand-area {
+      background: var(--bg-card);
+      border-top: 1px solid var(--border);
+      padding: 1rem 1.5rem;
+      flex-shrink: 0;
+    }
+
+    .hand-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.75rem;
+    }
+
+    .hand-title {
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .hand-cards {
+      display: flex;
+      gap: 0.75rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .hand-empty {
+      color: var(--text-dim);
+      font-size: 0.875rem;
+      padding: 2rem;
+      text-align: center;
+    }
+
+    /* Card Action Buttons */
+    .card-actions {
+      position: absolute;
+      bottom: 0.5rem;
+      left: 0.5rem;
+      right: 0.5rem;
+      z-index: 3;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .card-action-btn {
+      padding: 0.3rem 0.5rem;
+      background: rgba(0,0,0,0.7);
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 0.375rem;
+      color: white;
+      font-size: 0.65rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .card-action-btn:hover {
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+
+    /* Hint */
+    .hint-bar {
+      background: var(--bg-elevated);
+      border-top: 1px solid var(--border);
+      padding: 0.75rem 1.5rem;
+      text-align: center;
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+
+    .hint-bar.action-hint {
+      background: linear-gradient(90deg, var(--bg-elevated), rgba(59, 130, 246, 0.2), var(--bg-elevated));
+      color: var(--text);
+    }
+
+    /* Modal */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.8);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      opacity: 0;
+      visibility: hidden;
+      transition: all 0.2s;
+    }
+
+    .modal-overlay.visible {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    .modal {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 1rem;
+      padding: 1.5rem;
+      width: 90%;
+      max-width: 400px;
+      transform: scale(0.9);
+      transition: transform 0.2s;
+    }
+
+    .modal-overlay.visible .modal {
+      transform: scale(1);
+    }
+
+    .modal-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin-bottom: 1.5rem;
+      text-align: center;
+    }
+
+    .modal-field {
+      margin-bottom: 1rem;
+    }
+
+    .modal-label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      margin-bottom: 0.5rem;
+    }
+
+    .modal-input,
+    .modal-select {
+      width: 100%;
+      padding: 0.75rem;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: 0.5rem;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.875rem;
+    }
+
+    .modal-input:focus,
+    .modal-select:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 0.75rem;
+      margin-top: 1.5rem;
+    }
+
+    .modal-actions .btn {
+      flex: 1;
+      justify-content: center;
+    }
+
+    /* Game Over Overlay */
+    .game-over-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.85);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 50;
+      opacity: 0;
+      visibility: hidden;
+      transition: all 0.3s;
+    }
+
+    .game-over-overlay.visible {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    .game-over-title {
+      font-size: 2.5rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+    }
+
+    .game-over-title.win {
+      background: linear-gradient(135deg, var(--success), #4ade80);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .game-over-title.lose {
+      color: var(--danger);
+    }
+
+    .game-over-title.draw {
+      color: var(--warning);
+    }
+
+    .game-over-score {
+      font-size: 1.5rem;
+      color: var(--text-muted);
+      margin-bottom: 2rem;
+    }
+
+    /* Responsive */
+    @media (max-width: 900px) {
+      .header {
         flex-wrap: wrap;
-        gap: 1rem;
-        justify-content: space-between;
-        align-items: flex-start;
+        padding: 0.75rem 1rem;
       }
 
-      .controls {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.75rem;
-        align-items: center;
-      }
-
-      .controls button {
-        padding: 0.45rem 0.9rem;
-        border-radius: 0.6rem;
-        border: 1px solid var(--border-strong);
-        background: var(--surface-soft);
-        cursor: pointer;
-        transition: background 0.15s ease, border-color 0.15s ease;
-      }
-
-      .controls button:hover {
-        border-color: var(--accent);
-        background: var(--accent-soft);
-      }
-
-      .controls label {
-        display: flex;
-        flex-direction: column;
-        gap: 0.35rem;
-        font-size: 0.85rem;
-        color: var(--muted);
-      }
-
-      .controls select,
-      .controls input {
-        padding: 0.4rem 0.6rem;
-        border-radius: 0.5rem;
-        border: 1px solid var(--border-strong);
-        background: var(--surface);
-        min-width: 140px;
-      }
-
-      .status {
-        display: flex;
-        flex-direction: column;
-        gap: 0.5rem;
-        align-items: flex-end;
-      }
-
-      .status-line {
-        font-weight: 600;
-      }
-
-      .scoreboard {
-        display: flex;
-        gap: 0.8rem;
-      }
-
-      .score-card {
-        display: flex;
-        flex-direction: column;
-        gap: 0.25rem;
-        min-width: 120px;
-        padding: 0.6rem 0.85rem;
-        border-radius: 0.75rem;
-        border: 1px solid var(--border-strong);
-        background: var(--surface);
-        transition: border-color 0.15s ease, box-shadow 0.15s ease;
-      }
-
-      .score-card.active {
-        border-color: var(--accent);
-        box-shadow: 0 8px 18px rgba(37, 99, 235, 0.15);
-      }
-
-      .score-card.winner {
-        border-color: var(--accent);
-        background: var(--accent-soft);
-      }
-
-      .score-label {
-        font-size: 0.75rem;
-        text-transform: uppercase;
-        color: var(--muted);
-        letter-spacing: 0.05em;
-      }
-
-      .score-value {
-        font-size: 1.5rem;
-        font-weight: 700;
-      }
-
-      .score-line {
-        font-size: 0.9rem;
-        color: var(--muted);
-      }
-
-      .main {
-        flex: 1;
-        padding: 1.5rem;
-        display: flex;
-        flex-direction: column;
-        gap: 1.5rem;
+      .header-center {
+        order: 3;
+        width: 100%;
+        justify-content: center;
       }
 
       .board {
-        display: grid;
-        grid-template-columns: 180px minmax(0, 1fr) 180px;
-        gap: 1rem;
-        align-items: start;
-      }
-
-      .pile {
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: 0.8rem;
-        padding: 0.75rem;
-        display: flex;
         flex-direction: column;
-        gap: 0.6rem;
-        min-height: 140px;
-      }
-
-      .queue-section {
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: 0.8rem;
         padding: 1rem;
-        display: flex;
+      }
+
+      .side-pile {
+        width: 100%;
+        max-height: 120px;
+        flex-direction: row;
+        gap: 1rem;
+      }
+
+      .pile-header {
         flex-direction: column;
-        gap: 0.75rem;
+        margin-bottom: 0;
+        padding-bottom: 0;
+        border-bottom: none;
+        border-right: 1px solid var(--border);
+        padding-right: 1rem;
       }
 
-      .pile-header,
-      .queue-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        font-weight: 600;
-      }
-
-      .pile-count {
-        font-size: 0.85rem;
-        color: var(--muted);
-      }
-
-      .pile-list {
-        list-style: none;
-        margin: 0;
-        padding: 0;
-        display: flex;
-        flex-direction: column;
-        gap: 0.4rem;
-        flex: 1;
-        overflow-y: auto;
-      }
-
-      .pile-item {
-        font-size: 0.9rem;
-        color: var(--muted);
-      }
-
-      .pile-item strong {
-        color: var(--text);
-        font-weight: 600;
-      }
-
-      .queue-cards {
-        display: flex;
-        flex-wrap: nowrap;
-        gap: 0.75rem;
-        min-height: 210px;
+      .pile-cards {
+        flex-direction: row;
         overflow-x: auto;
-        padding-bottom: 0.25rem;
+        overflow-y: hidden;
       }
 
-      .card {
-        border: 1px solid var(--border-strong);
-        border-radius: 0.75rem;
-        padding: 0.6rem 0.7rem;
-        background: var(--surface);
-        display: flex;
-        flex-direction: column;
-        gap: 0.45rem;
-        width: 140px;
-        min-height: 210px;
-        transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
-        position: relative;
-        overflow: hidden;
-      }
-
-      .card.with-art {
-        color: #f8fafc;
-        border-color: transparent;
-      }
-
-      .card.with-art::before,
-      .card.with-art::after {
-        content: "";
-        position: absolute;
-        inset: 0;
-        z-index: 0;
-        pointer-events: none;
-      }
-
-      .card.with-art::before {
-        background-image: var(--card-art-image);
-        background-size: cover;
-        background-position: center;
-        filter: saturate(1.05);
-      }
-
-      .card.with-art::after {
-        background: linear-gradient(180deg, rgba(15, 23, 42, 0.2), rgba(15, 23, 42, 0.65));
-      }
-
-      .card.with-art > * {
-        position: relative;
-        z-index: 1;
-        text-shadow: 0 1px 4px rgba(15, 23, 42, 0.7);
-      }
-
-      .card.highlight {
-        border-color: var(--accent);
-        box-shadow: 0 8px 18px rgba(37, 99, 235, 0.18);
-      }
-
-      .card.targetable {
-        cursor: pointer;
-        border-color: var(--accent);
-        box-shadow: 0 8px 18px rgba(37, 99, 235, 0.2);
-      }
-
-      .card.targetable:hover,
-      .card.targetable:focus {
-        transform: translateY(-3px);
-      }
-
-      .card.selected {
-        border-color: var(--accent);
-        box-shadow: 0 10px 22px rgba(37, 99, 235, 0.22);
-      }
-
-      .card.dimmed {
-        opacity: 0.4;
-      }
-
-      .card.hidden {
-        background: var(--surface-soft);
-        border-style: dashed;
-      }
-
-      .card.disabled {
-        opacity: 0.45;
-        pointer-events: none;
-      }
-
-      .card-meta {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        font-size: 0.85rem;
-        color: var(--muted);
-        gap: 0.35rem;
-      }
-
-      .card-meta span:last-child {
-        font-weight: 600;
-      }
-
-      .card.with-art .card-meta {
-        color: rgba(248, 250, 252, 0.88);
-      }
-
-      .card-species {
-        font-weight: 600;
-        text-transform: capitalize;
-      }
-
-      .card-actions {
-        margin-top: auto;
-        display: flex;
-        flex-direction: column;
-        gap: 0.35rem;
-      }
-
-      .card-actions button {
-        font: inherit;
-        padding: 0.35rem 0.45rem;
-        border-radius: 0.5rem;
-        border: 1px solid var(--border-strong);
-        background: var(--surface-soft);
-        cursor: pointer;
-        transition: background 0.15s ease, border-color 0.15s ease;
-      }
-
-      .card-actions button:hover,
-      .card-actions button:focus {
-        border-color: var(--accent);
-        background: var(--accent-soft);
-      }
-
-      .card.with-art .card-actions button {
-        background: rgba(15, 23, 42, 0.55);
-        border-color: rgba(248, 250, 252, 0.35);
-        color: #f8fafc;
-      }
-
-      .card.with-art .card-actions button:hover,
-      .card.with-art .card-actions button:focus {
-        background: rgba(15, 23, 42, 0.7);
-        border-color: rgba(248, 250, 252, 0.5);
-      }
-
-      .hands {
-        display: grid;
-        gap: 1rem;
-        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      }
-
-      .hand {
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: 0.8rem;
-        padding: 1rem;
-        display: flex;
-        flex-direction: column;
-        gap: 0.75rem;
-      }
-
-      .hand.active {
-        border-color: var(--accent);
-        box-shadow: 0 10px 22px rgba(37, 99, 235, 0.15);
-      }
-
-      .hand.hidden {
-        opacity: 0.6;
-      }
-
-      .hand-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        font-weight: 600;
-        color: var(--muted);
-      }
-
-      .hand-cards {
-        display: flex;
+      .queue {
         flex-wrap: wrap;
-        gap: 0.75rem;
-        min-height: 100px;
+      }
+    }
+
+    @media (max-width: 600px) {
+      :root {
+        --card-width: 80px;
+        --card-height: 112px;
+        --queue-card-width: 90px;
+        --queue-card-height: 126px;
       }
 
-      .cards-empty {
-        font-size: 0.9rem;
-        color: var(--muted);
-        background: var(--surface-soft);
-        border: 1px dashed var(--border-strong);
-        border-radius: 0.6rem;
-        padding: 0.6rem 0.8rem;
+      .logo {
+        font-size: 1rem;
       }
 
-      .hint {
-        margin: 0;
-        padding: 0.9rem 1.5rem;
-        border-top: 1px solid var(--border);
-        background: var(--surface);
-        color: var(--muted);
-        font-size: 0.9rem;
+      .score-item {
+        min-width: 60px;
+        padding: 0.375rem 0.75rem;
       }
 
-      @media (max-width: 900px) {
-        .board {
-          grid-template-columns: 1fr;
-        }
-
-        .status {
-          align-items: flex-start;
-        }
+      .score-value {
+        font-size: 1.25rem;
       }
-
-      @media (max-width: 600px) {
-        .top {
-          padding-inline: 1rem;
-        }
-
-        .main {
-          padding-inline: 1rem;
-        }
-
-        .hint {
-          padding-inline: 1rem;
-        }
-      }
-    </style>
-  </head>
-  <body>
-    <div class="app">
-      <header class="top">
-        <div class="controls">
-          <button id="new-game" type="button">New Game</button>
-          <label>
-            Seed (optional)
-            <input id="seed-input" type="number" placeholder="Random" />
-          </label>
-          <label>
-            You play as
-            <select id="human-player-select">
-              <option value="0">Player 0 (Blue)</option>
-              <option value="1">Player 1 (Orange)</option>
-            </select>
-          </label>
-          <label>
-            Starting player
-            <select id="starting-player-select">
-              <option value="0">Player 0</option>
-              <option value="1">Player 1</option>
-            </select>
-          </label>
-        </div>
-        <div class="status">
-          <div id="status" class="status-line">Loading…</div>
-          <div class="scoreboard">
-            <div class="score-card" data-player="0">
-              <span id="score-label-0" class="score-label">Player 0</span>
-              <span id="score-player-0" class="score-value">0</span>
-            </div>
-            <div class="score-card" data-player="1">
-              <span id="score-label-1" class="score-label">Player 1</span>
-              <span id="score-player-1" class="score-value">0</span>
-            </div>
-          </div>
-          <div id="score" class="score-line"></div>
-        </div>
-      </header>
-      <main class="main">
-        <section class="board">
-          <div class="pile" data-pile="beastyBar">
-            <div class="pile-header">
-              <span>Heaven's Gate</span>
-              <span id="beasty-count" class="pile-count">0</span>
-            </div>
-            <ul id="beasty-preview" class="pile-list"></ul>
-          </div>
-          <div class="queue-section">
-            <div class="queue-header">
-              <span>Queue</span>
-            </div>
-            <div id="queue" class="queue-cards"></div>
-          </div>
-          <div class="pile" data-pile="thatsIt">
-            <div class="pile-header">
-              <span>That's It</span>
-              <span id="thats-count" class="pile-count">0</span>
-            </div>
-            <ul id="thats-preview" class="pile-list"></ul>
-          </div>
-        </section>
-        <section class="hands">
-          <div id="player-0" class="hand">
-            <div class="hand-header">
-              <span class="hand-title">Player 0</span>
-            </div>
-            <div id="hand-0" class="hand-cards"></div>
-          </div>
-          <div id="player-1" class="hand">
-            <div class="hand-header">
-              <span class="hand-title">Player 1</span>
-            </div>
-            <div id="hand-1" class="hand-cards"></div>
-          </div>
-        </section>
-      </main>
-      <footer id="hint" class="hint"></footer>
+    }
+  </style>
+</head>
+<body>
+  <!-- Header -->
+  <header class="header">
+    <div class="header-left">
+      <div class="logo">Beasty Bar</div>
+      <div id="turn-badge" class="turn-badge">
+        <span class="turn-dot"></span>
+        <span id="turn-text">Loading...</span>
+      </div>
     </div>
-    <script>
-      let currentState = null;
-      let bootstrapped = false;
-      let pendingSelection = null;
-      const CARD_ART_BASE_PATH = "/static/cards";
-      const CARD_ART_STRENGTHS = Array.from({ length: 12 }, (_, idx) => idx + 1);
-      const CARD_ART_AVAILABILITY = new Map([
-        [0, new Set(CARD_ART_STRENGTHS)],
-        [1, new Set(CARD_ART_STRENGTHS)],
-      ]);
 
-      const statusEl = document.getElementById("status");
-      const scoreEl = document.getElementById("score");
-      const scoreCards = [
-        document.querySelector('.score-card[data-player="0"]'),
-        document.querySelector('.score-card[data-player="1"]'),
-      ];
-      const scoreLabels = [
-        document.getElementById("score-label-0"),
-        document.getElementById("score-label-1"),
-      ];
-      const scoreValues = [
-        document.getElementById("score-player-0"),
-        document.getElementById("score-player-1"),
-      ];
-      const queueEl = document.getElementById("queue");
-      const handWrappers = [document.getElementById("player-0"), document.getElementById("player-1")];
-      const handContainers = [document.getElementById("hand-0"), document.getElementById("hand-1")];
-      const handTitles = handWrappers.map((wrapper) => wrapper.querySelector(".hand-title"));
-      const hintEl = document.getElementById("hint");
+    <div class="header-center">
+      <div class="scoreboard">
+        <div class="score-item" data-player="0">
+          <span class="score-label" id="score-label-0">You</span>
+          <span class="score-value" id="score-0">0</span>
+        </div>
+        <span class="score-divider">:</span>
+        <div class="score-item" data-player="1">
+          <span class="score-label" id="score-label-1">AI</span>
+          <span class="score-value" id="score-1">0</span>
+        </div>
+      </div>
+    </div>
 
-      const beastyPreview = document.getElementById("beasty-preview");
-      const beastyCount = document.getElementById("beasty-count");
-      const thatsPreview = document.getElementById("thats-preview");
-      const thatsCount = document.getElementById("thats-count");
+    <div class="header-right">
+      <button id="ai-move-btn" class="btn btn-ai" style="display: none;">
+        AI Move
+      </button>
+      <button id="new-game-btn" class="btn btn-secondary">New Game</button>
+    </div>
+  </header>
 
-      const newGameBtn = document.getElementById("new-game");
-      const seedInput = document.getElementById("seed-input");
-      const humanPlayerSelect = document.getElementById("human-player-select");
-      const startingPlayerSelect = document.getElementById("starting-player-select");
+  <!-- Game Area -->
+  <div class="game-area">
+    <div class="board">
+      <!-- Heaven's Gate (Left) -->
+      <div class="side-pile" id="heaven-pile">
+        <div class="pile-header">
+          <span class="pile-title heaven">Heaven's Gate</span>
+          <span class="pile-count" id="heaven-count">0</span>
+        </div>
+        <div class="pile-cards" id="heaven-cards"></div>
+      </div>
 
-      newGameBtn.addEventListener("click", () => {
-        pendingSelection = null;
-        const overrides = {};
-        const rawSeed = seedInput.value.trim();
-        if (rawSeed !== "") {
-          const parsed = Number(rawSeed);
-          if (!Number.isNaN(parsed)) {
-            overrides.seed = parsed;
-          }
-        }
-        startNewGame(overrides);
-      });
+      <!-- Queue (Center) -->
+      <div class="queue-container">
+        <div class="queue-direction">
+          <span><span class="arrow">←</span> Heaven's Gate</span>
+          <span class="queue-label">Queue</span>
+          <span>That's It <span class="arrow">→</span></span>
+        </div>
+        <div class="queue" id="queue"></div>
+      </div>
 
-      seedInput.addEventListener("keydown", (event) => {
-        if (event.key === "Enter") {
-          event.preventDefault();
-          newGameBtn.click();
-        }
-      });
+      <!-- That's It (Right) -->
+      <div class="side-pile" id="hell-pile">
+        <div class="pile-header">
+          <span class="pile-title hell">That's It</span>
+          <span class="pile-count" id="hell-count">0</span>
+        </div>
+        <div class="pile-cards" id="hell-cards"></div>
+      </div>
+    </div>
 
-      document.addEventListener("keydown", (event) => {
-        if (event.key === "Escape") {
+    <!-- Game Over Overlay -->
+    <div class="game-over-overlay" id="game-over">
+      <div class="game-over-title" id="game-over-title">Victory!</div>
+      <div class="game-over-score" id="game-over-score">12 - 8</div>
+      <button class="btn btn-primary" id="play-again-btn">Play Again</button>
+    </div>
+  </div>
+
+  <!-- Hand -->
+  <div class="hand-area">
+    <div class="hand-header">
+      <span class="hand-title">Your Hand</span>
+    </div>
+    <div class="hand-cards" id="hand"></div>
+  </div>
+
+  <!-- Hint Bar -->
+  <div class="hint-bar" id="hint">Select a card to play</div>
+
+  <!-- New Game Modal -->
+  <div class="modal-overlay" id="new-game-modal">
+    <div class="modal">
+      <div class="modal-title">New Game</div>
+
+      <div class="modal-field">
+        <label class="modal-label">AI Opponent</label>
+        <select class="modal-select" id="ai-select">
+          <option value="heuristic">Heuristic (Recommended)</option>
+          <option value="mcts">MCTS (Strongest)</option>
+          <option value="random">Random</option>
+        </select>
+      </div>
+
+      <div class="modal-field">
+        <label class="modal-label">You Play As</label>
+        <select class="modal-select" id="player-select">
+          <option value="0">Player 1 (Blue, goes first)</option>
+          <option value="1">Player 2 (Orange)</option>
+        </select>
+      </div>
+
+      <div class="modal-field">
+        <label class="modal-label">Seed (optional)</label>
+        <input type="number" class="modal-input" id="seed-input" placeholder="Random">
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="cancel-modal">Cancel</button>
+        <button class="btn btn-primary" id="start-game">Start Game</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // State
+    let gameState = null;
+    let pendingSelection = null;
+    let isFirstLoad = true;
+    let aiMoveTimeout = null;
+
+    // Elements
+    const turnBadge = document.getElementById('turn-badge');
+    const turnText = document.getElementById('turn-text');
+    const scoreLabels = [document.getElementById('score-label-0'), document.getElementById('score-label-1')];
+    const scoreValues = [document.getElementById('score-0'), document.getElementById('score-1')];
+    const scoreItems = document.querySelectorAll('.score-item');
+    const aiMoveBtn = document.getElementById('ai-move-btn');
+    const newGameBtn = document.getElementById('new-game-btn');
+    const queueEl = document.getElementById('queue');
+    const handEl = document.getElementById('hand');
+    const heavenCards = document.getElementById('heaven-cards');
+    const heavenCount = document.getElementById('heaven-count');
+    const hellCards = document.getElementById('hell-cards');
+    const hellCount = document.getElementById('hell-count');
+    const hintEl = document.getElementById('hint');
+    const gameOverEl = document.getElementById('game-over');
+    const gameOverTitle = document.getElementById('game-over-title');
+    const gameOverScore = document.getElementById('game-over-score');
+    const playAgainBtn = document.getElementById('play-again-btn');
+    const modalOverlay = document.getElementById('new-game-modal');
+    const aiSelect = document.getElementById('ai-select');
+    const playerSelect = document.getElementById('player-select');
+    const seedInput = document.getElementById('seed-input');
+    const cancelModalBtn = document.getElementById('cancel-modal');
+    const startGameBtn = document.getElementById('start-game');
+
+    // Card Art
+    const CARD_ART_PATH = '/static/cards';
+
+    function getCardArtUrl(card) {
+      if (!card || typeof card.owner !== 'number' || typeof card.strength !== 'number') return null;
+      if (card.species === 'unknown') return null;
+      return `${CARD_ART_PATH}/${card.owner}${card.strength}.jpg`;
+    }
+
+    // Event Listeners
+    newGameBtn.addEventListener('click', showModal);
+    playAgainBtn.addEventListener('click', showModal);
+    cancelModalBtn.addEventListener('click', hideModal);
+    startGameBtn.addEventListener('click', startNewGame);
+    aiMoveBtn.addEventListener('click', makeAiMove);
+
+    modalOverlay.addEventListener('click', (e) => {
+      if (e.target === modalOverlay) hideModal();
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        if (modalOverlay.classList.contains('visible')) {
+          hideModal();
+        } else if (pendingSelection) {
           clearSelection();
         }
+      }
+    });
+
+    function showModal() {
+      modalOverlay.classList.add('visible');
+    }
+
+    function hideModal() {
+      modalOverlay.classList.remove('visible');
+    }
+
+    async function startNewGame() {
+      const payload = {
+        humanPlayer: parseInt(playerSelect.value),
+        startingPlayer: 0,
+        aiOpponent: aiSelect.value
+      };
+
+      const seed = seedInput.value.trim();
+      if (seed && !isNaN(parseInt(seed))) {
+        payload.seed = parseInt(seed);
+      }
+
+      try {
+        const res = await fetch('/api/new-game', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (res.ok) {
+          hideModal();
+          await refreshState();
+        }
+      } catch (err) {
+        console.error('Failed to start game:', err);
+      }
+    }
+
+    async function makeAiMove() {
+      // Clear any pending timeout
+      if (aiMoveTimeout) {
+        clearTimeout(aiMoveTimeout);
+        aiMoveTimeout = null;
+      }
+
+      aiMoveBtn.disabled = true;
+      aiMoveBtn.textContent = 'AI Moving...';
+
+      try {
+        const res = await fetch('/api/ai-move', { method: 'POST' });
+        if (res.ok) {
+          await refreshState();
+        }
+      } catch (err) {
+        console.error('AI move failed:', err);
+        aiMoveBtn.disabled = false;
+        aiMoveBtn.textContent = 'AI Move';
+      }
+    }
+
+    async function refreshState() {
+      try {
+        const res = await fetch('/api/state');
+        if (res.ok) {
+          gameState = await res.json();
+          render();
+        } else if (isFirstLoad) {
+          showModal();
+        }
+      } catch (err) {
+        if (isFirstLoad) showModal();
+      }
+      isFirstLoad = false;
+    }
+
+    function render() {
+      if (!gameState) return;
+
+      const { activePlayer, humanPlayer, isTerminal, score, zones, queue, hands, isAiTurn } = gameState;
+      const legalActions = gameState.legalActions || [];
+      const isYourTurn = activePlayer === humanPlayer;
+
+      // Scores
+      const runningScore = [0, 0];
+      zones.beastyBar.forEach(c => { runningScore[c.owner] += c.points; });
+      const displayScore = isTerminal && score ? score : runningScore;
+
+      scoreLabels[humanPlayer].textContent = 'You';
+      scoreLabels[1 - humanPlayer].textContent = 'AI';
+      scoreValues[0].textContent = displayScore[0];
+      scoreValues[1].textContent = displayScore[1];
+
+      scoreItems.forEach(el => el.classList.remove('active'));
+      if (!isTerminal) {
+        scoreItems[activePlayer].classList.add('active');
+      }
+
+      // Turn Badge
+      turnBadge.classList.remove('your-turn', 'ai-turn');
+      if (isTerminal) {
+        turnText.textContent = 'Game Over';
+      } else if (isYourTurn) {
+        turnBadge.classList.add('your-turn');
+        turnText.textContent = 'Your Turn';
+      } else {
+        turnBadge.classList.add('ai-turn');
+        turnText.textContent = 'AI Turn';
+      }
+
+      // AI auto-move with delay
+      if (aiMoveTimeout) {
+        clearTimeout(aiMoveTimeout);
+        aiMoveTimeout = null;
+      }
+
+      if (isAiTurn && !isTerminal) {
+        aiMoveBtn.style.display = 'flex';
+        aiMoveBtn.textContent = 'AI Thinking...';
+        aiMoveBtn.disabled = true;
+
+        aiMoveTimeout = setTimeout(() => {
+          makeAiMove();
+        }, 2000);
+      } else {
+        aiMoveBtn.style.display = 'none';
+      }
+
+      // Piles
+      renderPile(heavenCards, heavenCount, zones.beastyBar);
+      renderPile(hellCards, hellCount, zones.thatsIt);
+
+      // Queue
+      renderQueue(queue, legalActions);
+
+      // Hand
+      renderHand(hands[humanPlayer], legalActions, isYourTurn && !isTerminal);
+
+      // Hint
+      updateHint(isYourTurn, isTerminal);
+
+      // Game Over
+      if (isTerminal) {
+        showGameOver(displayScore, humanPlayer);
+      } else {
+        gameOverEl.classList.remove('visible');
+      }
+    }
+
+    function renderPile(container, countEl, cards) {
+      countEl.textContent = cards.length;
+      container.innerHTML = '';
+
+      if (!cards.length) {
+        container.innerHTML = '<div class="pile-empty">Empty</div>';
+        return;
+      }
+
+      [...cards].reverse().forEach(card => {
+        const el = document.createElement('div');
+        el.className = 'pile-card';
+        el.innerHTML = `
+          <span class="pile-card-owner" data-owner="${card.owner}"></span>
+          <span class="pile-card-name">${card.species}</span>
+          <span class="pile-card-pts">+${card.points}</span>
+        `;
+        container.appendChild(el);
+      });
+    }
+
+    function renderQueue(cards, legalActions) {
+      const targeting = pendingSelection && ['target', 'chameleon-extra'].includes(pendingSelection.type);
+      queueEl.classList.toggle('targeting', targeting);
+      queueEl.innerHTML = '';
+
+      if (!cards.length) {
+        for (let i = 0; i < 5; i++) {
+          const slot = document.createElement('div');
+          slot.className = 'queue-slot';
+          slot.textContent = i + 1;
+          queueEl.appendChild(slot);
+        }
+        return;
+      }
+
+      const targetIndices = getTargetableIndices();
+
+      cards.forEach((card, idx) => {
+        const isTargetable = targetIndices.has(idx);
+        const isDimmed = targeting && !isTargetable;
+        const el = createCardElement(card, {
+          targetable: isTargetable,
+          dimmed: isDimmed,
+          onClick: isTargetable ? () => handleQueueClick(idx) : null
+        });
+        queueEl.appendChild(el);
+      });
+    }
+
+    function renderHand(cards, legalActions, canPlay) {
+      handEl.innerHTML = '';
+
+      if (!cards.length) {
+        handEl.innerHTML = '<div class="hand-empty">No cards in hand</div>';
+        return;
+      }
+
+      const actionsByHand = new Map();
+      legalActions.forEach(a => {
+        if (!actionsByHand.has(a.handIndex)) actionsByHand.set(a.handIndex, []);
+        actionsByHand.get(a.handIndex).push(a);
       });
 
-      async function startNewGame(overrides = {}) {
-        const payload = {
-          startingPlayer: Number(startingPlayerSelect.value),
-          humanPlayer: Number(humanPlayerSelect.value),
-        };
-        if (overrides && typeof overrides === "object") {
-          Object.assign(payload, overrides);
-        }
-        if (payload.seed === undefined || Number.isNaN(payload.seed)) {
-          delete payload.seed;
-        }
+      cards.forEach((card, idx) => {
+        const actions = actionsByHand.get(idx) || [];
+        const isPlayable = canPlay && actions.length > 0;
 
-        const response = await fetch("/api/new-game", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
+        const isSelected = pendingSelection?.handIndex === idx;
 
-        if (!response.ok) {
-          let message = "Failed to start new game";
-          try {
-            const data = await response.json();
-            if (data?.detail) {
-              message = data.detail;
-            }
-          } catch (error) {
-            // ignore parsing issues
+        let inlineOptions = null;
+        if (isSelected) {
+          if (pendingSelection.type === 'kangaroo') {
+            inlineOptions = pendingSelection.actions.map(a => ({
+              label: a.params[0] === 0 ? 'Stay' : `Hop ${a.params[0]}`,
+              action: a
+            }));
+          } else if (pendingSelection.type === 'chameleon-extra' && pendingSelection.copiedSpecies === 'kangaroo') {
+            inlineOptions = pendingSelection.actions
+              .filter(a => a.params.length > 1)
+              .map(a => ({
+                label: a.params[1] === 0 ? 'Stay' : `Hop ${a.params[1]}`,
+                action: a
+              }));
           }
-          hintEl.textContent = message;
+        }
+
+        const el = createCardElement(card, {
+          isHandCard: true,
+          playable: isPlayable && !pendingSelection,
+          selected: isSelected,
+          disabled: canPlay && !isPlayable && !isSelected,
+          onClick: isPlayable ? () => handleHandClick(card, idx, actions) : null,
+          inlineOptions
+        });
+        handEl.appendChild(el);
+      });
+    }
+
+    function createCardElement(card, opts = {}) {
+      const { isHandCard, playable, selected, targetable, dimmed, disabled, onClick, inlineOptions } = opts;
+
+      const el = document.createElement('div');
+      el.className = 'card';
+      if (isHandCard) el.classList.add('hand-card');
+      if (playable) el.classList.add('playable');
+      if (selected) el.classList.add('selected');
+      if (targetable) el.classList.add('targetable');
+      if (dimmed) el.classList.add('dimmed');
+      if (disabled) el.classList.add('disabled');
+
+      const artUrl = getCardArtUrl(card);
+      if (artUrl) {
+        el.innerHTML = `
+          <div class="card-art" style="background-image: url(${artUrl})"></div>
+          <div class="card-overlay"></div>
+        `;
+      } else {
+        el.classList.add('no-art');
+      }
+
+      const content = document.createElement('div');
+      content.className = 'card-content';
+      content.innerHTML = `
+        <div class="card-top">
+          <span class="card-owner-badge" data-owner="${card.owner}"></span>
+          <span class="card-strength">${card.strength}</span>
+        </div>
+        <div class="card-bottom">
+          <div class="card-species">${card.species}</div>
+          <div class="card-points">+${card.points} pts</div>
+        </div>
+      `;
+      el.appendChild(content);
+
+      if (inlineOptions && inlineOptions.length) {
+        const actionsEl = document.createElement('div');
+        actionsEl.className = 'card-actions';
+        inlineOptions.forEach(opt => {
+          const btn = document.createElement('button');
+          btn.className = 'card-action-btn';
+          btn.textContent = opt.label;
+          btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            sendAction(opt.action);
+          });
+          actionsEl.appendChild(btn);
+        });
+        el.appendChild(actionsEl);
+      }
+
+      if (onClick) {
+        el.addEventListener('click', onClick);
+      }
+
+      return el;
+    }
+
+    function getTargetableIndices() {
+      if (!pendingSelection) return new Set();
+
+      if (pendingSelection.type === 'target') {
+        return new Set(pendingSelection.actions.map(a => a.params?.[0]).filter(i => i !== undefined));
+      }
+
+      if (pendingSelection.type === 'chameleon-extra' && pendingSelection.copiedSpecies === 'parrot') {
+        return new Set(pendingSelection.actions.map(a => a.params?.[1]).filter(i => i !== undefined));
+      }
+
+      return new Set();
+    }
+
+    function handleHandClick(card, idx, actions) {
+      if (pendingSelection?.handIndex === idx) {
+        clearSelection();
+        return;
+      }
+
+      const species = card.species;
+
+      if (species === 'parrot' || species === 'chameleon') {
+        setSelection({ type: 'target', species, handIndex: idx, actions });
+        return;
+      }
+
+      if (species === 'kangaroo') {
+        const hops = new Set(actions.map(a => a.params?.[0]));
+        if (hops.size > 1) {
+          setSelection({ type: 'kangaroo', species, handIndex: idx, actions });
+          return;
+        }
+      }
+
+      sendAction(actions[0]);
+    }
+
+    function handleQueueClick(queueIdx) {
+      if (!pendingSelection) return;
+
+      if (pendingSelection.type === 'target') {
+        const matches = pendingSelection.actions.filter(a => a.params?.[0] === queueIdx);
+        if (!matches.length) return;
+
+        if (pendingSelection.species === 'chameleon' && matches.some(a => a.params.length > 1)) {
+          const targetCard = gameState?.queue?.[queueIdx];
+          setSelection({
+            type: 'chameleon-extra',
+            species: 'chameleon',
+            copiedSpecies: targetCard?.species,
+            handIndex: pendingSelection.handIndex,
+            actions: matches
+          });
           return;
         }
 
-        bootstrapped = true;
+        sendAction(matches[0]);
+        return;
+      }
+
+      if (pendingSelection.type === 'chameleon-extra' && pendingSelection.copiedSpecies === 'parrot') {
+        const matches = pendingSelection.actions.filter(a => a.params?.[1] === queueIdx);
+        if (matches.length) sendAction(matches[0]);
+      }
+    }
+
+    function setSelection(sel) {
+      pendingSelection = sel;
+      render();
+    }
+
+    function clearSelection() {
+      pendingSelection = null;
+      render();
+    }
+
+    async function sendAction(action) {
+      pendingSelection = null;
+      render();
+
+      try {
+        await fetch('/api/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(action)
+        });
         await refreshState();
+      } catch (err) {
+        console.error('Action failed:', err);
+      }
+    }
+
+    function updateHint(isYourTurn, isTerminal) {
+      hintEl.classList.remove('action-hint');
+
+      if (isTerminal) {
+        hintEl.textContent = 'Game finished. Click "New Game" to play again.';
+        return;
       }
 
-      async function refreshState() {
-        try {
-          const response = await fetch("/api/state");
-          if (response.ok) {
-            currentState = await response.json();
-            render();
-            return;
-          }
-        } catch (error) {
-          // fall through to boot logic
-        }
-
-        if (!bootstrapped) {
-          await startNewGame();
-          return;
-        }
-
-        currentState = null;
-        render();
+      if (!isYourTurn) {
+        hintEl.textContent = 'AI is thinking...';
+        return;
       }
 
-      function render() {
-        if (!currentState) {
-          statusEl.textContent = "Create a game to begin.";
-          scoreEl.textContent = "";
-          scoreValues.forEach((el) => {
-            el.textContent = "0";
-          });
-          scoreCards.forEach((card) => {
-            card.classList.remove("active", "winner");
-          });
-          updatePlayerNames();
-          updatePile(beastyPreview, beastyCount, []);
-          updatePile(thatsPreview, thatsCount, []);
-          renderNodes(queueEl, [], { emptyText: "Queue empty" });
-          handWrappers.forEach((wrapper) => {
-            wrapper.classList.remove("active", "hidden");
-          });
-          handContainers.forEach((container) => {
-            renderNodes(container, [], { emptyText: "No cards" });
-          });
-          updateHint();
-          return;
-        }
-
-        const {
-          turn,
-          activePlayer,
-          isTerminal,
-          score,
-          zones,
-          queue,
-          hands,
-          seed,
-          legalActions = [],
-        } = currentState;
-
-        const runningScore = [0, 0];
-        zones.beastyBar.forEach((card) => {
-          runningScore[card.owner] += card.points;
-        });
-        const displayScore = isTerminal && Array.isArray(score) ? score : runningScore;
-
-        const displayedTurn = isTerminal ? turn : turn + 1;
-        const activeLabel = playerLabel(activePlayer);
-        statusEl.textContent = isTerminal
-          ? winnerMessage(displayScore)
-          : `Turn ${displayedTurn} · ${activeLabel} to play`;
-
-        updatePlayerNames();
-
-        scoreCards.forEach((cardEl) => {
-          cardEl.classList.remove("active", "winner");
-        });
-        scoreValues.forEach((el, idx) => {
-          el.textContent = displayScore[idx];
-        });
-
-        if (!isTerminal) {
-          scoreCards[activePlayer].classList.add("active");
-        } else {
-          if (displayScore[0] !== displayScore[1]) {
-            const winner = displayScore[0] > displayScore[1] ? 0 : 1;
-            scoreCards[winner].classList.add("winner");
-          }
-        }
-
-        if (isTerminal) {
-          scoreEl.textContent = `${playerLabel(0)} ${displayScore[0]} – ${playerLabel(1)} ${displayScore[1]}`;
-        } else if (seed) {
-          scoreEl.textContent = `Seed ${seed} · ${playerLabel(0)} ${displayScore[0]} – ${playerLabel(1)} ${displayScore[1]}`;
-        } else {
-          scoreEl.textContent = `${playerLabel(0)} ${displayScore[0]} – ${playerLabel(1)} ${displayScore[1]}`;
-        }
-
-        const legalByHand = new Map();
-        legalActions.forEach((action) => {
-          if (!legalByHand.has(action.handIndex)) {
-            legalByHand.set(action.handIndex, []);
-          }
-          legalByHand.get(action.handIndex).push(action);
-        });
-
-        const queueTarget = getQueueTargetState();
-        const queueNodes = queue.map((card, queueIndex) => {
-          const targetable = queueTarget?.indices.has(queueIndex) ?? false;
-          const dimmed = Boolean(queueTarget) && !targetable;
-          return createCard(card, {
-            queue: true,
-            targetable,
-            dimmed,
-            queueIndex,
-            artCard: card,
-            onClick: targetable ? () => handleQueueCardClick(queueIndex) : null,
-          });
-        });
-        renderNodes(queueEl, queueNodes, { emptyText: "Queue empty" });
-
-        updatePile(beastyPreview, beastyCount, zones.beastyBar);
-        updatePile(thatsPreview, thatsCount, zones.thatsIt);
-
-        hands.forEach((hand, playerIndex) => {
-          const wrapper = handWrappers[playerIndex];
-          const isActive = playerIndex === activePlayer;
-          wrapper.classList.toggle("active", isActive);
-          wrapper.classList.remove("hidden");
-
-          const nodes = hand.map((card, handIndex) => {
-            const actions = isActive ? legalByHand.get(handIndex) ?? [] : [];
-            const isSelected =
-              isActive && pendingSelection && pendingSelection.handIndex === handIndex;
-            let inlineOptions = null;
-            if (isSelected) {
-              if (pendingSelection.type === "kangaroo") {
-                inlineOptions = pendingSelection.actions.map((action) => ({
-                  label: kangarooLabel(action),
-                  onSelect: () => sendSelectedAction(action),
-                }));
-              } else if (
-                pendingSelection.type === "chameleon-extra" &&
-                pendingSelection.copiedSpecies === "kangaroo"
-              ) {
-                const options = pendingSelection.actions
-                  .filter((action) => action.params.length > 1)
-                  .map((action) => ({
-                    label: kangarooLabel(action, 1),
-                    onSelect: () => sendSelectedAction(action),
-                  }));
-                inlineOptions = options.length ? options : null;
-              }
+      if (pendingSelection) {
+        hintEl.classList.add('action-hint');
+        switch (pendingSelection.type) {
+          case 'target':
+            if (pendingSelection.species === 'parrot') {
+              hintEl.textContent = 'Select a card in the queue to remove';
+            } else if (pendingSelection.species === 'chameleon') {
+              hintEl.textContent = 'Select a card in the queue to copy its ability';
             }
-
-            return createCard(card, {
-              highlight: actions.length > 0 && isActive,
-              selected: isSelected,
-              handIndex,
-              onClick: isActive && actions.length > 0 ? () => handleHandCardClick(card, handIndex, actions) : null,
-              inlineOptions,
-              disabled: isActive && actions.length === 0,
-              artCard: card,
-            });
-          });
-
-          renderNodes(handContainers[playerIndex], nodes, { emptyText: "No cards in hand" });
-        });
-
-        updateHint();
-      }
-
-      function updatePlayerNames() {
-        scoreLabels.forEach((el, idx) => {
-          el.textContent = playerLabel(idx);
-        });
-        handTitles.forEach((el, idx) => {
-          el.textContent = playerLabel(idx);
-        });
-      }
-
-      function playerLabel(playerIndex) {
-        if (currentState && typeof currentState.humanPlayer === "number" && playerIndex === currentState.humanPlayer) {
-          return "You";
-        }
-        return `Player ${playerIndex}`;
-      }
-
-      function updatePile(listEl, countEl, cards) {
-        listEl.innerHTML = "";
-        countEl.textContent = cards.length;
-        if (!cards.length) {
-          const empty = document.createElement("li");
-          empty.className = "pile-item";
-          empty.textContent = "Empty";
-          listEl.appendChild(empty);
-          return;
-        }
-        const recent = cards.slice(-4).reverse();
-        if (cards.length > recent.length) {
-          const summary = document.createElement("li");
-          summary.className = "pile-item";
-          summary.textContent = `+${cards.length - recent.length} more`;
-          listEl.appendChild(summary);
-        }
-        recent.forEach((card) => {
-          const item = document.createElement("li");
-          item.className = "pile-item";
-          item.innerHTML = `<strong>${card.species}</strong> · P${card.owner}`;
-          listEl.appendChild(item);
-        });
-      }
-
-      function renderNodes(container, nodes, options = {}) {
-        const { emptyText = "Empty" } = options;
-        container.innerHTML = "";
-        if (nodes.length) {
-          nodes.forEach((node) => container.appendChild(node));
-          return;
-        }
-        const empty = document.createElement("div");
-        empty.className = "cards-empty";
-        empty.textContent = emptyText;
-        container.appendChild(empty);
-      }
-
-      function createCard(card, options = {}) {
-        const {
-          highlight = false,
-          queue = false,
-          targetable = false,
-          dimmed = false,
-          selected = false,
-          hidden = false,
-          inlineOptions = null,
-          onClick = null,
-          handIndex = null,
-          queueIndex = null,
-          disabled = false,
-          artCard = null,
-        } = options;
-
-        const el = document.createElement("div");
-        el.className = "card";
-        const artSource = artCard ?? card;
-        if (queue) {
-          el.dataset.queueCard = "true";
-        }
-        if (highlight) {
-          el.classList.add("highlight");
-        }
-        if (targetable) {
-          el.classList.add("targetable");
-        }
-        if (dimmed) {
-          el.classList.add("dimmed");
-        }
-        if (selected) {
-          el.classList.add("selected");
-        }
-        if (hidden) {
-          el.classList.add("hidden");
-        }
-        if (disabled) {
-          el.classList.add("disabled");
-        }
-        if (handIndex !== null) {
-          el.dataset.handIndex = String(handIndex);
-        }
-        if (queueIndex !== null) {
-          el.dataset.queueIndex = String(queueIndex);
-        }
-        if (onClick) {
-          el.tabIndex = 0;
-          el.addEventListener("click", (event) => {
-            event.stopPropagation();
-            onClick(event);
-          });
-          el.addEventListener("keydown", (event) => {
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault();
-              onClick(event);
+            break;
+          case 'chameleon-extra':
+            if (pendingSelection.copiedSpecies === 'parrot') {
+              hintEl.textContent = 'Select which card the copied parrot should remove';
+            } else if (pendingSelection.copiedSpecies === 'kangaroo') {
+              hintEl.textContent = 'Choose how far to hop';
             }
-          });
+            break;
+          case 'kangaroo':
+            hintEl.textContent = 'Choose how far to hop';
+            break;
         }
-
-        const artUrl = hidden ? null : getCardArtUrl(artSource);
-        if (artUrl) {
-          el.classList.add("with-art");
-          el.style.setProperty("--card-art-image", `url(${artUrl})`);
-        }
-
-        const showOverlay = hidden || !artUrl;
-        if (showOverlay) {
-          const meta = document.createElement("div");
-          meta.className = "card-meta";
-          const ownerLabel = typeof artSource?.owner === "number" ? `P${artSource.owner}` : "";
-          const formattedPoints = typeof card.points === "number" ? `${card.points >= 0 ? '+' : ''}${card.points}` : card.points;
-          meta.innerHTML = `<span>${ownerLabel}</span><span>STR ${card.strength}</span><span>${formattedPoints}</span>`;
-          el.appendChild(meta);
-
-          const species = document.createElement("div");
-          species.className = "card-species";
-          species.textContent = card.species;
-          el.appendChild(species);
-        }
-
-        if (inlineOptions && inlineOptions.length) {
-          const actionsEl = document.createElement("div");
-          actionsEl.className = "card-actions";
-          inlineOptions.forEach((option) => {
-            const button = document.createElement("button");
-            button.type = "button";
-            button.textContent = option.label;
-            button.addEventListener("click", (event) => {
-              event.stopPropagation();
-              option.onSelect();
-            });
-            actionsEl.appendChild(button);
-          });
-          el.appendChild(actionsEl);
-        }
-
-        return el;
+        return;
       }
 
-      function getCardArtUrl(card) {
-        if (!card || typeof card.owner !== "number" || typeof card.strength !== "number") {
-          return null;
-        }
-        const owner = card.owner;
-        const strength = Math.trunc(card.strength);
-        if (!Number.isFinite(strength)) {
-          return null;
-        }
-        const ownerArt = CARD_ART_AVAILABILITY.get(owner);
-        if (!ownerArt || !ownerArt.has(strength)) {
-          return null;
-        }
-        return `${CARD_ART_BASE_PATH}/${owner}${strength}.jpg`;
+      hintEl.textContent = 'Select a card from your hand to play';
+    }
+
+    function showGameOver(scores, humanPlayer) {
+      gameOverEl.classList.add('visible');
+
+      const humanScore = scores[humanPlayer];
+      const aiScore = scores[1 - humanPlayer];
+
+      gameOverTitle.classList.remove('win', 'lose', 'draw');
+
+      if (humanScore > aiScore) {
+        gameOverTitle.textContent = 'Victory!';
+        gameOverTitle.classList.add('win');
+      } else if (humanScore < aiScore) {
+        gameOverTitle.textContent = 'Defeat';
+        gameOverTitle.classList.add('lose');
+      } else {
+        gameOverTitle.textContent = 'Draw';
+        gameOverTitle.classList.add('draw');
       }
 
-      function getQueueTargetState() {
-        if (!pendingSelection) {
-          return null;
-        }
+      gameOverScore.textContent = `${humanScore} - ${aiScore}`;
+    }
 
-        if (pendingSelection.type === "target") {
-          const indices = new Set();
-          pendingSelection.actions.forEach((action) => {
-            const targetIndex = action.params?.[0];
-            if (typeof targetIndex === "number") {
-              indices.add(targetIndex);
-            }
-          });
-          return { indices };
-        }
-
-        if (pendingSelection.type === "chameleon-extra" && pendingSelection.copiedSpecies === "parrot") {
-          const indices = new Set();
-          pendingSelection.actions.forEach((action) => {
-            const targetIndex = action.params?.[1];
-            if (typeof targetIndex === "number") {
-              indices.add(targetIndex);
-            }
-          });
-          return { indices };
-        }
-
-        return null;
-      }
-
-      function handleHandCardClick(card, handIndex, actions) {
-        if (!actions.length) {
-          return;
-        }
-
-        if (pendingSelection && pendingSelection.handIndex === handIndex) {
-          clearSelection();
-          return;
-        }
-
-        const species = card.species;
-        if (species === "parrot" || species === "chameleon") {
-          setSelection({ type: "target", species, handIndex, actions });
-          return;
-        }
-
-        if (species === "kangaroo") {
-          const hopOptions = new Set(
-            actions
-              .filter((action) => action.params && action.params.length)
-              .map((action) => action.params[0])
-          );
-          if (hopOptions.size > 1) {
-            setSelection({ type: "kangaroo", species, handIndex, actions });
-            return;
-          }
-        }
-
-        sendSelectedAction(actions[0]);
-      }
-
-      function handleQueueCardClick(queueIndex) {
-        if (!pendingSelection) {
-          return;
-        }
-
-        if (pendingSelection.type === "target") {
-          const matches = pendingSelection.actions.filter((action) => action.params?.[0] === queueIndex);
-          if (!matches.length) {
-            return;
-          }
-
-          if (pendingSelection.species === "chameleon") {
-            const requiresExtra = matches.some((action) => action.params.length > 1);
-            if (requiresExtra) {
-              const targetCard = currentState?.zones?.queue?.[queueIndex] ?? null;
-              const copiedSpecies = targetCard?.species ?? null;
-              setSelection({
-                type: "chameleon-extra",
-                species: "chameleon",
-                copiedSpecies,
-                handIndex: pendingSelection.handIndex,
-                actions: matches,
-              });
-              return;
-            }
-          }
-
-          sendSelectedAction(matches[0]);
-          return;
-        }
-
-        if (pendingSelection.type === "chameleon-extra" && pendingSelection.copiedSpecies === "parrot") {
-          const matches = pendingSelection.actions.filter((action) => action.params?.[1] === queueIndex);
-          if (!matches.length) {
-            return;
-          }
-          sendSelectedAction(matches[0]);
-        }
-      }
-
-      function setSelection(selection) {
-        pendingSelection = selection;
-        render();
-      }
-
-      function clearSelection() {
-        if (!pendingSelection) {
-          return;
-        }
-        pendingSelection = null;
-        render();
-      }
-
-      function sendSelectedAction(action) {
-        pendingSelection = null;
-        render();
-        void sendAction(action);
-      }
-
-      async function sendAction(action) {
-        if (!currentState) {
-          return;
-        }
-        const response = await fetch("/api/action", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(action),
-        });
-        if (!response.ok) {
-          let message = "Move rejected";
-          try {
-            const data = await response.json();
-            if (data?.detail) {
-              message = data.detail;
-            }
-          } catch (error) {
-            // ignore parsing issues
-          }
-          hintEl.textContent = message;
-        }
-        await refreshState();
-      }
-
-      function kangarooLabel(action, paramIndex = 0) {
-        const hop = action.params?.[paramIndex] ?? 0;
-        if (hop <= 0) {
-          return "Stay put";
-        }
-        return hop === 1 ? "Hop 1 space" : `Hop ${hop} spaces`;
-      }
-
-      function winnerMessage(scores) {
-        if (scores[0] === scores[1]) {
-          return "Game over · Draw";
-        }
-        const winner = scores[0] > scores[1] ? 0 : 1;
-        const diff = Math.abs(scores[0] - scores[1]);
-        const margin = diff === 1 ? "by 1 point" : `by ${diff} points`;
-        return `Game over · ${playerLabel(winner)} wins ${margin}`;
-      }
-
-      function updateHint() {
-        if (!hintEl) {
-          return;
-        }
-
-        if (!currentState) {
-          hintEl.textContent = "";
-          return;
-        }
-
-        if (pendingSelection) {
-          if (pendingSelection.type === "target") {
-            if (pendingSelection.species === "parrot") {
-              hintEl.textContent = "Select a card in the queue for the parrot to shoo away.";
-              return;
-            }
-            if (pendingSelection.species === "chameleon") {
-              hintEl.textContent = "Choose a queue card for the chameleon to imitate.";
-              return;
-            }
-            hintEl.textContent = "Select a target in the queue.";
-            return;
-          }
-
-          if (pendingSelection.type === "chameleon-extra") {
-            if (pendingSelection.copiedSpecies === "parrot") {
-              hintEl.textContent = "Pick the card the chameleon's borrowed parrot should remove.";
-              return;
-            }
-            if (pendingSelection.copiedSpecies === "kangaroo") {
-              hintEl.textContent = "Choose how far the chameleon's hop should go.";
-              return;
-            }
-            hintEl.textContent = "Complete the copied ability.";
-            return;
-          }
-
-          if (pendingSelection.type === "kangaroo") {
-            hintEl.textContent = "Pick how far the kangaroo should hop.";
-            return;
-          }
-        }
-
-        if (currentState.isTerminal) {
-          hintEl.textContent = "Game finished. Start a new game to play again.";
-          return;
-        }
-
-        const active = currentState.activePlayer;
-        const label = playerLabel(active);
-        const prefix = label === "You" ? "Your turn" : label;
-        hintEl.textContent = `${prefix}: choose a card from your hand.`;
-      }
-
-      refreshState();
-    </script>
-  </body>
+    // Init
+    refreshState();
+  </script>
+</body>
 </html>
