@@ -144,7 +144,8 @@ def test_rulebook_parrot_knocks_selected_target():
 
     next_state = engine.step(game_state, actions.Action(hand_index=0, params=(0,)))
 
-    assert [c.species for c in next_state.zones.queue] == ["parrot", "zebra"]
+    # Parrot stays where it entered (at back), doesn't reposition
+    assert [c.species for c in next_state.zones.queue] == ["zebra", "parrot"]
     assert [c.species for c in next_state.zones.thats_it] == ["lion"]
 
 
@@ -171,9 +172,11 @@ def test_rulebook_chameleon_copy_parrot_to_bounce_zebra():
     ]
     game_state = build_state([chameleon], queue)
 
+    # Chameleon copies parrot at index 0, targets zebra at index 1
     next_state = engine.step(game_state, actions.Action(hand_index=0, params=(0, 1)))
 
-    assert [c.species for c in next_state.zones.queue] == ["parrot", "chameleon", "kangaroo"]
+    # Chameleon stays where it entered (at back), doesn't reposition
+    assert [c.species for c in next_state.zones.queue] == ["parrot", "kangaroo", "chameleon"]
     assert [c.species for c in next_state.zones.thats_it] == ["zebra"]
 
 
