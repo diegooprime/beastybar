@@ -898,17 +898,39 @@
   <!-- Hint Bar -->
   <div class="hint-bar" id="hint">Select a card to play</div>
 
+  <!-- Claude Move Modal -->
+  <div class="modal-overlay" id="claude-modal">
+    <div class="modal" style="max-width: 600px;">
+      <div class="modal-title">Claude's Turn</div>
+      <div class="modal-field">
+        <label class="modal-label">Copy this to Claude Code:</label>
+        <textarea class="modal-input" id="claude-state" readonly rows="12" style="font-family: monospace; font-size: 0.8rem; resize: vertical;"></textarea>
+      </div>
+      <div class="modal-field">
+        <button class="btn btn-secondary" id="copy-state-btn" style="width: 100%;">Copy to Clipboard</button>
+      </div>
+      <div class="modal-field">
+        <label class="modal-label">Enter Claude's response (action number):</label>
+        <input type="text" class="modal-input" id="claude-move-input" placeholder="e.g., 1 or 2">
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-primary" id="submit-claude-move" style="flex: 1;">Submit Move</button>
+      </div>
+    </div>
+  </div>
+
   <!-- New Game Modal -->
   <div class="modal-overlay" id="new-game-modal">
     <div class="modal">
       <div class="modal-title">New Game</div>
 
       <div class="modal-field">
-        <label class="modal-label">AI Opponent</label>
+        <label class="modal-label">Opponent</label>
         <select class="modal-select" id="ai-select">
-          <option value="heuristic">Heuristic (Recommended)</option>
-          <option value="mcts">MCTS (Strongest)</option>
-          <option value="random">Random</option>
+          <option value="heuristic">Heuristic AI (Recommended)</option>
+          <option value="mcts">MCTS AI (Strongest)</option>
+          <option value="random">Random AI</option>
+          <option value="claude">Claude Opus 4.5 (API)</option>
         </select>
       </div>
 
@@ -965,6 +987,13 @@
     const cancelModalBtn = document.getElementById('cancel-modal');
     const startGameBtn = document.getElementById('start-game');
 
+    // Claude modal elements
+    const claudeModal = document.getElementById('claude-modal');
+    const claudeStateEl = document.getElementById('claude-state');
+    const copyStateBtn = document.getElementById('copy-state-btn');
+    const claudeMoveInput = document.getElementById('claude-move-input');
+    const submitClaudeMoveBtn = document.getElementById('submit-claude-move');
+
     // Card Art
     const CARD_ART_PATH = '/static/cards';
 
@@ -983,6 +1012,22 @@
 
     modalOverlay.addEventListener('click', (e) => {
       if (e.target === modalOverlay) hideModal();
+    });
+
+    // Claude modal events
+    copyStateBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(claudeStateEl.value);
+        copyStateBtn.textContent = 'Copied!';
+        setTimeout(() => { copyStateBtn.textContent = 'Copy to Clipboard'; }, 2000);
+      } catch (err) {
+        claudeStateEl.select();
+      }
+    });
+
+    submitClaudeMoveBtn.addEventListener('click', submitClaudeMove);
+    claudeMoveInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') submitClaudeMove();
     });
 
     document.addEventListener('keydown', (e) => {
@@ -1053,13 +1098,118 @@
       }
     }
 
+    async function showClaudeModal() {
+      try {
+        const res = await fetch('/api/claude-state');
+        if (res.ok) {
+          const data = await res.json();
+          claudeStateEl.value = data.formatted;
+          claudeMoveInput.value = '';
+          claudeModal.classList.add('visible');
+        }
+      } catch (err) {
+        console.error('Failed to get Claude state:', err);
+      }
+    }
+
+    function hideClaudeModal() {
+      claudeModal.classList.remove('visible');
+    }
+
+    async function submitClaudeMove() {
+      const input = claudeMoveInput.value.trim();
+      const actionIndex = parseInt(input);
+
+      if (isNaN(actionIndex) || actionIndex < 1) {
+        alert('Please enter a valid action number');
+        return;
+      }
+
+      submitClaudeMoveBtn.disabled = true;
+      submitClaudeMoveBtn.textContent = 'Applying...';
+
+      try {
+        const res = await fetch('/api/claude-move', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ actionIndex })
+        });
+
+        if (res.ok) {
+          hideClaudeModal();
+          await refreshState();
+        } else {
+          const err = await res.json();
+          alert(err.detail || 'Invalid move');
+        }
+      } catch (err) {
+        console.error('Claude move failed:', err);
+        alert('Failed to submit move');
+      } finally {
+        submitClaudeMoveBtn.disabled = false;
+        submitClaudeMoveBtn.textContent = 'Submit Move';
+      }
+    }
+
+    // Claude Bridge - Automated file-based communication
+    let claudePollingInterval = null;
+
+    async function startClaudeBridge() {
+      // Don't start if already polling
+      if (claudePollingInterval) return;
+
+      // Write state to file for Claude Code to read
+      try {
+        const res = await fetch('/api/claude-bridge/write-state', { method: 'POST' });
+        const data = await res.json();
+
+        if (data.written) {
+          // Start polling for Claude's response
+          claudePollingInterval = setInterval(checkClaudeResponse, 1000);
+        }
+      } catch (err) {
+        console.error('Failed to write Claude state:', err);
+      }
+    }
+
+    function stopClaudePolling() {
+      if (claudePollingInterval) {
+        clearInterval(claudePollingInterval);
+        claudePollingInterval = null;
+      }
+    }
+
+    async function checkClaudeResponse() {
+      try {
+        const res = await fetch('/api/claude-bridge/check-move');
+        const data = await res.json();
+
+        if (data.hasMove) {
+          stopClaudePolling();
+
+          // Apply Claude's move
+          const applyRes = await fetch('/api/claude-bridge/apply-move', { method: 'POST' });
+          if (applyRes.ok) {
+            await refreshState();
+          } else {
+            const err = await applyRes.json();
+            console.error('Failed to apply Claude move:', err.detail);
+          }
+        }
+      } catch (err) {
+        console.error('Error checking Claude response:', err);
+      }
+    }
+
     async function refreshState() {
       try {
         const res = await fetch('/api/state');
         if (res.ok) {
           gameState = await res.json();
           render();
-        } else if (isFirstLoad) {
+        } else {
+          // No active game - show new game modal
+          gameState = null;
           showModal();
         }
       } catch (err) {
@@ -1080,8 +1230,9 @@
       zones.beastyBar.forEach(c => { runningScore[c.owner] += c.points; });
       const displayScore = isTerminal && score ? score : runningScore;
 
+      const opponentName = gameState.aiOpponent === 'claude' ? 'Claude' : 'AI';
       scoreLabels[humanPlayer].textContent = 'You';
-      scoreLabels[1 - humanPlayer].textContent = 'AI';
+      scoreLabels[1 - humanPlayer].textContent = opponentName;
       scoreValues[0].textContent = displayScore[0];
       scoreValues[1].textContent = displayScore[1];
 
@@ -1099,23 +1250,28 @@
         turnText.textContent = 'Your Turn';
       } else {
         turnBadge.classList.add('ai-turn');
-        turnText.textContent = 'AI Turn';
+        turnText.textContent = gameState.aiOpponent === 'claude' ? 'Claude\'s Turn' : 'AI Turn';
       }
 
-      // AI auto-move with delay
+      // AI/Claude turn handling
       if (aiMoveTimeout) {
         clearTimeout(aiMoveTimeout);
         aiMoveTimeout = null;
       }
 
+      const isClaudeOpponent = gameState.aiOpponent === 'claude';
+
       if (isAiTurn && !isTerminal) {
+        // All AI opponents (including Claude) use the same flow
         aiMoveBtn.style.display = 'flex';
-        aiMoveBtn.textContent = 'AI Thinking...';
+        aiMoveBtn.textContent = isClaudeOpponent ? 'Claude Thinking...' : 'AI Thinking...';
         aiMoveBtn.disabled = true;
+        aiMoveBtn.classList.toggle('btn-ai', !isClaudeOpponent);
+        aiMoveBtn.classList.toggle('btn-primary', isClaudeOpponent);
 
         aiMoveTimeout = setTimeout(() => {
           makeAiMove();
-        }, 2000);
+        }, isClaudeOpponent ? 500 : 2000);
       } else {
         aiMoveBtn.style.display = 'none';
       }
@@ -1381,14 +1537,19 @@
       render();
 
       try {
-        await fetch('/api/action', {
+        const res = await fetch('/api/action', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(action)
         });
+        if (!res.ok) {
+          // Game state lost or invalid action
+          console.error('Action failed:', res.status);
+        }
         await refreshState();
       } catch (err) {
         console.error('Action failed:', err);
+        await refreshState();
       }
     }
 
@@ -1401,7 +1562,9 @@
       }
 
       if (!isYourTurn) {
-        hintEl.textContent = 'AI is thinking...';
+        hintEl.textContent = gameState?.aiOpponent === 'claude'
+          ? 'Claude is thinking...'
+          : 'AI is thinking...';
         return;
       }
 
