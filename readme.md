@@ -57,6 +57,125 @@ All training runs happen on `primenuc@prime-nuc`. Use the remote script:
 3. **Training** (`_03_training/`) runs tournaments and tracks Elo ratings
 4. **UI** (`_04_ui/`) lets humans play both sides of a match, inspect turn history, and replay deterministic seeds
 
+---
+
+## Neural Network Training
+
+### Architecture
+
+**Transformer-based policy-value network** (17M parameters):
+- Input: 988-dim observation (game state encoding)
+- Output: 124-dim policy logits + scalar value
+- Hidden: 256-dim, 8 attention heads, 4 transformer layers
+- Species embeddings: 64-dim learned embeddings for 12 animal types
+
+### Training Approaches
+
+We tried two approaches in parallel:
+
+#### 1. PPO (Proximal Policy Optimization)
+- Standard RL approach with clipped surrogate objective
+- Fast game generation (~2048 games in 17s)
+- **Problem**: Exploded with NaN losses at iteration 80
+
+#### 2. AlphaZero-style MCTS (Current)
+- MCTS search (200 simulations) generates improved policy targets
+- Network trained via cross-entropy against MCTS visit distributions
+- Value target = game outcome (+1/-1/0)
+- **Status**: Active, showing healthy learning
+
+### Key Problems & Solutions
+
+#### Problem 1: MCTS Too Slow
+- **Symptom**: ~35 seconds per game (sequential neural network calls)
+- **Solution**: BatchMCTS - batch leaf evaluations across parallel games
+- **Result**: ~0.17s per game (200x speedup)
+
+#### Problem 2: Self-Play Collapse
+- **Symptom**: Model performance degraded from 56% to 16% vs random
+- **Cause**: Pure self-play leads to co-adaptation; model exploits own weaknesses
+- **Solution**: Opponent diversity pool
+
+### Opponent Diversity (Critical Fix)
+
+Instead of 100% self-play, training now uses mixed opponents:
+
+| Opponent Type | Weight | Purpose |
+|--------------|--------|---------|
+| Current network | 60% | Main learning signal |
+| Past checkpoints | 20% | Prevent catastrophic forgetting |
+| Random agent | 10% | Baseline calibration |
+| Heuristic agent | 10% | Quality anchor |
+
+Checkpoints added to pool every 20 iterations (max 10 kept).
+
+### MCTS Configuration (Tuned for Exploration)
+
+```yaml
+mcts_config:
+  num_simulations: 200      # Search depth
+  c_puct: 2.0               # Exploration constant (was 1.5)
+  temperature_drop_move: 30 # Stay stochastic longer (was 15)
+  final_temperature: 0.25   # Less deterministic (was 0.1)
+  dirichlet_alpha: 0.5      # More uniform noise (was 0.3)
+  dirichlet_epsilon: 0.4    # More noise mixing (was 0.25)
+  batch_size: 32            # Batched leaf evaluation
+  virtual_loss: 3.0         # Parallel MCTS exploration
+```
+
+### Training Hyperparameters
+
+```yaml
+learning_rate: 0.00005      # Slow learning (was 0.0001)
+entropy_bonus_weight: 0.05  # Encourage exploration (was 0.01)
+games_per_iteration: 128
+batch_size: 512
+epochs_per_iteration: 4
+total_iterations: 200
+```
+
+### Running Training (RunPod H100)
+
+```bash
+# SSH to RunPod
+ssh runpod
+
+# Start MCTS training with opponent diversity
+cd ~/beastybar
+nohup python -m _03_training.run_mcts_training \
+  --config configs/h100_mcts.yaml \
+  > logs/mcts_training.log 2>&1 &
+
+# Monitor
+tail -f logs/mcts_training.log
+```
+
+### Training Metrics to Watch
+
+- **Policy loss**: Should decrease (network matching MCTS policies)
+- **Value loss**: Should decrease (predicting game outcomes)
+- **Entropy**: Should stay moderate (0.5-2.0), not collapse to 0
+- **Win rate vs random**: Should increase above 50%
+- **Win rate vs heuristic**: Target >40% indicates real learning
+
+### File Structure
+
+```
+_03_training/
+├── mcts_trainer.py      # AlphaZero training loop
+├── mcts_self_play.py    # BatchMCTS game generation
+├── opponent_pool.py     # Diverse opponent sampling
+├── trainer.py           # PPO training (deprecated)
+├── evaluation.py        # Win rate evaluation
+└── tracking.py          # Metrics logging
+
+configs/
+├── h100_mcts.yaml       # MCTS training config
+└── h100_scaled.yaml     # PPO config (deprecated)
+```
+
+---
+
 ### Misc
 - Built in Python. Fast to build. I want to get better at it.
 - FastAPI + static html. Fast, simple and zero build.

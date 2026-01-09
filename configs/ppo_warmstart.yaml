@@ -1,0 +1,85 @@
+# PPO Warm-Start Training Configuration
+# Purpose: Bootstrap value network before MCTS training to avoid cold-start problem
+# Target: Train until network beats random agents 60%+ and competes with heuristic
+#
+# Usage:
+#   python -m _03_training.ppo_warmstart --config configs/ppo_warmstart.yaml
+#
+# After warm-start, use the checkpoint to initialize MCTS training:
+#   python -m _03_training.mcts_trainer --warmstart checkpoints/ppo_warmstart/best.pt
+
+# Training mode identifier
+training_mode: "ppo"
+
+# Network architecture (matches h100_mcts.yaml for compatibility)
+network_config:
+  hidden_dim: 256
+  num_heads: 8
+  num_layers: 4
+  dropout: 0.1
+  species_embedding_dim: 64
+
+# PPO algorithm parameters
+ppo_config:
+  learning_rate: 0.0003          # Standard PPO learning rate
+  gamma: 0.99                    # Discount factor
+  gae_lambda: 0.95               # GAE lambda for bias-variance tradeoff
+  clip_epsilon: 0.2              # PPO clipping parameter
+  value_coef: 0.5                # Value loss coefficient
+  entropy_coef: 0.01             # Entropy bonus for exploration
+  max_grad_norm: 0.5             # Gradient clipping
+  ppo_epochs: 4                  # Epochs per training iteration
+  minibatch_size: 64             # Minibatch size for SGD
+  normalize_advantages: true     # Normalize advantages per minibatch
+  clip_value: true               # Clip value function updates
+
+# Training schedule
+games_per_iteration: 256         # Self-play games per iteration
+total_iterations: 1000           # Maximum iterations (early stop likely)
+
+# Early stopping targets (key difference from regular training)
+# Training stops when BOTH conditions are met
+target_win_rate_random: 0.60     # Must beat random 60%+ of the time
+target_win_rate_heuristic: 0.20  # Must win 20%+ vs heuristic (tough baseline)
+
+# Evaluation settings
+eval_frequency: 10               # Evaluate every 10 iterations
+eval_games: 100                  # Games per opponent for evaluation
+
+# Checkpointing
+checkpoint_frequency: 50         # Save checkpoint every 50 iterations
+
+# Self-play settings
+self_play_temperature: 1.0       # Stochastic action selection
+shaped_rewards: false            # Standard +1/-1/0 rewards
+
+# Learning rate schedule
+lr_warmup_iterations: 10         # Linear warmup over 10 iterations
+lr_decay: "linear"               # Linear decay to min_lr
+
+# Opponent diversity (prevents self-play collapse)
+use_opponent_pool: true
+opponent_config:
+  current_weight: 0.6            # 60% self-play (main learning signal)
+  checkpoint_weight: 0.2         # 20% past checkpoints (prevent forgetting)
+  random_weight: 0.1             # 10% random agent (baseline calibration)
+  heuristic_weight: 0.1          # 10% heuristic agent (quality baseline)
+  max_checkpoints: 10            # Store last 10 network versions
+
+pool_checkpoint_frequency: 50    # Add to pool every 50 iterations
+
+# Buffer settings
+buffer_size: 100000              # Replay buffer size
+min_buffer_size: 1000            # Min samples before training starts
+
+# Misc settings
+seed: 42
+device: "auto"                   # auto-detect best device
+experiment_name: "ppo_warmstart"
+checkpoint_dir: "checkpoints"
+log_frequency: 1
+
+# Torch compile settings (PyTorch 2.0+)
+# Enables torch.compile() for 20-40% inference speedup during self-play
+torch_compile: true
+torch_compile_mode: "reduce-overhead"  # Best for training with variable batch sizes

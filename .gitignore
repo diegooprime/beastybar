@@ -10,3 +10,19 @@ _03_training/artifacts/**
 !_03_training/artifacts/.gitkeep
 *.pt
 *.pth
+checkpoints/
+
+# Build artifacts
+build/
+*.egg-info/
+*.so
+_01_simulator/_cython/*.c
+_01_simulator/_cython/*.so
+_01_simulator/_cython/*.html
+
+# OS files
+.DS_Store
+**/.DS_Store
+
+# Lock files (optional - can be tracked if desired)
+# uv.lock

@@ -1,0 +1,74 @@
+# Default training configuration for Beasty Bar neural agent
+# This configuration provides sensible defaults for training
+
+# Network architecture
+network_config:
+  hidden_dim: 128
+  num_heads: 4
+  num_layers: 1
+  dropout: 0.1
+  species_embedding_dim: 32
+
+# PPO algorithm parameters
+ppo_config:
+  learning_rate: 0.0003
+  clip_epsilon: 0.2
+  value_coef: 0.5
+  entropy_coef: 0.01
+  gamma: 0.99
+  gae_lambda: 0.95
+  ppo_epochs: 4
+  minibatch_size: 64
+  max_grad_norm: 0.5
+  normalize_advantages: true
+  clip_value: false
+
+# Training schedule
+total_iterations: 1000
+games_per_iteration: 256
+checkpoint_frequency: 50
+eval_frequency: 10
+
+# Self-play settings
+self_play_temperature: 1.0
+
+# Learning rate schedule
+lr_warmup_iterations: 10
+lr_decay: "linear"  # Options: "linear", "cosine", "none"
+
+# Replay buffer
+buffer_size: 100000
+min_buffer_size: 1000
+
+# Gradient accumulation
+gradient_accumulation_steps: 1
+
+# Misc settings
+seed: 42
+device: "auto"  # Options: "cpu", "cuda", "mps", "auto"
+experiment_name: "beastybar_neural"
+checkpoint_dir: "checkpoints"
+log_frequency: 1
+
+# Torch compile settings (PyTorch 2.0+)
+# Enables torch.compile() for 20-40% inference speedup during self-play
+torch_compile: true
+torch_compile_mode: "reduce-overhead"  # Best for training with variable batch sizes
+
+# Model selection - use win rate instead of loss for model selection
+# This prevents the failure mode where loss decreases but win rate collapses
+model_selection:
+  metric: "win_rate"  # "win_rate" (recommended) or "loss"
+  weights:
+    random: 0.7       # Weight for win rate vs random opponent
+    heuristic: 0.3    # Weight for win rate vs heuristic opponent
+  keep_top_k: 5       # Number of best models to keep
+
+# Early stopping - stop if win rate regresses or stagnates
+early_stopping:
+  enabled: true
+  patience: 20              # Stop after N evals without improvement
+  min_delta: 0.02           # Minimum improvement to count as progress
+  regression_threshold: 0.10  # Stop if win rate drops >10% from best
+  stagnation_window: 10     # Window for detecting stagnation
+  min_evaluations: 5        # Minimum evals before early stopping can trigger

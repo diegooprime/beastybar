@@ -1,0 +1,108 @@
+# H100 MCTS Training Configuration
+# Target: 1x H100 (80GB) on RunPod - MCTS-enhanced training
+# Network: Same scaled architecture as h100_scaled.yaml
+# Training: Adjusted for slower MCTS game generation
+# MCTS: AlphaZero-style search with 200 simulations
+
+# Network architecture (same as h100_scaled)
+network_config:
+  hidden_dim: 256          # Large capacity for MCTS value guidance
+  num_heads: 8             # Multi-head attention
+  num_layers: 4            # Deep network
+  dropout: 0.1
+  species_embedding_dim: 64  # Rich embeddings
+
+# PPO algorithm parameters (used when training_mode: "ppo")
+# Note: For AlphaZero mode, these are mostly ignored except value_coef
+ppo_config:
+  learning_rate: 0.00005   # Slower learning to prevent collapse (was 0.0001)
+  clip_epsilon: 0.2
+  value_coef: 0.5          # Also used in AlphaZero mode
+  entropy_coef: 0.02       # Increased from 0.01 to prevent early collapse
+  gamma: 0.99
+  gae_lambda: 0.95
+  ppo_epochs: 4
+  minibatch_size: 512      # Large batches for stable learning
+  max_grad_norm: 0.5
+  normalize_advantages: true
+  clip_value: false
+
+# MCTS configuration (AlphaZero-style search with BatchMCTS)
+# TUNED FOR EXPLORATION: Prevent self-play collapse with more stochastic play
+mcts_config:
+  num_simulations: 200           # Search depth per move
+  c_puct: 2.0                    # Higher exploration constant (was 1.5)
+  temperature: 1.0               # Action selection temperature (1.0 = stochastic)
+  temperature_drop_move: 30      # Stay stochastic longer (was 15)
+  final_temperature: 0.25        # Less deterministic late game (was 0.1)
+  dirichlet_alpha: 0.5           # More uniform noise (was 0.3)
+  dirichlet_epsilon: 0.4         # More noise mixing (was 0.25)
+  add_root_noise: true           # Enable root exploration noise during training
+  batch_size: 32                 # Batch leaf evaluations (higher = more GPU efficiency)
+  virtual_loss: 3.0              # Virtual loss for parallel MCTS selection
+
+# Training mode: "ppo" or "alphazero"
+# - ppo: Use PPO with raw network outputs (faster, less accurate)
+# - alphazero: Use MCTS for improved policies (slower, more accurate)
+training_mode: "alphazero"
+
+# AlphaZero training parameters (used when training_mode: "alphazero")
+alphazero_config:
+  policy_weight: 1.0             # Weight for cross-entropy policy loss
+  value_weight: 1.0              # Weight for MSE value loss
+  epochs_per_iteration: 4        # Training epochs per batch of games
+  minibatch_size: 512            # Training minibatch size
+
+# Opponent diversity configuration (CRITICAL to prevent self-play collapse)
+opponent_config:
+  current_weight: 0.6            # 60% self-play (main signal)
+  checkpoint_weight: 0.2         # 20% past checkpoints (prevent forgetting)
+  random_weight: 0.1             # 10% random (calibration)
+  heuristic_weight: 0.1          # 10% heuristic (quality baseline)
+  max_checkpoints: 10            # Keep last 10 network versions
+
+# Frequency to add checkpoints to opponent pool
+checkpoint_to_pool_frequency: 20 # Every 20 iterations
+
+# Entropy bonus for exploration (higher = more exploration)
+entropy_bonus_weight: 0.05       # Increased from 0.01 to prevent collapse
+
+# Training schedule - optimized for BatchMCTS (10-50x faster than sequential)
+total_iterations: 200            # Fewer iterations needed with MCTS quality
+games_per_iteration: 128         # Increased from 64 - BatchMCTS is much faster
+num_workers: 1                   # BatchMCTS handles parallelism internally
+checkpoint_frequency: 10         # Save every 10 iterations (20 checkpoints)
+eval_frequency: 5                # Evaluate every 5 iters (40 evals)
+
+# Self-play settings (MCTS handles exploration via search)
+self_play_temperature: 1.0       # Ignored in alphazero mode, uses mcts_config
+
+# Learning rate schedule
+lr_warmup_iterations: 10         # Shorter warmup with fewer iterations
+lr_decay: "cosine"               # Smoother convergence
+
+# Replay buffer (smaller due to fewer games but higher quality)
+buffer_size: 100000              # Keep large for diverse experience
+min_buffer_size: 5000            # Start learning after sufficient MCTS games
+
+# Gradient accumulation
+gradient_accumulation_steps: 1
+
+# Evaluation settings
+eval_games: 100                  # More games for lower variance
+
+# Misc settings
+seed: 42
+device: "cuda"                   # Force CUDA for H100
+experiment_name: "h100_mcts_v1"
+checkpoint_dir: "checkpoints"
+log_frequency: 1
+
+# Model selection (save best by heuristic win rate)
+save_best_model: true
+best_model_metric: "heuristic"   # Track heuristic opponent performance
+
+# Torch compile settings (PyTorch 2.0+)
+# DISABLED: CUDA graph capture fails with dynamic MCTS batch sizes
+torch_compile: false
+torch_compile_mode: "reduce-overhead"

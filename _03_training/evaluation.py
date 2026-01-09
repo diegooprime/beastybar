@@ -532,6 +532,78 @@ def _normal_cdf(x: float) -> float:
     return 0.5 * (1 + math.erf(x / math.sqrt(2)))
 
 
+def run_evaluation(
+    network: Any,  # BeastyBarNetwork, kept as Any to avoid import
+    device: Any,  # torch.device
+    tracker: ExperimentTracker,
+    step: int,
+    games_per_opponent: int = 50,
+    opponents: list[str] | None = None,
+    play_both_sides: bool = True,
+    mode: str = "greedy",
+) -> dict[str, float]:
+    """Run evaluation against baseline opponents and log results.
+
+    This is a convenience function that combines agent creation, evaluation,
+    and logging into a single call. Used by both Trainer and MCTSTrainer.
+
+    Args:
+        network: Neural network model (BeastyBarNetwork).
+        device: Torch device for inference.
+        tracker: Experiment tracker for logging metrics.
+        step: Training step/iteration number for logging.
+        games_per_opponent: Number of games to play against each opponent.
+        opponents: List of opponent names. Defaults to ["random", "heuristic"].
+        play_both_sides: If True, play as both player 0 and player 1.
+        mode: Agent action selection mode ("greedy" or "sample").
+
+    Returns:
+        Dictionary of evaluation metrics with keys like "eval/{opponent}/win_rate".
+
+    Example:
+        metrics = run_evaluation(
+            network=self.network,
+            device=self._device,
+            tracker=self.tracker,
+            step=self._iteration,
+        )
+    """
+    from _02_agents.neural.agent import NeuralAgent
+
+    if opponents is None:
+        opponents = ["random", "heuristic"]
+
+    # Create agent from network
+    agent = NeuralAgent(
+        model=network,
+        device=device,
+        mode=mode,
+    )
+
+    # Configure evaluation
+    eval_config = EvaluationConfig(
+        games_per_opponent=games_per_opponent,
+        opponents=opponents,
+        play_both_sides=play_both_sides,
+    )
+
+    # Run evaluation
+    results = evaluate_agent(agent, eval_config, device=device)
+
+    # Log results to tracker
+    log_evaluation_results(tracker, results, step=step)
+
+    # Build metrics dictionary
+    metrics: dict[str, float] = {}
+    for result in results:
+        prefix = f"eval/{result.opponent_name}"
+        metrics[f"{prefix}/win_rate"] = result.win_rate
+        metrics[f"{prefix}/avg_margin"] = result.avg_point_margin
+        metrics[f"{prefix}/games"] = float(result.games_played)
+
+    return metrics
+
+
 def estimate_elo(
     results: list[EvaluationResult],
     baseline_elos: dict[str, float] | None = None,
@@ -638,5 +710,6 @@ __all__ = [
     "evaluate_agent",
     "is_significantly_better",
     "log_evaluation_results",
+    "run_evaluation",
     "wilson_confidence_interval",
 ]

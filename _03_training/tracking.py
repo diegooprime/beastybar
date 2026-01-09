@@ -1,11 +1,7 @@
-"""Experiment tracking interface supporting multiple backends.
+"""Experiment tracking interface for training.
 
-This module provides a unified interface for experiment tracking with support for:
-- Weights & Biases (wandb) - cloud-based, feature-rich
-- TensorBoard - offline, local logging
-- Console - simple fallback for debugging
-
-All external dependencies are optional with graceful fallbacks.
+Provides a simple interface for logging metrics, hyperparameters, and artifacts.
+Supports console output (default) and Weights & Biases for cloud tracking.
 """
 
 from __future__ import annotations
@@ -19,7 +15,6 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import wandb as wandb_module  # type: ignore[import-not-found]
-    from torch.utils.tensorboard import SummaryWriter  # type: ignore[import-not-found]
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +108,6 @@ class WandbTracker(ExperimentTracker):
     """Weights & Biases experiment tracker.
 
     Requires wandb package: pip install wandb
-    Falls back gracefully if wandb is not installed.
     """
 
     def __init__(
@@ -157,7 +151,7 @@ class WandbTracker(ExperimentTracker):
     def log_hyperparameters(self, params: dict[str, Any]) -> None:
         """Log hyperparameters to W&B config."""
         if self._run is not None:
-            self._run.config.update(params)
+            self._run.config.update(params, allow_val_change=True)
 
     def log_artifact(self, path: str, name: str) -> None:
         """Log artifact to W&B."""
@@ -177,198 +171,39 @@ class WandbTracker(ExperimentTracker):
             logger.info("[WandbTracker] Run finished")
 
 
-class TensorBoardTracker(ExperimentTracker):
-    """TensorBoard experiment tracker.
-
-    Requires tensorboard: pip install tensorboard
-    Uses torch.utils.tensorboard.SummaryWriter for logging.
-    """
-
-    def __init__(
-        self,
-        project: str = "beastybar",
-        run_name: str | None = None,
-        config: dict[str, Any] | None = None,
-        log_dir: str | Path | None = None,
-    ) -> None:
-        """Initialize TensorBoard tracker.
-
-        Args:
-            project: Project name for organizing runs.
-            run_name: Optional run name.
-            config: Optional configuration dictionary.
-            log_dir: Optional custom log directory. Defaults to ./runs/{project}/{run_name}
-
-        Raises:
-            ImportError: If tensorboard is not installed.
-        """
-        try:
-            from torch.utils.tensorboard import SummaryWriter
-        except ImportError as e:
-            raise ImportError("tensorboard is not installed. Install it with: pip install tensorboard") from e
-
-        self.project = project
-        self.run_name = run_name or f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-
-        resolved_log_dir = Path("runs") / project / self.run_name if log_dir is None else Path(log_dir)
-        resolved_log_dir.mkdir(parents=True, exist_ok=True)
-        self._log_dir = resolved_log_dir
-        self._writer: SummaryWriter = SummaryWriter(log_dir=str(resolved_log_dir))
-        self._config = config or {}
-
-        logger.info(f"[TensorBoardTracker] Logging to: {resolved_log_dir}")
-
-        if config:
-            self.log_hyperparameters(config)
-
-    def log_metrics(self, metrics: dict[str, float], step: int) -> None:
-        """Log scalar metrics to TensorBoard."""
-        for name, value in metrics.items():
-            self._writer.add_scalar(name, value, step)
-
-    def log_hyperparameters(self, params: dict[str, Any]) -> None:
-        """Log hyperparameters to TensorBoard.
-
-        Writes hyperparameters as text summary since TensorBoard's
-        add_hparams requires metric values at call time.
-        """
-        self._config.update(params)
-        # Write as text for easy viewing
-        text = "\n".join(f"**{k}**: {v}" for k, v in sorted(params.items()))
-        self._writer.add_text("hyperparameters", text, 0)
-
-    def log_artifact(self, path: str, name: str) -> None:
-        """Log artifact reference to TensorBoard.
-
-        TensorBoard doesn't have native artifact storage, so we log
-        the path as text and optionally copy to log directory.
-        """
-        artifact_path = Path(path)
-        if artifact_path.exists():
-            # Log reference as text
-            self._writer.add_text(f"artifacts/{name}", f"Path: {path}", 0)
-            logger.info(f"[TensorBoardTracker] Artifact reference logged: {name} -> {path}")
-        else:
-            logger.warning(f"[TensorBoardTracker] Artifact not found: {path}")
-
-    def log_histogram(self, name: str, values: Any, step: int) -> None:
-        """Log histogram to TensorBoard (TensorBoard-specific feature).
-
-        Args:
-            name: Name of the histogram.
-            values: Values to create histogram from (numpy array or tensor).
-            step: Training step number.
-        """
-        self._writer.add_histogram(name, values, step)
-
-    def finish(self) -> None:
-        """Close TensorBoard writer."""
-        self._writer.close()
-        logger.info(f"[TensorBoardTracker] Finished. View with: tensorboard --logdir {self._log_dir}")
-
-
-class CompositeTracker(ExperimentTracker):
-    """Composite tracker that logs to multiple backends simultaneously."""
-
-    def __init__(self, trackers: list[ExperimentTracker]) -> None:
-        """Initialize composite tracker.
-
-        Args:
-            trackers: List of trackers to delegate to.
-        """
-        if not trackers:
-            raise ValueError("CompositeTracker requires at least one tracker")
-        self._trackers = trackers
-        logger.info(f"[CompositeTracker] Initialized with {len(trackers)} backend(s)")
-
-    def log_metrics(self, metrics: dict[str, float], step: int) -> None:
-        """Log metrics to all backends."""
-        for tracker in self._trackers:
-            try:
-                tracker.log_metrics(metrics, step)
-            except Exception as e:
-                logger.error(f"[CompositeTracker] Error logging metrics to {type(tracker).__name__}: {e}")
-
-    def log_hyperparameters(self, params: dict[str, Any]) -> None:
-        """Log hyperparameters to all backends."""
-        for tracker in self._trackers:
-            try:
-                tracker.log_hyperparameters(params)
-            except Exception as e:
-                logger.error(f"[CompositeTracker] Error logging params to {type(tracker).__name__}: {e}")
-
-    def log_artifact(self, path: str, name: str) -> None:
-        """Log artifact to all backends."""
-        for tracker in self._trackers:
-            try:
-                tracker.log_artifact(path, name)
-            except Exception as e:
-                logger.error(f"[CompositeTracker] Error logging artifact to {type(tracker).__name__}: {e}")
-
-    def finish(self) -> None:
-        """Finish all tracking sessions."""
-        for tracker in self._trackers:
-            try:
-                tracker.finish()
-            except Exception as e:
-                logger.error(f"[CompositeTracker] Error finishing {type(tracker).__name__}: {e}")
-
-
 def create_tracker(
     backend: str = "console",
     project: str = "beastybar",
     run_name: str | None = None,
     config: dict[str, Any] | None = None,
-    log_dir: str | Path | None = None,
 ) -> ExperimentTracker:
     """Factory function to create an experiment tracker.
 
     Args:
-        backend: Backend type - "wandb", "tensorboard", "console", or comma-separated
-                 combination (e.g., "wandb,tensorboard").
+        backend: Backend type - "console" (default) or "wandb".
         project: Project name for organizing experiments.
         run_name: Optional run name. Auto-generated if not provided.
         config: Optional configuration dictionary to log.
-        log_dir: Optional log directory (for TensorBoard).
 
     Returns:
         An ExperimentTracker instance.
 
     Raises:
         ValueError: If backend is not recognized.
-        ImportError: If required backend package is not installed.
+        ImportError: If wandb backend is requested but not installed.
 
     Examples:
-        >>> tracker = create_tracker()  # Console tracker
+        >>> tracker = create_tracker()  # Console tracker (default)
         >>> tracker = create_tracker("wandb", project="my_project")
-        >>> tracker = create_tracker("tensorboard,console")  # Multiple backends
     """
-    backends = [b.strip().lower() for b in backend.split(",")]
-
-    if len(backends) > 1:
-        trackers = []
-        for b in backends:
-            trackers.append(
-                create_tracker(
-                    backend=b,
-                    project=project,
-                    run_name=run_name,
-                    config=config,
-                    log_dir=log_dir,
-                )
-            )
-        return CompositeTracker(trackers)
-
-    backend_name = backends[0]
+    backend_name = backend.strip().lower()
 
     if backend_name == "console":
         return ConsoleTracker(project=project, run_name=run_name, config=config)
     elif backend_name == "wandb":
         return WandbTracker(project=project, run_name=run_name, config=config)
-    elif backend_name == "tensorboard":
-        return TensorBoardTracker(project=project, run_name=run_name, config=config, log_dir=log_dir)
     else:
-        raise ValueError(f"Unknown backend: {backend_name}. Choose from: console, wandb, tensorboard")
+        raise ValueError(f"Unknown backend: {backend_name}. Choose from: console, wandb")
 
 
 def log_training_step(
@@ -456,10 +291,8 @@ def log_self_play_stats(
 
 
 __all__ = [
-    "CompositeTracker",
     "ConsoleTracker",
     "ExperimentTracker",
-    "TensorBoardTracker",
     "WandbTracker",
     "create_tracker",
     "log_evaluation",

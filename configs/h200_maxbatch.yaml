@@ -1,0 +1,49 @@
+# H200 Max Batch Configuration - Optimized for 143GB VRAM
+# Larger batches for faster training on H200
+
+network_config:
+  hidden_dim: 256
+  num_heads: 8
+  num_layers: 4
+  dropout: 0.1
+  species_embedding_dim: 64
+
+ppo_config:
+  learning_rate: 0.0001
+  clip_epsilon: 0.2
+  value_coef: 0.5
+  entropy_coef: 0.04
+  gamma: 0.99
+  gae_lambda: 0.95
+  ppo_epochs: 4
+  minibatch_size: 2048      # 4x larger (was 512)
+  max_grad_norm: 0.5
+  normalize_advantages: true
+  clip_value: true
+  target_kl: 0.02
+
+total_iterations: 500
+games_per_iteration: 4096   # 2x more games
+num_workers: 32
+checkpoint_frequency: 25
+eval_frequency: 10
+
+self_play_temperature: 1.0
+shaped_rewards: false
+
+lr_warmup_iterations: 20
+lr_decay: "cosine"
+
+buffer_size: 400000
+min_buffer_size: 20000
+gradient_accumulation_steps: 1
+eval_games: 100
+
+seed: 43                    # Different seed
+device: "cuda"
+experiment_name: "ppo_h200_maxbatch"
+checkpoint_dir: "checkpoints"
+log_frequency: 1
+
+save_best_model: true
+best_model_metric: "heuristic"

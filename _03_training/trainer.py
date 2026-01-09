@@ -3,9 +3,16 @@
 This module provides:
 - TrainingConfig: Complete configuration dataclass for training
 - Trainer: Main training orchestrator with self-play, PPO updates, and checkpointing
+- GameGenerator: Handles self-play game generation (in game_generator.py)
+- CheckpointManager: Handles saving/loading checkpoints (in checkpoint_manager.py)
 - Learning rate scheduling with warmup and decay
 - Gradient accumulation for memory-efficient training
 - Full checkpoint/resumption support
+
+The Trainer class delegates responsibilities to focused components:
+- GameGenerator: Self-play game generation with opponent diversity
+- CheckpointManager: Checkpoint persistence and restoration
+- Trainer: Training loop orchestration and PPO updates
 
 Example:
     config = TrainingConfig(
@@ -40,10 +47,19 @@ except ImportError:
     torch = None
     nn = None
 
+from _02_agents.neural.compile import maybe_compile_network
 from _02_agents.neural.utils import NetworkConfig, get_device, seed_all
+from _03_training.checkpoint_manager import CheckpointManager
+from _03_training.game_generator import GameGenerator
+from _03_training.opponent_pool import (
+    OpponentConfig,
+    OpponentPool,
+    OpponentType,
+)
 from _03_training.ppo import PPOBatch, PPOConfig, iterate_minibatches
 from _03_training.replay_buffer import ReplayBuffer, Transition
 from _03_training.tracking import ExperimentTracker, create_tracker
+from _03_training.utils import inference_mode
 
 if TYPE_CHECKING:
     from _02_agents.neural.network import BeastyBarNetwork
@@ -103,6 +119,13 @@ class TrainingConfig:
     # Self-play settings
     games_per_iteration: int = 256
     self_play_temperature: float = 1.0
+    num_workers: int = 1  # Number of parallel workers for game generation
+    shaped_rewards: bool = False  # Use score-margin shaped rewards for better credit assignment
+
+    # Opponent diversity settings (prevents self-play collapse)
+    use_opponent_pool: bool = True  # Enable opponent diversity training
+    opponent_config: OpponentConfig = field(default_factory=OpponentConfig)
+    pool_checkpoint_frequency: int = 50  # Add checkpoint to pool every N iterations
 
     # Training schedule
     total_iterations: int = 1000
@@ -129,6 +152,11 @@ class TrainingConfig:
     # Logging
     log_frequency: int = 1
 
+    # Torch compile settings (PyTorch 2.0+)
+    # Enables torch.compile() for 20-40% inference speedup
+    torch_compile: bool = False
+    torch_compile_mode: str = "reduce-overhead"  # "default", "reduce-overhead", "max-autotune"
+
     def to_dict(self) -> dict[str, Any]:
         """Convert configuration to dictionary for serialization.
 
@@ -139,6 +167,7 @@ class TrainingConfig:
         # Convert nested configs properly
         result["network_config"] = self.network_config.to_dict()
         result["ppo_config"] = asdict(self.ppo_config)
+        result["opponent_config"] = self.opponent_config.to_dict()
         return result
 
     @classmethod
@@ -165,6 +194,12 @@ class TrainingConfig:
                 data["ppo_config"] = PPOConfig(**data["ppo_config"])
         else:
             data["ppo_config"] = PPOConfig()
+
+        if "opponent_config" in data:
+            if isinstance(data["opponent_config"], dict):
+                data["opponent_config"] = OpponentConfig.from_dict(data["opponent_config"])
+        else:
+            data["opponent_config"] = OpponentConfig()
 
         # Filter to known fields
         import dataclasses
@@ -207,13 +242,14 @@ def get_learning_rate(
     base_lr: float,
     warmup_iterations: int,
     decay_type: str,
+    min_lr: float = 1e-6,
 ) -> float:
     """Compute learning rate for a given iteration.
 
     Supports warmup and multiple decay strategies:
     - Warmup: Linear ramp from 0 to base_lr over warmup_iterations
-    - Linear decay: Linear decrease from base_lr to 0
-    - Cosine decay: Cosine annealing from base_lr to 0
+    - Linear decay: Linear decrease from base_lr to min_lr
+    - Cosine decay: Cosine annealing from base_lr to min_lr
     - None: Constant learning rate
 
     Args:
@@ -222,9 +258,11 @@ def get_learning_rate(
         base_lr: Base learning rate after warmup.
         warmup_iterations: Number of warmup iterations.
         decay_type: Type of decay ("linear", "cosine", "none").
+        min_lr: Minimum learning rate floor to prevent NaN from zero LR.
+                Default 1e-6 ensures gradient updates remain numerically stable.
 
     Returns:
-        Learning rate for the given iteration.
+        Learning rate for the given iteration, never below min_lr.
 
     Raises:
         ValueError: If decay_type is not recognized.
@@ -235,8 +273,9 @@ def get_learning_rate(
         0.000285
     """
     if iteration < warmup_iterations:
-        # Linear warmup from 0 to base_lr
-        return base_lr * (iteration + 1) / warmup_iterations
+        # Linear warmup from min_lr to base_lr
+        warmup_progress = (iteration + 1) / warmup_iterations
+        return min_lr + (base_lr - min_lr) * warmup_progress
 
     # Post-warmup: apply decay
     if decay_type == "none":
@@ -248,9 +287,13 @@ def get_learning_rate(
     decay_progress = min(decay_progress, 1.0)  # Clamp to [0, 1]
 
     if decay_type == "linear":
-        return base_lr * (1.0 - decay_progress)
+        # Decay from base_lr to min_lr (not zero)
+        return min_lr + (base_lr - min_lr) * (1.0 - decay_progress)
     elif decay_type == "cosine":
-        return base_lr * 0.5 * (1.0 + math.cos(math.pi * decay_progress))
+        # Cosine decay from base_lr to min_lr (not zero)
+        # cos(0) = 1, cos(pi) = -1, so (1 + cos(pi*progress))/2 goes from 1 to 0
+        cosine_factor = 0.5 * (1.0 + math.cos(math.pi * decay_progress))
+        return min_lr + (base_lr - min_lr) * cosine_factor
     else:
         raise ValueError(f"Unknown decay_type: {decay_type}")
 
@@ -275,11 +318,15 @@ class Trainer:
     """Main training orchestrator for neural network self-play.
 
     Handles the complete training loop:
-    1. Generate self-play games
+    1. Generate self-play games (via GameGenerator)
     2. Store experiences in replay buffer
     3. Train network with PPO on collected experiences
-    4. Log metrics and checkpoints
+    4. Log metrics and checkpoints (via CheckpointManager)
     5. Periodic evaluation
+
+    The trainer delegates responsibilities to focused components:
+    - GameGenerator: Self-play game generation with opponent diversity
+    - CheckpointManager: Checkpoint persistence and restoration
 
     The trainer supports:
     - Full checkpoint/resumption
@@ -294,6 +341,8 @@ class Trainer:
         replay_buffer: Experience replay buffer.
         tracker: Experiment tracker for logging.
         device: Training device.
+        game_generator: Component for self-play game generation.
+        checkpoint_manager: Component for checkpoint management.
 
     Example:
         config = TrainingConfig(total_iterations=100)
@@ -345,6 +394,15 @@ class Trainer:
 
             self.network = BeastyBarNetwork(config.network_config).to(self._device)
 
+        # Apply torch.compile if enabled (PyTorch 2.0+)
+        # Compilation must happen after moving to device but before optimizer creation
+        if config.torch_compile:
+            self.network = maybe_compile_network(
+                self.network,
+                compile_mode=config.torch_compile_mode,
+                dynamic=True,  # Handle variable batch sizes during training
+            )
+
         # Create optimizer
         self.optimizer = torch.optim.Adam(
             self.network.parameters(),
@@ -376,6 +434,39 @@ class Trainer:
         # Metrics history for current training session
         self._metrics_history: list[dict[str, float]] = []
 
+        # Create opponent pool for training diversity (prevents self-play collapse)
+        if config.use_opponent_pool:
+            self.opponent_pool: OpponentPool | None = OpponentPool(
+                config=config.opponent_config,
+                seed=config.seed,
+            )
+            logger.info(
+                f"Opponent pool enabled: "
+                f"current={config.opponent_config.current_weight:.0%}, "
+                f"checkpoint={config.opponent_config.checkpoint_weight:.0%}, "
+                f"random={config.opponent_config.random_weight:.0%}, "
+                f"heuristic={config.opponent_config.heuristic_weight:.0%}"
+            )
+        else:
+            self.opponent_pool = None
+            logger.info("Opponent pool disabled - using pure self-play")
+
+        # Create GameGenerator for self-play game generation
+        self.game_generator = GameGenerator(
+            network=self.network,
+            device=self._device,
+            opponent_pool=self.opponent_pool,
+            network_config=config.network_config,
+            temperature=config.self_play_temperature,
+            num_workers=config.num_workers,
+        )
+
+        # Create CheckpointManager for checkpoint management
+        self.checkpoint_manager = CheckpointManager(
+            checkpoint_dir=self._checkpoint_dir,
+            tracker=self.tracker,
+        )
+
         logger.info(f"Trainer initialized with {self.network.count_parameters():,} parameters")
 
     @property
@@ -398,42 +489,24 @@ class Trainer:
             decay_type=self.config.lr_decay,
         )
 
-    def _generate_self_play_games(self) -> tuple[list[Transition], list[list[Transition]]]:
+    def _generate_self_play_games(self) -> tuple[list[Transition], list[list[Transition]], str]:
         """Generate self-play games and return transitions with trajectory info.
 
-        Uses the actual self-play module to generate real game trajectories.
+        Delegates to GameGenerator for actual game generation. The generator
+        handles opponent sampling, game execution, and transition collection.
 
         Returns:
-            Tuple of (all_transitions, trajectory_list) where trajectory_list
-            contains separate lists of transitions for each trajectory (for GAE).
+            Tuple of (all_transitions, trajectory_list, opponent_name) where:
+            - all_transitions: All transitions collected for replay buffer
+            - trajectory_list: Separate lists per trajectory for GAE computation
+            - opponent_name: Name of sampled opponent for logging
         """
-        from _03_training.self_play import (
-            generate_games,
-            trajectory_to_player_transitions,
-        )
-
-        # Generate actual self-play games
-        trajectories = generate_games(
-            network=self.network,
+        transitions, trajectory_list, opponent_name = self.game_generator.generate_games(
             num_games=self.config.games_per_iteration,
-            temperature=self.config.self_play_temperature,
-            device=self._device,
+            shaped_rewards=self.config.shaped_rewards,
         )
-
-        # Convert to transitions, keeping trajectory boundaries for GAE
-        all_transitions: list[Transition] = []
-        trajectory_list: list[list[Transition]] = []
-
-        for trajectory in trajectories:
-            # Each player's trajectory is a separate sequence for GAE
-            for player in [0, 1]:
-                player_transitions = trajectory_to_player_transitions(trajectory, player)
-                if player_transitions:
-                    trajectory_list.append(player_transitions)
-                    all_transitions.extend(player_transitions)
-
         self._total_games_played += self.config.games_per_iteration
-        return all_transitions, trajectory_list
+        return transitions, trajectory_list, opponent_name
 
     def _train_on_buffer(
         self, trajectory_list: list[list[Transition]] | None = None
@@ -556,6 +629,9 @@ class Trainer:
         current_lr = self._get_current_lr()
         set_learning_rate(self.optimizer, current_lr)
 
+        # Set network to training mode for proper dropout/batchnorm behavior
+        self.network.train()
+
         # Multiple PPO epochs
         for _epoch in range(self.config.ppo_config.ppo_epochs):
             # Iterate through minibatches with accumulation
@@ -662,10 +738,11 @@ class Trainer:
         """Execute a single training iteration.
 
         One iteration consists of:
-        1. Generate self-play games
+        1. Generate self-play games (with diverse opponents if pool enabled)
         2. Add experiences to replay buffer
         3. Train PPO on buffer (with proper per-trajectory GAE)
-        4. Log metrics
+        4. Periodically add checkpoint to opponent pool
+        5. Log metrics
 
         Returns:
             Dictionary of metrics from this iteration.
@@ -673,9 +750,9 @@ class Trainer:
         iteration_start = time.time()
         metrics: dict[str, float] = {"iteration": float(self._iteration)}
 
-        # Generate self-play games
+        # Generate self-play games (with opponent diversity)
         gen_start = time.time()
-        transitions, trajectory_list = self._generate_self_play_games()
+        transitions, trajectory_list, opponent_name = self._generate_self_play_games()
         gen_time = time.time() - gen_start
 
         # Add to replay buffer
@@ -687,6 +764,17 @@ class Trainer:
         train_metrics = self._train_on_buffer(trajectory_list)
         train_time = time.time() - train_start
 
+        # Add checkpoint to opponent pool periodically
+        should_add_checkpoint = (
+            self.opponent_pool is not None
+            and (self._iteration + 1) % self.config.pool_checkpoint_frequency == 0
+        )
+        if should_add_checkpoint:
+            self.opponent_pool.add_checkpoint(
+                state_dict=self.network.state_dict(),
+                iteration=self._iteration,
+            )
+
         # Combine metrics
         metrics.update(train_metrics)
         metrics["self_play/games_generated"] = float(self.config.games_per_iteration)
@@ -696,8 +784,15 @@ class Trainer:
         metrics["total_games_played"] = float(self._total_games_played)
         metrics["total_transitions"] = float(self._total_transitions_collected)
 
+        # Opponent pool metrics
+        if self.opponent_pool is not None:
+            pool_stats = self.opponent_pool.get_statistics()
+            metrics["opponent_pool/size"] = float(pool_stats["checkpoint_pool_size"])
+            metrics["opponent_pool/samples"] = float(pool_stats["total_samples"])
+
         iteration_time = time.time() - iteration_start
         metrics["iteration_time"] = iteration_time
+        metrics["self_play/opponent"] = hash(opponent_name) % 1000  # Numeric for logging
 
         # Store in history
         self._metrics_history.append(metrics)
@@ -762,19 +857,28 @@ class Trainer:
     def _save_checkpoint(self, is_final: bool = False) -> Path:
         """Save training checkpoint.
 
+        Delegates to CheckpointManager for checkpoint persistence.
+
         Args:
             is_final: Whether this is the final checkpoint.
 
         Returns:
             Path to saved checkpoint.
         """
-        checkpoint_name = "final" if is_final else f"iter_{self._iteration:06d}"
-        checkpoint_path = self._checkpoint_dir / f"{checkpoint_name}.pt"
+        checkpoint_name = "final.pt" if is_final else f"iter_{self._iteration:06d}.pt"
 
-        save_training_checkpoint(self, str(checkpoint_path))
-
-        # Log artifact
-        self.tracker.log_artifact(str(checkpoint_path), checkpoint_name)
+        checkpoint_path = self.checkpoint_manager.save_checkpoint(
+            path=checkpoint_name,
+            network=self.network,
+            optimizer=self.optimizer,
+            iteration=self._iteration,
+            config=self.config.to_dict(),
+            total_games_played=self._total_games_played,
+            total_transitions_collected=self._total_transitions_collected,
+            metrics_history=self._metrics_history,
+            opponent_pool=self.opponent_pool,
+            is_final=is_final,
+        )
 
         logger.info(f"Saved checkpoint: {checkpoint_path}")
         return checkpoint_path
@@ -783,50 +887,36 @@ class Trainer:
         """Run evaluation against baseline opponents.
 
         Evaluates the current network against random and heuristic agents.
+        Delegates to the shared evaluation module for consistency.
 
         Returns:
             Dictionary of evaluation metrics.
         """
-        from _02_agents.neural.agent import NeuralAgent
-        from _03_training.evaluation import (
-            EvaluationConfig,
-            evaluate_agent,
-            log_evaluation_results,
-        )
+        from _03_training.evaluation import run_evaluation
 
         logger.info(f"Running evaluation at iteration {self._iteration}")
 
-        # Create agent from current network
-        agent = NeuralAgent(
-            model=self.network,
-            device=self._device,
-            mode="greedy",  # Use greedy for evaluation
-        )
+        # Evaluate with network in eval mode
+        with inference_mode(self.network):
+            metrics = run_evaluation(
+                network=self.network,
+                device=self._device,
+                tracker=self.tracker,
+                step=self._iteration,
+                games_per_opponent=50,
+                opponents=["random", "heuristic"],
+                play_both_sides=True,
+                mode="greedy",
+            )
 
-        # Configure evaluation
-        eval_config = EvaluationConfig(
-            games_per_opponent=50,  # Quick evaluation
-            opponents=["random", "heuristic"],
-            play_both_sides=True,
-        )
-
-        # Run evaluation
-        results = evaluate_agent(agent, eval_config, device=self._device)
-
-        # Log results
-        log_evaluation_results(self.tracker, results, step=self._iteration)
-
-        # Extract metrics
-        metrics: dict[str, float] = {}
-        for result in results:
-            prefix = f"eval/{result.opponent_name}"
-            metrics[f"{prefix}/win_rate"] = result.win_rate
-            metrics[f"{prefix}/avg_margin"] = result.avg_point_margin
-            metrics[f"{prefix}/games"] = float(result.games_played)
-
+        # Log summary to console
         logger.info(
             "Evaluation results: "
-            + ", ".join(f"{r.opponent_name}={r.win_rate:.1%}" for r in results)
+            + ", ".join(
+                f"{k.split('/')[-2]}={v:.1%}"
+                for k, v in metrics.items()
+                if k.endswith("/win_rate")
+            )
         )
 
         return metrics
@@ -847,6 +937,7 @@ def save_training_checkpoint(trainer: Trainer, path: str) -> None:
     - Configuration
     - Replay buffer state (optional, can be large)
     - Metrics history
+    - Opponent pool state (if enabled)
 
     Args:
         trainer: Trainer instance to save.
@@ -880,6 +971,22 @@ def save_training_checkpoint(trainer: Trainer, path: str) -> None:
     }
     checkpoint["buffer_state"] = buffer_state
 
+    # Save opponent pool state if enabled
+    if trainer.opponent_pool is not None:
+        checkpoint["opponent_pool"] = {
+            "checkpoints": [
+                {
+                    "state_dict": cp.state_dict,
+                    "iteration": cp.iteration,
+                    "win_rate": cp.win_rate,
+                }
+                for cp in trainer.opponent_pool.checkpoints
+            ],
+            "sample_counts": {
+                t.name: c for t, c in trainer.opponent_pool._sample_counts.items()
+            },
+        }
+
     torch.save(checkpoint, checkpoint_path, pickle_protocol=4)
     logger.info(f"Saved training checkpoint to {checkpoint_path}")
 
@@ -898,6 +1005,7 @@ def load_training_checkpoint(path: str, trainer: Trainer) -> None:
     - Training iteration
     - Metrics history
     - RNG states (for reproducibility)
+    - Opponent pool state (if enabled)
 
     Args:
         path: Path to checkpoint file.
@@ -907,6 +1015,8 @@ def load_training_checkpoint(path: str, trainer: Trainer) -> None:
         FileNotFoundError: If checkpoint does not exist.
         RuntimeError: If checkpoint is incompatible.
     """
+    from _03_training.opponent_pool import CheckpointEntry
+
     _ensure_torch()
 
     checkpoint_path = Path(path)
@@ -935,6 +1045,33 @@ def load_training_checkpoint(path: str, trainer: Trainer) -> None:
             torch_rng_state = torch_rng_state.cpu()
         torch.set_rng_state(torch_rng_state)
         np.random.set_state(checkpoint["rng_state"]["numpy"])
+
+    # Restore opponent pool state if present and pool is enabled
+    if trainer.opponent_pool is not None and "opponent_pool" in checkpoint:
+        pool_state = checkpoint["opponent_pool"]
+
+        # Restore checkpoints
+        trainer.opponent_pool.checkpoints.clear()
+        for cp_data in pool_state.get("checkpoints", []):
+            trainer.opponent_pool.checkpoints.append(
+                CheckpointEntry(
+                    state_dict=cp_data["state_dict"],
+                    iteration=cp_data["iteration"],
+                    win_rate=cp_data.get("win_rate"),
+                )
+            )
+
+        # Restore sample counts
+        for type_name, count in pool_state.get("sample_counts", {}).items():
+            try:
+                opp_type = OpponentType[type_name]
+                trainer.opponent_pool._sample_counts[opp_type] = count
+            except KeyError:
+                pass
+
+        logger.info(
+            f"Restored opponent pool with {len(trainer.opponent_pool.checkpoints)} checkpoints"
+        )
 
     logger.info(f"Restored training from iteration {trainer._iteration}")
 
@@ -986,6 +1123,9 @@ def create_trainer_from_checkpoint(
 
 __all__ = [
     "TORCH_AVAILABLE",
+    "CheckpointManager",
+    "GameGenerator",
+    "OpponentConfig",
     "Trainer",
     "TrainingConfig",
     "create_trainer_from_checkpoint",

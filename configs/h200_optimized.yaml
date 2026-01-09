@@ -1,0 +1,64 @@
+# H200 SXM Optimized Training Configuration
+# Target: 1x H200 SXM (141GB HBM3e) or H100 (80GB) on RunPod for ~1 hour
+# Based on findings from TRAINING_REPORT_20260107.md:
+#   - Lower LR (0.0001) most stable
+#   - Deeper architecture (3 layers) > wider
+#   - Higher entropy for exploration
+
+# Network architecture (deeper, moderate width - based on deep_narrow success)
+network_config:
+  hidden_dim: 128          # Down from 256, depth matters more
+  num_heads: 4
+  num_layers: 3            # Up from 2, deeper networks performed better
+  dropout: 0.1
+  species_embedding_dim: 32
+
+# PPO algorithm parameters (optimized based on experiments)
+ppo_config:
+  learning_rate: 0.0001    # Best stability from lr_low experiment
+  clip_epsilon: 0.2
+  value_coef: 0.5
+  entropy_coef: 0.02       # Increased from 0.01 to prevent early collapse
+  gamma: 0.99
+  gae_lambda: 0.95
+  ppo_epochs: 4
+  minibatch_size: 256      # Larger batch for GPU efficiency
+  max_grad_norm: 0.5
+  normalize_advantages: true
+  clip_value: false
+
+# Training schedule - optimized for 1 hour on H200
+# Estimate: ~7-10s/iter with 512 games = 360-500 iterations
+total_iterations: 500
+games_per_iteration: 512   # Full target from production config
+num_workers: 16            # Parallel game generation (uses CPU cores)
+checkpoint_frequency: 25   # Save every 25 iterations (~20 checkpoints)
+eval_frequency: 10         # Evaluate every 10 iters (~50 evals)
+
+# Self-play settings
+self_play_temperature: 1.0
+
+# Learning rate schedule
+lr_warmup_iterations: 20   # ~3 minutes warmup
+lr_decay: "cosine"         # Smoother convergence
+
+# Replay buffer (sized for 512 games/iter * ~20 steps/game * 2 players)
+buffer_size: 100000
+min_buffer_size: 5000      # ~5 iterations worth
+
+# Gradient accumulation (not needed with H200 memory)
+gradient_accumulation_steps: 1
+
+# Evaluation settings
+eval_games: 100            # More games for lower variance
+
+# Misc settings
+seed: 42
+device: "cuda"             # Force CUDA for H200
+experiment_name: "h200_optimized_v1"
+checkpoint_dir: "checkpoints"
+log_frequency: 1
+
+# Model selection (save best by heuristic win rate)
+save_best_model: true
+best_model_metric: "heuristic"  # Track heuristic opponent performance

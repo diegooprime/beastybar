@@ -25,6 +25,7 @@ import torch.nn as nn
 import torch.nn.functional as F  # noqa: N812
 
 from _01_simulator.action_space import ACTION_DIM
+from _02_agents.neural.compile import maybe_compile_network
 from _01_simulator.observations import OBSERVATION_DIM
 
 # Import NetworkConfig from utils to maintain consistency
@@ -700,4 +701,5 @@ def create_network(
 __all__ = [
     "BeastyBarNetwork",
     "create_network",
+    "maybe_compile_network",
 ]

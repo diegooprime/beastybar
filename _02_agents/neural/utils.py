@@ -382,7 +382,8 @@ def sample_action(
     logits: torch.Tensor,
     mask: torch.Tensor,
     temperature: float = 1.0,
-) -> int:
+    return_prob: bool = False,
+) -> int | tuple[int, float]:
     """Sample action from masked policy logits.
 
     Applies the action mask to logits, scales by temperature, computes
@@ -395,9 +396,12 @@ def sample_action(
         temperature: Temperature for controlling exploration.
             Higher values increase randomness, lower values approach greedy.
             Must be positive.
+        return_prob: If True, return tuple of (action, probability).
+            Default False for backwards compatibility.
 
     Returns:
-        Sampled action index (integer in [0, action_dim)).
+        If return_prob is False: Sampled action index (integer in [0, action_dim)).
+        If return_prob is True: Tuple of (action_index, action_probability).
 
     Raises:
         ValueError: If temperature is not positive.
@@ -409,6 +413,8 @@ def sample_action(
         >>> mask[0] = mask[5] = mask[10] = 1.0  # Only 3 legal actions
         >>> action = sample_action(logits, mask, temperature=1.0)
         >>> assert action in [0, 5, 10]
+        >>> action, prob = sample_action(logits, mask, return_prob=True)
+        >>> assert 0.0 <= prob <= 1.0
     """
     if temperature <= 0:
         raise ValueError(f"Temperature must be positive, got {temperature}")
@@ -433,10 +439,19 @@ def sample_action(
     # Compute probabilities via softmax
     probs = functional.softmax(scaled_logits, dim=-1)
 
+    # Handle NaN/Inf from unstable training - fall back to uniform over valid actions
+    if torch.isnan(probs).any() or torch.isinf(probs).any():
+        probs = mask / mask.sum()
+
     # Sample from categorical distribution
     action_idx = torch.multinomial(probs, num_samples=1)
+    action = int(action_idx.item())
 
-    return int(action_idx.item())
+    if return_prob:
+        action_prob = float(probs[action].item())
+        return action, action_prob
+
+    return action
 
 
 def greedy_action(

@@ -1,0 +1,66 @@
+# MCTS with PPO Warmstart - Use pretrained value network
+
+network_config:
+  hidden_dim: 256
+  num_heads: 8
+  num_layers: 4
+  dropout: 0.1
+  species_embedding_dim: 64
+
+mcts_config:
+  num_simulations: 200
+  c_puct: 2.0
+  temperature: 1.0
+  temperature_drop_move: 30
+  final_temperature: 0.25
+  dirichlet_alpha: 0.5
+  dirichlet_epsilon: 0.4
+  add_root_noise: true
+  batch_size: 32
+  virtual_loss: 3.0
+
+training_mode: "alphazero"
+
+alphazero_config:
+  policy_weight: 1.0
+  value_weight: 1.0
+  epochs_per_iteration: 4
+  minibatch_size: 512
+
+opponent_config:
+  current_weight: 0.6
+  checkpoint_weight: 0.2
+  random_weight: 0.1
+  heuristic_weight: 0.1
+  max_checkpoints: 10
+
+# WARMSTART FROM PPO CHECKPOINT
+warmstart_checkpoint: "checkpoints/ppo_h200_v1/iter_000074.pt"
+warmstart_reset_optimizer: true
+warmstart_reset_iteration: true
+
+checkpoint_to_pool_frequency: 20
+entropy_bonus_weight: 0.05
+
+total_iterations: 200
+games_per_iteration: 128
+num_workers: 1
+checkpoint_frequency: 10
+eval_frequency: 5
+
+lr_warmup_iterations: 10
+lr_decay: "cosine"
+
+buffer_size: 100000
+min_buffer_size: 5000
+
+seed: 44
+device: "cuda"
+experiment_name: "mcts_warmstart_v1"
+checkpoint_dir: "checkpoints"
+log_frequency: 1
+
+save_best_model: true
+best_model_metric: "heuristic"
+
+torch_compile: false

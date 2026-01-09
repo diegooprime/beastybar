@@ -1,0 +1,51 @@
+# Production training configuration for achieving best performance
+# Uses larger network and more training iterations
+
+# Network architecture (larger for better capacity)
+network_config:
+  hidden_dim: 256
+  num_heads: 4
+  num_layers: 2
+  dropout: 0.1
+  species_embedding_dim: 32
+
+# PPO algorithm parameters
+ppo_config:
+  learning_rate: 0.0003
+  clip_epsilon: 0.2
+  value_coef: 0.5
+  entropy_coef: 0.01
+  gamma: 0.99
+  gae_lambda: 0.95
+  ppo_epochs: 4
+  minibatch_size: 128
+  max_grad_norm: 0.5
+  normalize_advantages: true
+  clip_value: false
+
+# Training schedule (longer for better convergence)
+total_iterations: 5000
+games_per_iteration: 512
+checkpoint_frequency: 100
+eval_frequency: 20
+
+# Self-play settings
+self_play_temperature: 1.0
+
+# Learning rate schedule
+lr_warmup_iterations: 50
+lr_decay: "cosine"  # Cosine decay for smoother convergence
+
+# Replay buffer
+buffer_size: 200000
+min_buffer_size: 2000
+
+# Gradient accumulation (if GPU memory limited)
+gradient_accumulation_steps: 1
+
+# Misc settings
+seed: 42
+device: "auto"
+experiment_name: "beastybar_production"
+checkpoint_dir: "checkpoints"
+log_frequency: 1

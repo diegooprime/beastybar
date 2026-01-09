@@ -1,25 +1,30 @@
 """Model selection utilities for neural network training.
 
 This module provides:
-- BestModelTracker: Track and save best-performing models during training
+- ModelTracker: Track and save best-performing models during training
 - EarlyStopping: Stop training when no improvement is observed
 - compare_checkpoints: Head-to-head comparison between checkpoints
 - cleanup_old_checkpoints: Remove old checkpoints while keeping best and recent
-- integrate_model_selection: Integrate model selection with trainer
 
 Example:
-    tracker = BestModelTracker(checkpoint_dir="checkpoints")
-    early_stopping = EarlyStopping(EarlyStoppingConfig(patience=20))
+    config = ModelSelectionConfig(
+        metric="weighted",
+        weights={"random": 0.7, "heuristic": 0.3},
+        patience=20,
+        regression_threshold=0.10,
+    )
+    tracker = ModelTracker(checkpoint_dir="checkpoints", config=config)
+    early_stopping = EarlyStopping(config)
 
     for iteration in range(1000):
         # ... training ...
         eval_results = evaluate_agent(agent, eval_config)
 
         is_best = tracker.update(checkpoint_path, iteration, eval_results)
-        early_stopping.update(eval_results)
+        should_stop, reason = early_stopping.update(eval_results, iteration)
 
-        if early_stopping.should_stop(eval_results):
-            print("Early stopping triggered")
+        if should_stop:
+            print(f"Early stopping: {reason}")
             break
 """
 
@@ -37,9 +42,75 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from .evaluation import EvaluationResult
-    from .trainer import Trainer
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# Configuration
+# ============================================================================
+
+
+@dataclass
+class ModelSelectionConfig:
+    """Unified configuration for model tracking and early stopping.
+
+    Attributes:
+        metric: Selection metric type:
+            - "mcts": Use MCTS opponent win rate (highest among MCTS variants)
+            - "heuristic": Use heuristic opponent win rate
+            - "weighted": Use weighted combination of opponent win rates
+            - "custom": Use custom metric extractor function
+        weights: Opponent name to weight mapping for "weighted" metric.
+            Default: {"random": 0.7, "heuristic": 0.3}
+        keep_top_k: Number of top models to maintain in tracker.
+        patience: Number of evaluations without improvement before stopping.
+        min_improvement: Minimum score improvement to count as progress.
+        target_score: Optional target score; stop if achieved.
+        regression_threshold: Stop if score drops more than this from best.
+            Set to None to disable regression detection.
+        stagnation_window: Window size for stagnation detection.
+            Set to 0 to disable stagnation detection.
+        min_evaluations: Minimum evaluations before early stopping can trigger.
+        enabled: Whether early stopping is enabled.
+    """
+
+    # Metric selection
+    metric: str = "weighted"
+    weights: dict[str, float] | None = None
+    target_opponent: str | None = None  # For single-opponent metrics
+
+    # Model tracking
+    keep_top_k: int = 5
+
+    # Early stopping - basic
+    patience: int = 20
+    min_improvement: float = 0.02
+    target_score: float | None = None
+    min_evaluations: int = 5
+    enabled: bool = True
+
+    # Early stopping - advanced (optional)
+    regression_threshold: float | None = 0.10
+    stagnation_window: int = 10
+
+    def __post_init__(self) -> None:
+        """Set default weights if not provided."""
+        if self.weights is None:
+            self.weights = {"random": 0.7, "heuristic": 0.3}
+        # Normalize weights
+        total = sum(self.weights.values())
+        if total > 0:
+            self.weights = {k: v / total for k, v in self.weights.items()}
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert config to dictionary for serialization."""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ModelSelectionConfig:
+        """Create config from dictionary."""
+        return cls(**data)
 
 
 # ============================================================================
@@ -54,16 +125,14 @@ class ModelRecord:
     Attributes:
         checkpoint_path: Absolute path to the checkpoint file.
         iteration: Training iteration when checkpoint was saved.
-        win_rate_vs_mcts: Win rate against MCTS opponent.
-        win_rate_vs_heuristic: Win rate against heuristic opponent.
+        score: Primary score used for ranking (based on config.metric).
         timestamp: Unix timestamp when record was created.
-        metrics: Optional dictionary of additional evaluation metrics.
+        metrics: Dictionary of all evaluation metrics.
     """
 
     checkpoint_path: str
     iteration: int
-    win_rate_vs_mcts: float
-    win_rate_vs_heuristic: float
+    score: float
     timestamp: float
     metrics: dict[str, float] | None = None
 
@@ -76,63 +145,121 @@ class ModelRecord:
         """Create record from dictionary."""
         return cls(**data)
 
-    @property
-    def primary_score(self) -> float:
-        """Primary metric for ranking models (win rate vs MCTS)."""
-        return self.win_rate_vs_mcts
-
 
 # ============================================================================
-# Best Model Tracker
+# Metric Extraction
 # ============================================================================
 
 
-class BestModelTracker:
+def extract_score(
+    eval_results: list[EvaluationResult],
+    config: ModelSelectionConfig,
+) -> tuple[float, dict[str, float]]:
+    """Extract primary score and all metrics from evaluation results.
+
+    Args:
+        eval_results: List of evaluation results.
+        config: Model selection configuration.
+
+    Returns:
+        Tuple of (primary_score, all_metrics_dict).
+    """
+    metrics: dict[str, float] = {}
+
+    # Extract all metrics
+    for result in eval_results:
+        metrics[f"{result.opponent_name}/win_rate"] = result.win_rate
+        metrics[f"{result.opponent_name}/avg_margin"] = result.avg_point_margin
+
+    # Compute primary score based on metric type
+    if config.metric == "mcts":
+        # Highest MCTS win rate
+        score = 0.0
+        for result in eval_results:
+            if "mcts" in result.opponent_name.lower():
+                score = max(score, result.win_rate)
+
+    elif config.metric == "heuristic":
+        # Heuristic win rate
+        score = 0.0
+        for result in eval_results:
+            if "heuristic" in result.opponent_name.lower():
+                score = result.win_rate
+                break
+
+    elif config.metric == "weighted":
+        # Weighted combination
+        score = 0.0
+        for result in eval_results:
+            name = result.opponent_name.lower()
+            weight = config.weights.get(name, 0.0)
+            score += weight * result.win_rate
+
+    elif config.metric == "single" and config.target_opponent:
+        # Single specified opponent
+        target = config.target_opponent.lower()
+        score = 0.0
+        for result in eval_results:
+            if result.opponent_name.lower() == target:
+                score = result.win_rate
+                break
+            # Partial match for MCTS variants
+            if "mcts" in target and "mcts" in result.opponent_name.lower():
+                score = result.win_rate
+                break
+
+    else:
+        # Default: use first result's win rate
+        score = eval_results[0].win_rate if eval_results else 0.0
+
+    return score, metrics
+
+
+# ============================================================================
+# Model Tracker
+# ============================================================================
+
+
+class ModelTracker:
     """Track and maintain the best-performing model checkpoints.
 
     Monitors evaluation results and saves models that achieve the highest
-    win rate against MCTS opponents. Maintains a leaderboard of top-k models.
+    score based on the configured metric. Maintains a leaderboard of top-k models.
 
     The tracker persists its state to disk, allowing training to resume
     with the correct best model information.
 
-    Attributes:
-        checkpoint_dir: Directory containing checkpoint files.
-        best_model_path: Path where the current best model is symlinked/copied.
-        keep_top_k: Number of top models to track.
-
     Example:
-        tracker = BestModelTracker(
+        config = ModelSelectionConfig(metric="heuristic", keep_top_k=5)
+        tracker = ModelTracker(
             checkpoint_dir="checkpoints/experiment1",
-            best_model_path="best_model.pt",
-            keep_top_k=5,
+            config=config,
         )
 
         # After evaluation
         is_new_best = tracker.update(checkpoint_path, iteration, eval_results)
         if is_new_best:
-            print(f"New best model! Win rate: {tracker.best_win_rate:.1%}")
+            print(f"New best model! Score: {tracker.best_score:.1%}")
     """
 
     def __init__(
         self,
         checkpoint_dir: str,
+        config: ModelSelectionConfig | None = None,
         best_model_path: str = "best_model.pt",
-        keep_top_k: int = 5,
     ) -> None:
-        """Initialize the best model tracker.
+        """Initialize the model tracker.
 
         Args:
             checkpoint_dir: Directory for storing checkpoints and tracker state.
+            config: Model selection configuration. Uses defaults if None.
             best_model_path: Relative or absolute path for best model.
                 If relative, resolved relative to checkpoint_dir.
-            keep_top_k: Number of top models to maintain in the leaderboard.
-
-        Raises:
-            ValueError: If keep_top_k is less than 1.
         """
-        if keep_top_k < 1:
-            raise ValueError(f"keep_top_k must be at least 1, got {keep_top_k}")
+        self._config = config or ModelSelectionConfig()
+
+        if self._config.keep_top_k < 1:
+            raise ValueError(f"keep_top_k must be at least 1, got {self._config.keep_top_k}")
 
         self._checkpoint_dir = Path(checkpoint_dir)
         self._checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -143,12 +270,17 @@ class BestModelTracker:
             best_path = self._checkpoint_dir / best_path
         self._best_model_path = best_path
 
-        self._keep_top_k = keep_top_k
         self._records: list[ModelRecord] = []
+        self._score_history: list[float] = []
         self._state_file = self._checkpoint_dir / "model_tracker_state.json"
 
         # Load existing state if available
         self._load_state()
+
+    @property
+    def config(self) -> ModelSelectionConfig:
+        """The model selection configuration."""
+        return self._config
 
     @property
     def best_model_path(self) -> str | None:
@@ -158,11 +290,11 @@ class BestModelTracker:
         return str(self._best_model_path)
 
     @property
-    def best_win_rate(self) -> float:
-        """Win rate of the current best model, or 0.0 if no models tracked."""
+    def best_score(self) -> float:
+        """Score of the current best model, or 0.0 if no models tracked."""
         if not self._records:
             return 0.0
-        return self._records[0].primary_score
+        return self._records[0].score
 
     @property
     def best_record(self) -> ModelRecord | None:
@@ -171,14 +303,19 @@ class BestModelTracker:
             return None
         return self._records[0]
 
+    @property
+    def score_history(self) -> list[float]:
+        """History of scores for trend analysis."""
+        return self._score_history.copy()
+
     def get_top_k(self) -> list[ModelRecord]:
-        """Get the top-k model records by win rate.
+        """Get the top-k model records by score.
 
         Returns:
-            List of ModelRecord objects sorted by primary score (descending).
+            List of ModelRecord objects sorted by score (descending).
             Length is min(keep_top_k, total tracked models).
         """
-        return self._records[: self._keep_top_k]
+        return self._records[: self._config.keep_top_k]
 
     def update(
         self,
@@ -187,10 +324,6 @@ class BestModelTracker:
         eval_results: list[EvaluationResult],
     ) -> bool:
         """Update tracker with new evaluation results.
-
-        Extracts win rates from evaluation results, creates a model record,
-        and updates the leaderboard. If the new model is the best so far,
-        updates the best model symlink/copy.
 
         Args:
             checkpoint_path: Path to the checkpoint file.
@@ -208,50 +341,38 @@ class BestModelTracker:
         if not Path(checkpoint_path).exists():
             raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
 
-        # Extract win rates from results
-        win_rate_mcts = 0.0
-        win_rate_heuristic = 0.0
-        metrics: dict[str, float] = {}
+        # Extract score and metrics
+        score, metrics = extract_score(eval_results, self._config)
 
-        for result in eval_results:
-            opponent = result.opponent_name.lower()
-            if "mcts" in opponent:
-                # Use the highest MCTS win rate if multiple MCTS opponents
-                win_rate_mcts = max(win_rate_mcts, result.win_rate)
-            elif "heuristic" in opponent:
-                win_rate_heuristic = result.win_rate
-
-            # Store all metrics
-            metrics[f"{result.opponent_name}/win_rate"] = result.win_rate
-            metrics[f"{result.opponent_name}/avg_margin"] = result.avg_point_margin
+        # Store in history
+        self._score_history.append(score)
 
         # Create record
         record = ModelRecord(
             checkpoint_path=checkpoint_path,
             iteration=iteration,
-            win_rate_vs_mcts=win_rate_mcts,
-            win_rate_vs_heuristic=win_rate_heuristic,
+            score=score,
             timestamp=time.time(),
             metrics=metrics,
         )
 
         # Determine if this is a new best
-        previous_best = self._records[0].primary_score if self._records else 0.0
-        is_new_best = record.primary_score > previous_best
+        previous_best = self._records[0].score if self._records else 0.0
+        is_new_best = score > previous_best
 
         # Add to records and sort
         self._records.append(record)
-        self._records.sort(key=lambda r: r.primary_score, reverse=True)
+        self._records.sort(key=lambda r: r.score, reverse=True)
 
         # Keep only top-k
-        self._records = self._records[: self._keep_top_k]
+        self._records = self._records[: self._config.keep_top_k]
 
         # Update best model file if this is new best
         if is_new_best:
             self._update_best_model(checkpoint_path)
             logger.info(
                 f"New best model at iteration {iteration}: "
-                f"MCTS win rate {win_rate_mcts:.1%} (was {previous_best:.1%})"
+                f"score={score:.1%} (was {previous_best:.1%})"
             )
 
         # Persist state
@@ -260,22 +381,15 @@ class BestModelTracker:
         return is_new_best
 
     def _update_best_model(self, checkpoint_path: str) -> None:
-        """Update the best model file by copying the checkpoint.
-
-        Args:
-            checkpoint_path: Path to the new best checkpoint.
-        """
+        """Update the best model file by copying the checkpoint."""
         src = Path(checkpoint_path)
         dst = self._best_model_path
 
-        # Ensure parent directory exists
         dst.parent.mkdir(parents=True, exist_ok=True)
 
-        # Remove existing best model if present
         if dst.exists():
             dst.unlink()
 
-        # Copy checkpoint to best model path
         shutil.copy2(src, dst)
         logger.debug(f"Copied best model to {dst}")
 
@@ -283,8 +397,9 @@ class BestModelTracker:
         """Persist tracker state to disk."""
         state = {
             "records": [r.to_dict() for r in self._records],
-            "keep_top_k": self._keep_top_k,
+            "config": self._config.to_dict(),
             "best_model_path": str(self._best_model_path),
+            "score_history": self._score_history[-1000:],  # Keep last 1000
         }
         with open(self._state_file, "w") as f:
             json.dump(state, f, indent=2)
@@ -299,14 +414,16 @@ class BestModelTracker:
                 state = json.load(f)
 
             self._records = [ModelRecord.from_dict(r) for r in state.get("records", [])]
+            self._score_history = state.get("score_history", [])
             logger.info(f"Loaded {len(self._records)} model records from state file")
         except (json.JSONDecodeError, KeyError, TypeError) as e:
-            logger.warning(f"Failed to load tracker state: {e}")
+            logger.warning(f"Failed to load tracker state from {self._state_file}: {e}")
             self._records = []
 
     def clear(self) -> None:
         """Clear all tracked records and remove state file."""
         self._records = []
+        self._score_history = []
         if self._state_file.exists():
             self._state_file.unlink()
         logger.info("Cleared model tracker state")
@@ -317,186 +434,224 @@ class BestModelTracker:
 # ============================================================================
 
 
-@dataclass
-class EarlyStoppingConfig:
-    """Configuration for early stopping criteria.
-
-    Attributes:
-        patience: Number of evaluations without improvement before stopping.
-        min_improvement: Minimum win rate improvement to count as improvement.
-        target_win_rate: Optional target win rate; stop if achieved.
-        target_opponent: Opponent name to use for tracking improvement.
-    """
-
-    patience: int = 20
-    min_improvement: float = 0.01
-    target_win_rate: float | None = None
-    target_opponent: str = "mcts-500"
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert config to dictionary."""
-        return asdict(self)
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> EarlyStoppingConfig:
-        """Create config from dictionary."""
-        return cls(**data)
-
-
 class EarlyStopping:
-    """Early stopping handler for training.
+    """Early stopping handler with optional advanced features.
 
-    Monitors evaluation results and signals when training should stop
-    based on lack of improvement or achieving target performance.
-
-    The handler tracks the best observed win rate and counts evaluations
-    since the last improvement. Training stops when:
-    1. No improvement for `patience` evaluations, OR
-    2. Target win rate is achieved (if configured)
+    Monitors evaluation results and signals when training should stop based on:
+    1. No improvement for `patience` evaluations (basic)
+    2. Target score achieved (optional)
+    3. Significant regression from best (optional)
+    4. Prolonged stagnation (optional)
 
     Example:
-        config = EarlyStoppingConfig(patience=20, target_win_rate=0.7)
+        config = ModelSelectionConfig(
+            patience=20,
+            regression_threshold=0.10,
+            stagnation_window=10,
+        )
         early_stopping = EarlyStopping(config)
 
         for iteration in range(1000):
-            # ... training ...
-            eval_results = evaluate_agent(...)
+            eval_results = evaluate_agent(agent, config)
+            should_stop, reason = early_stopping.update(eval_results, iteration)
 
-            if early_stopping.should_stop(eval_results):
-                print("Early stopping triggered")
+            if should_stop:
+                print(f"Stopping: {reason}")
                 break
-
-            early_stopping.update(eval_results)
     """
 
-    def __init__(self, config: EarlyStoppingConfig) -> None:
+    def __init__(self, config: ModelSelectionConfig | None = None) -> None:
         """Initialize early stopping handler.
 
         Args:
-            config: Configuration for early stopping criteria.
+            config: Model selection configuration with early stopping parameters.
         """
-        self._config = config
-        self._best_win_rate = 0.0
-        self._evaluations_without_improvement = 0
+        self._config = config or ModelSelectionConfig()
+
+        # State
+        self._best_score = 0.0
+        self._best_iteration = 0
+        self._evaluations_since_improvement = 0
         self._total_evaluations = 0
+        self._score_history: list[float] = []
+        self._iteration_history: list[int] = []
 
     @property
-    def config(self) -> EarlyStoppingConfig:
+    def config(self) -> ModelSelectionConfig:
         """The early stopping configuration."""
         return self._config
 
     @property
-    def evaluations_without_improvement(self) -> int:
-        """Number of evaluations since last improvement."""
-        return self._evaluations_without_improvement
+    def enabled(self) -> bool:
+        """Whether early stopping is enabled."""
+        return self._config.enabled
 
     @property
-    def best_win_rate(self) -> float:
-        """Best win rate observed so far."""
-        return self._best_win_rate
+    def best_score(self) -> float:
+        """Best score observed so far."""
+        return self._best_score
+
+    @property
+    def best_iteration(self) -> int:
+        """Iteration where best score was achieved."""
+        return self._best_iteration
+
+    @property
+    def evaluations_since_improvement(self) -> int:
+        """Number of evaluations since last improvement."""
+        return self._evaluations_since_improvement
 
     @property
     def total_evaluations(self) -> int:
         """Total number of evaluations processed."""
         return self._total_evaluations
 
-    def should_stop(self, eval_results: list[EvaluationResult]) -> bool:
-        """Check if training should stop based on evaluation results.
+    @property
+    def patience_remaining(self) -> int:
+        """Number of evaluations remaining before patience exhausted."""
+        return max(0, self._config.patience - self._evaluations_since_improvement)
 
-        Note: This checks the current state plus the new results, but does
-        not update the internal state. Call update() after should_stop()
-        to record the results.
-
-        Args:
-            eval_results: List of EvaluationResult from evaluate_agent.
-
-        Returns:
-            True if training should stop, False otherwise.
-        """
-        # Extract win rate for target opponent
-        current_win_rate = self._get_target_win_rate(eval_results)
-
-        # Check if target achieved
-        if (
-            self._config.target_win_rate is not None
-            and current_win_rate >= self._config.target_win_rate
-        ):
-            logger.info(
-                f"Target win rate {self._config.target_win_rate:.1%} achieved "
-                f"({current_win_rate:.1%}). Stopping."
-            )
-            return True
-
-        # Check patience
-        improvement = current_win_rate - self._best_win_rate
-        would_exceed_patience = (
-            improvement < self._config.min_improvement
-            and self._evaluations_without_improvement + 1 >= self._config.patience
-        )
-        if would_exceed_patience:
-            logger.info(
-                f"No improvement for {self._config.patience} evaluations. "
-                f"Best: {self._best_win_rate:.1%}, Current: {current_win_rate:.1%}. Stopping."
-            )
-            return True
-
-        return False
-
-    def update(self, eval_results: list[EvaluationResult]) -> None:
-        """Update early stopping state with new evaluation results.
-
-        Args:
-            eval_results: List of EvaluationResult from evaluate_agent.
-        """
-        current_win_rate = self._get_target_win_rate(eval_results)
-        improvement = current_win_rate - self._best_win_rate
-
-        if improvement >= self._config.min_improvement:
-            # Significant improvement
-            self._best_win_rate = current_win_rate
-            self._evaluations_without_improvement = 0
-            logger.debug(
-                f"Win rate improved to {current_win_rate:.1%} "
-                f"(+{improvement:.1%})"
-            )
-        else:
-            # No significant improvement
-            self._evaluations_without_improvement += 1
-            logger.debug(
-                f"No improvement ({self._evaluations_without_improvement}/{self._config.patience}). "
-                f"Best: {self._best_win_rate:.1%}, Current: {current_win_rate:.1%}"
-            )
-
-        self._total_evaluations += 1
-
-    def _get_target_win_rate(self, eval_results: list[EvaluationResult]) -> float:
-        """Extract win rate for the target opponent.
+    def update(
+        self,
+        eval_results: list[EvaluationResult],
+        iteration: int | None = None,
+    ) -> tuple[bool, str]:
+        """Update early stopping state and check stopping conditions.
 
         Args:
             eval_results: List of evaluation results.
+            iteration: Optional iteration number for logging.
 
         Returns:
-            Win rate against target opponent, or 0.0 if not found.
+            Tuple of (should_stop, reason) where reason explains why stopping.
         """
-        target = self._config.target_opponent.lower()
+        # Extract score
+        score, _ = extract_score(eval_results, self._config)
 
-        for result in eval_results:
-            if result.opponent_name.lower() == target:
-                return result.win_rate
+        # Update history
+        self._score_history.append(score)
+        self._iteration_history.append(iteration or self._total_evaluations)
+        self._total_evaluations += 1
 
-        # Try partial match for MCTS variants
-        for result in eval_results:
-            if "mcts" in target and "mcts" in result.opponent_name.lower():
-                return result.win_rate
+        # Not enabled - never stop
+        if not self._config.enabled:
+            return False, ""
 
-        logger.warning(f"Target opponent '{self._config.target_opponent}' not found in results")
-        return 0.0
+        # Not enough evaluations yet
+        if self._total_evaluations < self._config.min_evaluations:
+            # Still track best
+            if score > self._best_score:
+                self._best_score = score
+                self._best_iteration = iteration or self._total_evaluations
+                self._evaluations_since_improvement = 0
+            return False, ""
+
+        # Check if target achieved
+        if self._config.target_score is not None and score >= self._config.target_score:
+            reason = (
+                f"Target score {self._config.target_score:.1%} achieved "
+                f"({score:.1%}). Stopping."
+            )
+            logger.info(f"Early stopping: {reason}")
+            return True, reason
+
+        # Check for regression from best
+        if self._config.regression_threshold is not None and self._best_score > 0:
+            regression = self._best_score - score
+            if regression > self._config.regression_threshold:
+                reason = (
+                    f"Score regressed {regression:.1%} from best "
+                    f"({self._best_score:.1%} -> {score:.1%}), "
+                    f"exceeds threshold {self._config.regression_threshold:.1%}"
+                )
+                logger.warning(f"Early stopping: {reason}")
+                return True, reason
+
+        # Update best tracking
+        improvement = score - self._best_score
+        if improvement >= self._config.min_improvement:
+            self._best_score = score
+            self._best_iteration = iteration or self._total_evaluations
+            self._evaluations_since_improvement = 0
+            logger.debug(f"Score improved to {score:.1%}")
+        else:
+            self._evaluations_since_improvement += 1
+
+        # Check patience exhausted
+        if self._evaluations_since_improvement >= self._config.patience:
+            reason = (
+                f"No improvement for {self._config.patience} evaluations. "
+                f"Best: {self._best_score:.1%}, Current: {score:.1%}"
+            )
+            logger.info(f"Early stopping: {reason}")
+            return True, reason
+
+        # Check stagnation (low variance in recent window)
+        if (
+            self._config.stagnation_window > 0
+            and len(self._score_history) >= self._config.stagnation_window
+        ):
+            recent = self._score_history[-self._config.stagnation_window :]
+            mean_score = sum(recent) / len(recent)
+            variance = sum((x - mean_score) ** 2 for x in recent) / len(recent)
+
+            # Stagnation: low variance AND below best AND patience nearly exhausted
+            is_stagnating = (
+                variance < 0.0001  # Very low variance
+                and mean_score < self._best_score - self._config.min_improvement
+                and self._evaluations_since_improvement >= self._config.patience // 2
+            )
+            if is_stagnating:
+                reason = (
+                    f"Score stagnating around {mean_score:.1%} "
+                    f"(variance={variance:.6f}) for {self._config.stagnation_window} "
+                    f"evaluations, below best {self._best_score:.1%}"
+                )
+                logger.info(f"Early stopping: {reason}")
+                return True, reason
+
+        return False, ""
+
+    def get_statistics(self) -> dict[str, Any]:
+        """Get current early stopping statistics.
+
+        Returns:
+            Dictionary of statistics.
+        """
+        stats: dict[str, Any] = {
+            "best_score": self._best_score,
+            "best_iteration": self._best_iteration,
+            "evaluations_since_improvement": self._evaluations_since_improvement,
+            "total_evaluations": self._total_evaluations,
+            "patience": self._config.patience,
+            "patience_remaining": self.patience_remaining,
+        }
+
+        if self._score_history:
+            stats["current_score"] = self._score_history[-1]
+
+            # Compute recent trend
+            if len(self._score_history) >= 5:
+                recent = self._score_history[-5:]
+                trend = (recent[-1] - recent[0]) / 4
+                stats["recent_trend"] = trend
+                if trend > 0.01:
+                    stats["trend_direction"] = "improving"
+                elif trend < -0.01:
+                    stats["trend_direction"] = "declining"
+                else:
+                    stats["trend_direction"] = "stable"
+
+        return stats
 
     def reset(self) -> None:
         """Reset early stopping state to initial values."""
-        self._best_win_rate = 0.0
-        self._evaluations_without_improvement = 0
+        self._best_score = 0.0
+        self._best_iteration = 0
+        self._evaluations_since_improvement = 0
         self._total_evaluations = 0
+        self._score_history = []
+        self._iteration_history = []
         logger.debug("Early stopping state reset")
 
 
@@ -717,83 +872,15 @@ def cleanup_old_checkpoints(
 
 
 # ============================================================================
-# Trainer Integration
+# Factory Functions
 # ============================================================================
 
 
-def integrate_model_selection(
-    trainer: Trainer,
-    tracker: BestModelTracker,
-    early_stopping: EarlyStopping | None = None,
-) -> Callable[[list[EvaluationResult]], bool]:
-    """Create callback for integrating model selection with trainer.
-
-    Returns a callback function that the trainer calls after each evaluation.
-    The callback:
-    1. Updates the best model tracker with new results
-    2. Checks early stopping criteria (if configured)
-    3. Returns whether training should stop
-
-    Args:
-        trainer: The Trainer instance being monitored.
-        tracker: BestModelTracker for saving best models.
-        early_stopping: Optional EarlyStopping handler.
-
-    Returns:
-        Callback function that accepts evaluation results and returns
-        True if training should stop, False otherwise.
-
-    Example:
-        tracker = BestModelTracker(checkpoint_dir="checkpoints")
-        early_stopping = EarlyStopping(EarlyStoppingConfig(patience=20))
-
-        callback = integrate_model_selection(trainer, tracker, early_stopping)
-
-        # In training loop:
-        eval_results = evaluate_agent(...)
-        should_stop = callback(eval_results)
-        if should_stop:
-            break
-    """
-
-    def model_selection_callback(eval_results: list[EvaluationResult]) -> bool:
-        """Callback for processing evaluation results.
-
-        Args:
-            eval_results: Evaluation results from evaluate_agent.
-
-        Returns:
-            True if training should stop, False otherwise.
-        """
-        iteration = trainer.current_iteration
-
-        # Get latest checkpoint path
-        checkpoint_dir = Path(trainer.config.checkpoint_dir) / trainer.config.experiment_name
-        checkpoint_path = checkpoint_dir / f"iter_{iteration:06d}.pt"
-
-        # Update best model tracker if checkpoint exists
-        if checkpoint_path.exists():
-            is_best = tracker.update(str(checkpoint_path), iteration, eval_results)
-            if is_best:
-                logger.info(f"New best model saved at iteration {iteration}")
-
-        # Check early stopping
-        if early_stopping is not None:
-            if early_stopping.should_stop(eval_results):
-                return True
-            early_stopping.update(eval_results)
-
-        return False
-
-    return model_selection_callback
-
-
-def create_model_selection_callback(
+def create_model_selection(
     checkpoint_dir: str,
-    experiment_name: str,
-    early_stopping_config: EarlyStoppingConfig | None = None,
-    keep_top_k: int = 5,
-) -> tuple[BestModelTracker, EarlyStopping | None, Callable[[int, str, list[EvaluationResult]], bool]]:
+    experiment_name: str = "",
+    config: ModelSelectionConfig | None = None,
+) -> tuple[ModelTracker, EarlyStopping, Callable[[int, str, list[EvaluationResult]], tuple[bool, bool, str]]]:
     """Factory function to create model selection components and callback.
 
     Convenience function that creates all model selection components
@@ -801,42 +888,56 @@ def create_model_selection_callback(
 
     Args:
         checkpoint_dir: Base checkpoint directory.
-        experiment_name: Name of the experiment.
-        early_stopping_config: Optional early stopping configuration.
-        keep_top_k: Number of best models to keep.
+        experiment_name: Name of the experiment (appended to checkpoint_dir).
+        config: Model selection configuration. Uses defaults if None.
 
     Returns:
         Tuple of (tracker, early_stopping, callback) where:
-            - tracker: BestModelTracker instance
-            - early_stopping: EarlyStopping instance or None
-            - callback: Function(iteration, checkpoint_path, eval_results) -> should_stop
+            - tracker: ModelTracker instance
+            - early_stopping: EarlyStopping instance
+            - callback: Function(iteration, checkpoint_path, eval_results) ->
+                (is_best, should_stop, stop_reason)
 
     Example:
-        tracker, early_stopping, callback = create_model_selection_callback(
+        tracker, early_stopping, callback = create_model_selection(
             checkpoint_dir="checkpoints",
             experiment_name="exp1",
-            early_stopping_config=EarlyStoppingConfig(patience=20),
+            config=ModelSelectionConfig(
+                metric="weighted",
+                weights={"random": 0.7, "heuristic": 0.3},
+                patience=20,
+                regression_threshold=0.10,
+            ),
         )
 
-        # In training loop:
-        should_stop = callback(iteration, checkpoint_path, eval_results)
-    """
-    full_checkpoint_dir = str(Path(checkpoint_dir) / experiment_name)
+        for iteration in range(1000):
+            # ... training and evaluation ...
+            is_best, should_stop, reason = callback(iteration, checkpoint_path, eval_results)
 
-    tracker = BestModelTracker(
+            if is_best:
+                print("New best model!")
+
+            if should_stop:
+                print(f"Stopping: {reason}")
+                break
+    """
+    if config is None:
+        config = ModelSelectionConfig()
+
+    full_checkpoint_dir = str(Path(checkpoint_dir) / experiment_name) if experiment_name else checkpoint_dir
+
+    tracker = ModelTracker(
         checkpoint_dir=full_checkpoint_dir,
-        keep_top_k=keep_top_k,
+        config=config,
     )
 
-    early_stopping = None
-    if early_stopping_config is not None:
-        early_stopping = EarlyStopping(early_stopping_config)
+    early_stopping = EarlyStopping(config)
 
     def callback(
         iteration: int,
         checkpoint_path: str,
         eval_results: list[EvaluationResult],
-    ) -> bool:
+    ) -> tuple[bool, bool, str]:
         """Model selection callback.
 
         Args:
@@ -845,30 +946,26 @@ def create_model_selection_callback(
             eval_results: Evaluation results.
 
         Returns:
-            True if training should stop.
+            Tuple of (is_best, should_stop, stop_reason).
         """
-        # Update tracker
+        is_best = False
         if Path(checkpoint_path).exists():
-            tracker.update(checkpoint_path, iteration, eval_results)
+            is_best = tracker.update(checkpoint_path, iteration, eval_results)
 
-        # Check early stopping
-        if early_stopping is not None:
-            if early_stopping.should_stop(eval_results):
-                return True
-            early_stopping.update(eval_results)
+        should_stop, reason = early_stopping.update(eval_results, iteration)
 
-        return False
+        return is_best, should_stop, reason
 
     return tracker, early_stopping, callback
 
 
 __all__ = [
-    "BestModelTracker",
     "EarlyStopping",
-    "EarlyStoppingConfig",
     "ModelRecord",
+    "ModelSelectionConfig",
+    "ModelTracker",
     "cleanup_old_checkpoints",
     "compare_checkpoints",
-    "create_model_selection_callback",
-    "integrate_model_selection",
+    "create_model_selection",
+    "extract_score",
 ]

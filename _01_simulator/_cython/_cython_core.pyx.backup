@@ -1,0 +1,428 @@
+# cython: language_level=3
+# cython: boundscheck=False
+# cython: wraparound=False
+# cython: cdivision=True
+# cython: initializedcheck=False
+"""Main Cython module with OpenMP parallel batch functions.
+
+This module provides the Python interface to the GIL-free game simulation,
+enabling multi-threaded execution across all CPU cores.
+"""
+
+cimport cython
+from cython.parallel cimport prange, parallel
+from libc.stdlib cimport malloc, free
+from libc.string cimport memcpy, memset
+
+import numpy as np
+cimport numpy as np
+
+np.import_array()
+
+# Import our internal modules
+from .types_c cimport *
+from .types_c cimport init_game_state, copy_game_state
+from .engine_c cimport step_nogil, is_terminal_nogil, legal_actions_nogil, score_nogil
+from .observations_c cimport state_to_tensor_nogil, legal_action_mask_nogil, index_to_action_nogil
+
+# Compile-time constant for sizeof(GameState) to avoid GIL issues
+DEF GAMESTATE_SIZE = sizeof(GameState)
+
+# Re-export constants
+SPECIES_CHAMELEON = <int>types_c.SPECIES_CHAMELEON
+SPECIES_CROCODILE = <int>types_c.SPECIES_CROCODILE
+SPECIES_GIRAFFE = <int>types_c.SPECIES_GIRAFFE
+SPECIES_HIPPO = <int>types_c.SPECIES_HIPPO
+SPECIES_KANGAROO = <int>types_c.SPECIES_KANGAROO
+SPECIES_LION = <int>types_c.SPECIES_LION
+SPECIES_MONKEY = <int>types_c.SPECIES_MONKEY
+SPECIES_PARROT = <int>types_c.SPECIES_PARROT
+SPECIES_SEAL = <int>types_c.SPECIES_SEAL
+SPECIES_SKUNK = <int>types_c.SPECIES_SKUNK
+SPECIES_SNAKE = <int>types_c.SPECIES_SNAKE
+SPECIES_UNKNOWN = <int>types_c.SPECIES_UNKNOWN
+SPECIES_ZEBRA = <int>types_c.SPECIES_ZEBRA
+
+
+# =============================================================================
+# GameState array wrapper for Python access
+# =============================================================================
+
+cdef class GameStateArray:
+    """Array of C GameState structs for vectorized operations.
+
+    This class manages memory for N game states and provides efficient
+    batch operations with OpenMP parallelization.
+    """
+    cdef GameState* states
+    cdef int capacity
+    cdef readonly int length
+
+    def __cinit__(self, int capacity):
+        self.states = <GameState*>malloc(capacity * sizeof(GameState))
+        if self.states == NULL:
+            raise MemoryError("Failed to allocate GameStateArray")
+        self.capacity = capacity
+        self.length = 0
+
+    def __dealloc__(self):
+        if self.states != NULL:
+            free(self.states)
+            self.states = NULL
+
+    def __len__(self):
+        return self.length
+
+    cpdef void resize(self, int new_length):
+        """Set the active length (must be <= capacity)."""
+        if new_length > self.capacity or new_length < 0:
+            raise ValueError(f"Length {new_length} exceeds capacity {self.capacity}")
+        self.length = new_length
+
+    cpdef void init_game(self, int index, unsigned int seed):
+        """Initialize a single game at index."""
+        if index < 0 or index >= self.capacity:
+            raise IndexError(f"Index {index} out of range")
+        init_game_state(&self.states[index], seed)
+        if index >= self.length:
+            self.length = index + 1
+
+    cpdef bint is_terminal(self, int index):
+        """Check if game at index is terminal."""
+        if index < 0 or index >= self.length:
+            raise IndexError(f"Index {index} out of range")
+        return is_terminal_nogil(&self.states[index])
+
+    cpdef int get_active_player(self, int index):
+        """Get active player for game at index."""
+        if index < 0 or index >= self.length:
+            raise IndexError(f"Index {index} out of range")
+        return self.states[index].active_player
+
+    cpdef tuple get_scores(self, int index):
+        """Get scores for game at index."""
+        cdef int scores[2]
+        if index < 0 or index >= self.length:
+            raise IndexError(f"Index {index} out of range")
+        score_nogil(&self.states[index], scores)
+        return (scores[0], scores[1])
+
+
+# =============================================================================
+# Conversion functions: Python State <-> C GameState
+# =============================================================================
+
+def python_state_to_c(state, GameStateArray arr, int index):
+    """Convert a Python State object to C GameState.
+
+    Args:
+        state: Python State from _01_simulator.state
+        arr: GameStateArray to store the converted state
+        index: Index in the array
+    """
+    cdef GameState* gs = &arr.states[index]
+    cdef int i, owner
+    cdef int8_t species_id
+
+    # Species name to ID mapping
+    species_map = {
+        'chameleon': SPECIES_CHAMELEON,
+        'crocodile': SPECIES_CROCODILE,
+        'giraffe': SPECIES_GIRAFFE,
+        'hippo': SPECIES_HIPPO,
+        'kangaroo': SPECIES_KANGAROO,
+        'lion': SPECIES_LION,
+        'monkey': SPECIES_MONKEY,
+        'parrot': SPECIES_PARROT,
+        'seal': SPECIES_SEAL,
+        'skunk': SPECIES_SKUNK,
+        'snake': SPECIES_SNAKE,
+        'unknown': SPECIES_UNKNOWN,
+        'zebra': SPECIES_ZEBRA,
+    }
+
+    # Clear state
+    memset(gs, 0, sizeof(GameState))
+
+    # Set metadata
+    gs.seed = state.seed
+    gs.turn = state.turn
+    gs.active_player = state.active_player
+
+    # Convert queue
+    gs.queue.length = len(state.zones.queue)
+    for i, card in enumerate(state.zones.queue):
+        gs.queue.cards[i].species_id = species_map.get(card.species, SPECIES_UNKNOWN)
+        gs.queue.cards[i].owner = card.owner
+        gs.queue.cards[i].entered_turn = card.entered_turn
+
+    # Convert beasty_bar
+    gs.beasty_bar.length = len(state.zones.beasty_bar)
+    for i, card in enumerate(state.zones.beasty_bar):
+        gs.beasty_bar.cards[i].species_id = species_map.get(card.species, SPECIES_UNKNOWN)
+        gs.beasty_bar.cards[i].owner = card.owner
+        gs.beasty_bar.cards[i].entered_turn = card.entered_turn
+
+    # Convert thats_it
+    gs.thats_it.length = len(state.zones.thats_it)
+    for i, card in enumerate(state.zones.thats_it):
+        gs.thats_it.cards[i].species_id = species_map.get(card.species, SPECIES_UNKNOWN)
+        gs.thats_it.cards[i].owner = card.owner
+        gs.thats_it.cards[i].entered_turn = card.entered_turn
+
+    # Convert player states
+    for owner in range(2):
+        player = state.players[owner]
+
+        # Hand
+        gs.players[owner].hand_length = len(player.hand)
+        for i, card in enumerate(player.hand):
+            gs.players[owner].hand[i].species_id = species_map.get(card.species, SPECIES_UNKNOWN)
+            gs.players[owner].hand[i].owner = card.owner
+            gs.players[owner].hand[i].entered_turn = card.entered_turn
+
+        # Deck
+        gs.players[owner].deck_length = len(player.deck)
+        for i, card in enumerate(player.deck):
+            gs.players[owner].deck[i].species_id = species_map.get(card.species, SPECIES_UNKNOWN)
+            gs.players[owner].deck[i].owner = card.owner
+            gs.players[owner].deck[i].entered_turn = card.entered_turn
+
+    if index >= arr.length:
+        arr.length = index + 1
+
+
+# =============================================================================
+# Batch functions with OpenMP
+# =============================================================================
+
+def step_batch_parallel(
+    GameStateArray states,
+    np.ndarray[np.int64_t, ndim=1] active_indices,
+    np.ndarray[np.int64_t, ndim=1] actions,
+    int num_threads = 0
+):
+    """Step multiple games in parallel using OpenMP.
+
+    Args:
+        states: GameStateArray containing all game states
+        active_indices: Array of indices into states for active games
+        actions: Array of action indices (one per active game)
+        num_threads: Number of threads (0 = auto)
+
+    Returns:
+        Number of games that became terminal
+    """
+    cdef int n = active_indices.shape[0]
+    cdef int finished = 0
+    cdef int i, idx
+    cdef np.int64_t action_idx
+    cdef Action action
+    cdef GameState new_state
+    cdef np.int64_t* indices_ptr = &active_indices[0]
+    cdef np.int64_t* actions_ptr = &actions[0]
+    cdef GameState* states_ptr = states.states
+
+    if num_threads <= 0:
+        import os
+        num_threads = os.cpu_count() or 4
+
+    with nogil, parallel(num_threads=num_threads):
+        for i in prange(n, schedule='dynamic'):
+            idx = <int>indices_ptr[i]
+            action_idx = actions_ptr[i]
+
+            # Convert index to action
+            index_to_action_nogil(<int>action_idx, &action)
+
+            # Step the game
+            step_nogil(&states_ptr[idx], &action, &new_state)
+
+            # Copy result back
+            memcpy(&states_ptr[idx], &new_state, GAMESTATE_SIZE)
+
+            # Note: We can't safely increment finished here due to race conditions
+            # The caller should check terminal states separately
+
+    # Count finished games (sequential, but fast)
+    for i in range(n):
+        idx = <int>indices_ptr[i]
+        if is_terminal_nogil(&states_ptr[idx]):
+            finished += 1
+
+    return finished
+
+
+def encode_observations_parallel(
+    GameStateArray states,
+    np.ndarray[np.int64_t, ndim=1] active_indices,
+    np.ndarray[np.float32_t, ndim=2] output,
+    int num_threads = 0
+):
+    """Encode observations for multiple games in parallel.
+
+    Args:
+        states: GameStateArray containing all game states
+        active_indices: Array of indices into states
+        output: Pre-allocated output array of shape (len(active_indices), OBSERVATION_DIM)
+        num_threads: Number of threads (0 = auto)
+    """
+    cdef int n = active_indices.shape[0]
+    cdef int i, idx, player
+    cdef np.int64_t* indices_ptr = &active_indices[0]
+    cdef float* output_ptr = &output[0, 0]
+    cdef GameState* states_ptr = states.states
+    cdef int obs_dim = OBSERVATION_DIM
+
+    if num_threads <= 0:
+        import os
+        num_threads = os.cpu_count() or 4
+
+    with nogil, parallel(num_threads=num_threads):
+        for i in prange(n, schedule='dynamic'):
+            idx = <int>indices_ptr[i]
+            player = states_ptr[idx].active_player
+            state_to_tensor_nogil(
+                &states_ptr[idx],
+                player,
+                &output_ptr[i * obs_dim]
+            )
+
+
+def get_legal_masks_parallel(
+    GameStateArray states,
+    np.ndarray[np.int64_t, ndim=1] active_indices,
+    np.ndarray[np.float32_t, ndim=2] output,
+    int num_threads = 0
+):
+    """Generate legal action masks for multiple games in parallel.
+
+    Args:
+        states: GameStateArray containing all game states
+        active_indices: Array of indices into states
+        output: Pre-allocated output array of shape (len(active_indices), ACTION_DIM)
+        num_threads: Number of threads (0 = auto)
+    """
+    cdef int n = active_indices.shape[0]
+    cdef int i, idx, player
+    cdef np.int64_t* indices_ptr = &active_indices[0]
+    cdef float* output_ptr = &output[0, 0]
+    cdef GameState* states_ptr = states.states
+    cdef int action_dim = ACTION_DIM
+
+    if num_threads <= 0:
+        import os
+        num_threads = os.cpu_count() or 4
+
+    with nogil, parallel(num_threads=num_threads):
+        for i in prange(n, schedule='dynamic'):
+            idx = <int>indices_ptr[i]
+            player = states_ptr[idx].active_player
+            legal_action_mask_nogil(
+                &states_ptr[idx],
+                player,
+                &output_ptr[i * action_dim]
+            )
+
+
+def is_terminal_batch(
+    GameStateArray states,
+    np.ndarray[np.int64_t, ndim=1] indices
+) -> np.ndarray:
+    """Check terminal status for multiple games.
+
+    Args:
+        states: GameStateArray containing all game states
+        indices: Array of indices to check
+
+    Returns:
+        Boolean array of terminal status
+    """
+    cdef int n = indices.shape[0]
+    cdef np.ndarray[np.uint8_t, ndim=1] result = np.zeros(n, dtype=np.uint8)
+    cdef int i, idx
+    cdef np.int64_t* indices_ptr = &indices[0]
+    cdef unsigned char* result_ptr = &result[0]
+    cdef GameState* states_ptr = states.states
+
+    with nogil:
+        for i in range(n):
+            idx = <int>indices_ptr[i]
+            result_ptr[i] = 1 if is_terminal_nogil(&states_ptr[idx]) else 0
+
+    return result.astype(bool)
+
+
+# =============================================================================
+# Single-game functions for testing
+# =============================================================================
+
+def encode_single_observation(GameStateArray states, int index, int perspective = -1):
+    """Encode a single observation (for testing/debugging).
+
+    Returns:
+        numpy array of shape (OBSERVATION_DIM,)
+    """
+    cdef np.ndarray[np.float32_t, ndim=1] output = np.zeros(OBSERVATION_DIM, dtype=np.float32)
+    cdef int player
+
+    if index < 0 or index >= states.length:
+        raise IndexError(f"Index {index} out of range")
+
+    if perspective < 0:
+        player = states.states[index].active_player
+    else:
+        player = perspective
+
+    with nogil:
+        state_to_tensor_nogil(&states.states[index], player, &output[0])
+
+    return output
+
+
+def get_single_legal_mask(GameStateArray states, int index, int perspective = -1):
+    """Get legal action mask for a single game (for testing/debugging).
+
+    Returns:
+        numpy array of shape (ACTION_DIM,)
+    """
+    cdef np.ndarray[np.float32_t, ndim=1] output = np.zeros(ACTION_DIM, dtype=np.float32)
+    cdef int player
+
+    if index < 0 or index >= states.length:
+        raise IndexError(f"Index {index} out of range")
+
+    if perspective < 0:
+        player = states.states[index].active_player
+    else:
+        player = perspective
+
+    with nogil:
+        legal_action_mask_nogil(&states.states[index], player, &output[0])
+
+    return output
+
+
+def step_single(GameStateArray states, int index, int action_index):
+    """Apply a single action to a game (for testing/debugging)."""
+    cdef Action action
+    cdef GameState new_state
+
+    if index < 0 or index >= states.length:
+        raise IndexError(f"Index {index} out of range")
+
+    with nogil:
+        index_to_action_nogil(action_index, &action)
+        step_nogil(&states.states[index], &action, &new_state)
+        memcpy(&states.states[index], &new_state, GAMESTATE_SIZE)
+
+
+def get_single_scores(GameStateArray states, int index):
+    """Get scores for a single game."""
+    cdef int scores[2]
+
+    if index < 0 or index >= states.length:
+        raise IndexError(f"Index {index} out of range")
+
+    score_nogil(&states.states[index], scores)
+    return (scores[0], scores[1])

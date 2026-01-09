@@ -18,7 +18,7 @@ Example:
     config = MCTSTrainerConfig(
         total_iterations=1000,
         games_per_iteration=100,
-        mcts_simulations=800,
+        mcts_config=MCTSConfig(num_simulations=800),
     )
     trainer = MCTSTrainer(config)
     trainer.train()
@@ -48,11 +48,22 @@ except ImportError:
     nn = None
     F = None
 
+from _02_agents.neural.compile import maybe_compile_network
 from _02_agents.neural.utils import NetworkConfig, get_device, seed_all
 from _03_training.mcts_self_play import (
-    MCTSTrajectory,
-    generate_mcts_games,
-    mcts_policy_to_array,
+    DEFAULT_MCTS_CONFIG,
+    MCTSConfig,
+    MCTSTrainingData,
+    compute_mcts_stats,
+    generate_mcts_games_parallel,
+    generate_mcts_games_with_opponents,
+    mcts_trajectories_to_training_data,
+)
+from _03_training.opponent_pool import (
+    OpponentConfig,
+    OpponentPool,
+    OpponentType,
+    SampledOpponent,
 )
 from _03_training.tracking import ExperimentTracker, create_tracker
 
@@ -79,10 +90,8 @@ class MCTSTrainerConfig:
 
     Attributes:
         network_config: Configuration for neural network architecture.
+        mcts_config: Configuration for MCTS search parameters.
         games_per_iteration: Number of self-play games per training iteration.
-        mcts_simulations: Number of MCTS simulations per move.
-        temperature: Temperature for action sampling (1.0 = proportional, 0 = greedy).
-        c_puct: PUCT exploration constant for MCTS search.
         total_iterations: Total number of training iterations.
         batch_size: Batch size for network training.
         epochs_per_iteration: Number of training epochs per iteration.
@@ -91,6 +100,7 @@ class MCTSTrainerConfig:
         value_loss_weight: Weight of value loss in total loss.
         policy_loss_weight: Weight of policy loss in total loss.
         entropy_bonus_weight: Weight of entropy bonus in total loss.
+        max_grad_norm: Maximum gradient norm for clipping (0 = no clipping).
         checkpoint_frequency: Save checkpoint every N iterations.
         eval_frequency: Evaluate against baselines every N iterations.
         lr_warmup_iterations: Number of iterations for learning rate warmup.
@@ -100,37 +110,42 @@ class MCTSTrainerConfig:
         experiment_name: Name for experiment tracking.
         checkpoint_dir: Directory for saving checkpoints.
         log_frequency: Log metrics every N iterations.
+        buffer_size: Maximum number of samples to keep in replay buffer.
+        min_buffer_size: Minimum samples before training starts.
+        warmstart_checkpoint: Path to PPO warm-start checkpoint to load.
+        warmstart_reset_optimizer: Reset optimizer state after loading warm-start.
+        warmstart_reset_iteration: Reset iteration counter after loading warm-start.
     """
 
     # Network configuration
     network_config: NetworkConfig = field(default_factory=NetworkConfig)
 
-    # MCTS self-play settings
-    games_per_iteration: int = 100
-    mcts_simulations: int = 800
-    temperature: float = 1.0
-    c_puct: float = 1.0
+    # MCTS configuration (using the new MCTSConfig class)
+    mcts_config: MCTSConfig = field(default_factory=lambda: DEFAULT_MCTS_CONFIG)
+
+    # Self-play settings
+    games_per_iteration: int = 64
 
     # Training schedule
-    total_iterations: int = 1000
-    batch_size: int = 256
-    epochs_per_iteration: int = 10
+    total_iterations: int = 200
+    batch_size: int = 512
+    epochs_per_iteration: int = 4
 
     # Optimization settings
-    learning_rate: float = 1e-3
+    learning_rate: float = 1e-4
     weight_decay: float = 1e-4
-    max_grad_norm: float = 1.0  # Maximum gradient norm for clipping (0 = no clipping)
+    max_grad_norm: float = 0.5
     value_loss_weight: float = 1.0
     policy_loss_weight: float = 1.0
     entropy_bonus_weight: float = 0.01
 
     # Checkpointing and evaluation
-    checkpoint_frequency: int = 50
-    eval_frequency: int = 10
+    checkpoint_frequency: int = 10
+    eval_frequency: int = 5
 
     # Learning rate schedule
     lr_warmup_iterations: int = 10
-    lr_decay: str = "linear"  # "linear", "cosine", "none"
+    lr_decay: str = "cosine"  # "linear", "cosine", "none"
 
     # Misc settings
     seed: int = 42
@@ -139,10 +154,30 @@ class MCTSTrainerConfig:
     checkpoint_dir: str = "checkpoints"
     log_frequency: int = 1
 
+    # Replay buffer settings
+    buffer_size: int = 100_000
+    min_buffer_size: int = 5000
+
+    # Opponent diversity (prevents self-play collapse)
+    opponent_config: OpponentConfig = field(default_factory=OpponentConfig)
+    checkpoint_to_pool_frequency: int = 20  # Add checkpoint to pool every N iterations
+
+    # Warm-start from PPO checkpoint (for transitioning from PPO to MCTS training)
+    warmstart_checkpoint: str | None = None  # Path to PPO checkpoint
+    warmstart_reset_optimizer: bool = True  # Reset optimizer (different loss landscape)
+    warmstart_reset_iteration: bool = True  # Reset iteration counter
+
+    # Torch compile settings (PyTorch 2.0+)
+    # Enables torch.compile() for 20-40% inference speedup
+    torch_compile: bool = False
+    torch_compile_mode: str = "reduce-overhead"  # "default", "reduce-overhead", "max-autotune"
+
     def to_dict(self) -> dict[str, Any]:
         """Convert configuration to dictionary for serialization."""
         result = asdict(self)
         result["network_config"] = self.network_config.to_dict()
+        result["mcts_config"] = self.mcts_config.to_dict()
+        result["opponent_config"] = self.opponent_config.to_dict()
         return result
 
     @classmethod
@@ -157,6 +192,20 @@ class MCTSTrainerConfig:
         else:
             data["network_config"] = NetworkConfig()
 
+        # Handle nested mcts config
+        if "mcts_config" in data:
+            if isinstance(data["mcts_config"], dict):
+                data["mcts_config"] = MCTSConfig.from_dict(data["mcts_config"])
+        else:
+            data["mcts_config"] = DEFAULT_MCTS_CONFIG
+
+        # Handle nested opponent config
+        if "opponent_config" in data:
+            if isinstance(data["opponent_config"], dict):
+                data["opponent_config"] = OpponentConfig.from_dict(data["opponent_config"])
+        else:
+            data["opponent_config"] = OpponentConfig()
+
         # Filter to known fields
         import dataclasses
 
@@ -165,12 +214,20 @@ class MCTSTrainerConfig:
 
         return cls(**filtered_data)
 
+    @classmethod
+    def from_yaml(cls, path: str | Path) -> MCTSTrainerConfig:
+        """Load configuration from YAML file."""
+        import yaml
+
+        with open(path) as f:
+            data = yaml.safe_load(f)
+
+        return cls.from_dict(data)
+
     def validate(self) -> None:
         """Validate configuration parameters."""
         if self.games_per_iteration <= 0:
             raise ValueError(f"games_per_iteration must be positive, got {self.games_per_iteration}")
-        if self.mcts_simulations <= 0:
-            raise ValueError(f"mcts_simulations must be positive, got {self.mcts_simulations}")
         if self.total_iterations <= 0:
             raise ValueError(f"total_iterations must be positive, got {self.total_iterations}")
         if self.batch_size <= 0:
@@ -258,6 +315,13 @@ def policy_loss(
     # Compute log probabilities
     log_probs = F.log_softmax(masked_logits, dim=-1)
 
+    # Handle -inf values (from masked actions)
+    log_probs = torch.where(
+        torch.isinf(log_probs),
+        torch.zeros_like(log_probs),
+        log_probs,
+    )
+
     # Cross-entropy: -sum(target * log(pred))
     loss = -(target_policy * log_probs).sum(dim=-1).mean()
 
@@ -301,6 +365,13 @@ def entropy_bonus(
     # Compute probabilities
     probs = F.softmax(masked_logits, dim=-1)
     log_probs = F.log_softmax(masked_logits, dim=-1)
+
+    # Handle numerical issues
+    log_probs = torch.where(
+        torch.isinf(log_probs),
+        torch.zeros_like(log_probs),
+        log_probs,
+    )
 
     # Entropy: H = -sum(p * log(p))
     entropy = -(probs * log_probs).sum(dim=-1)
@@ -369,12 +440,24 @@ class MCTSTrainer:
 
             self.network = BeastyBarNetwork(config.network_config).to(self._device)
 
+        # Apply torch.compile if enabled (PyTorch 2.0+)
+        # Compilation must happen after moving to device but before optimizer creation
+        if config.torch_compile:
+            self.network = maybe_compile_network(
+                self.network,
+                compile_mode=config.torch_compile_mode,
+                dynamic=True,  # Handle variable batch sizes during training
+            )
+
         # Create optimizer with weight decay
         self.optimizer = torch.optim.AdamW(
             self.network.parameters(),
             lr=config.learning_rate,
             weight_decay=config.weight_decay,
         )
+
+        # Training buffer for replay
+        self._training_buffer: MCTSTrainingData | None = None
 
         # Create or use provided tracker
         if tracker is not None:
@@ -394,7 +477,31 @@ class MCTSTrainer:
         # Metrics history
         self._metrics_history: list[dict[str, float]] = []
 
+        # Initialize opponent pool for diverse training
+        self._opponent_pool = OpponentPool(
+            config=config.opponent_config,
+            seed=config.seed,
+        )
+
+        # Network for checkpoint opponents (loaded on demand)
+        self._opponent_network: BeastyBarNetwork | None = None
+
         logger.info(f"MCTS Trainer initialized with {self.network.count_parameters():,} parameters")
+        logger.info(f"MCTS config: {config.mcts_config.num_simulations} simulations, "
+                   f"temp={config.mcts_config.temperature}, "
+                   f"temp_drop={config.mcts_config.temperature_drop_move}")
+        logger.info(f"Opponent diversity: self={config.opponent_config.current_weight:.0%}, "
+                   f"checkpoint={config.opponent_config.checkpoint_weight:.0%}, "
+                   f"random={config.opponent_config.random_weight:.0%}, "
+                   f"heuristic={config.opponent_config.heuristic_weight:.0%}")
+
+        # Load warm-start checkpoint if configured
+        if config.warmstart_checkpoint:
+            self.load_warmstart_checkpoint(
+                checkpoint_path=config.warmstart_checkpoint,
+                reset_optimizer=config.warmstart_reset_optimizer,
+                reset_iteration=config.warmstart_reset_iteration,
+            )
 
     @property
     def current_iteration(self) -> int:
@@ -406,6 +513,160 @@ class MCTSTrainer:
         """Return training device."""
         return self._device
 
+    def load_warmstart_checkpoint(
+        self,
+        checkpoint_path: str | Path,
+        reset_optimizer: bool = True,
+        reset_iteration: bool = True,
+    ) -> dict[str, Any]:
+        """Load a PPO warm-start checkpoint into the MCTS trainer.
+
+        This method allows transitioning from PPO training to MCTS refinement
+        by loading a pre-trained value network. The optimizer state is typically
+        reset because the MCTS loss landscape differs from PPO.
+
+        Args:
+            checkpoint_path: Path to the PPO checkpoint file.
+            reset_optimizer: If True, reset optimizer state (recommended for
+                different loss landscape between PPO and MCTS).
+            reset_iteration: If True, reset iteration counter to 0.
+
+        Returns:
+            Dictionary with loading statistics:
+                - source_iteration: Original iteration from checkpoint
+                - parameters_loaded: Number of parameters loaded
+                - architecture_match: Whether architecture matched exactly
+                - value_mean: Mean of value head output (for validation)
+                - value_std: Std of value head output (for validation)
+
+        Raises:
+            FileNotFoundError: If checkpoint file does not exist.
+            RuntimeError: If checkpoint architecture does not match.
+        """
+        checkpoint_path = Path(checkpoint_path)
+        if not checkpoint_path.exists():
+            raise FileNotFoundError(f"Warm-start checkpoint not found: {checkpoint_path}")
+
+        logger.info(f"Loading warm-start checkpoint from {checkpoint_path}")
+
+        # Load checkpoint
+        checkpoint = torch.load(checkpoint_path, map_location=self._device, weights_only=False)
+
+        # Extract model state (handle both MCTS and PPO checkpoint formats)
+        if "model_state_dict" in checkpoint:
+            model_state = checkpoint["model_state_dict"]
+        elif "network_state_dict" in checkpoint:
+            model_state = checkpoint["network_state_dict"]
+        else:
+            raise RuntimeError(
+                f"Checkpoint does not contain model state. "
+                f"Keys found: {list(checkpoint.keys())}"
+            )
+
+        # Validate architecture by checking state dict keys
+        current_keys = set(self.network.state_dict().keys())
+        checkpoint_keys = set(model_state.keys())
+
+        missing_keys = current_keys - checkpoint_keys
+        unexpected_keys = checkpoint_keys - current_keys
+        architecture_match = len(missing_keys) == 0 and len(unexpected_keys) == 0
+
+        if missing_keys:
+            logger.warning(f"Missing keys in checkpoint: {missing_keys}")
+        if unexpected_keys:
+            logger.warning(f"Unexpected keys in checkpoint: {unexpected_keys}")
+
+        if not architecture_match:
+            logger.warning(
+                "Architecture mismatch detected. Attempting partial load with strict=False."
+            )
+
+        # Load model state
+        try:
+            self.network.load_state_dict(model_state, strict=architecture_match)
+        except RuntimeError as e:
+            # Try non-strict loading if strict fails
+            if architecture_match:
+                logger.warning(f"Strict loading failed: {e}. Retrying with strict=False.")
+                self.network.load_state_dict(model_state, strict=False)
+            else:
+                raise
+
+        # Extract source iteration for logging
+        source_iteration = checkpoint.get("iteration", checkpoint.get("step", -1))
+
+        # Reset optimizer state if requested
+        if reset_optimizer:
+            logger.info("Resetting optimizer state for MCTS loss landscape")
+            self.optimizer = torch.optim.AdamW(
+                self.network.parameters(),
+                lr=self.config.learning_rate,
+                weight_decay=self.config.weight_decay,
+            )
+        else:
+            # Try to load optimizer state if available
+            if "optimizer_state_dict" in checkpoint:
+                try:
+                    self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+                    logger.info("Loaded optimizer state from checkpoint")
+                except ValueError as e:
+                    logger.warning(f"Could not load optimizer state: {e}")
+
+        # Reset iteration counter if requested
+        if reset_iteration:
+            self._iteration = 0
+            logger.info("Reset iteration counter to 0")
+        else:
+            self._iteration = source_iteration if source_iteration >= 0 else 0
+
+        # Validate network by computing statistics on random inputs
+        stats = self._validate_network_after_load()
+
+        # Log summary
+        num_params = sum(p.numel() for p in self.network.parameters())
+        logger.info(
+            f"Warm-start loaded successfully:\n"
+            f"  Source iteration: {source_iteration}\n"
+            f"  Parameters: {num_params:,}\n"
+            f"  Architecture match: {architecture_match}\n"
+            f"  Value head stats: mean={stats['value_mean']:.4f}, std={stats['value_std']:.4f}"
+        )
+
+        return {
+            "source_iteration": source_iteration,
+            "parameters_loaded": num_params,
+            "architecture_match": architecture_match,
+            "value_mean": stats["value_mean"],
+            "value_std": stats["value_std"],
+        }
+
+    def _validate_network_after_load(self) -> dict[str, float]:
+        """Validate network produces reasonable outputs after loading.
+
+        Runs a forward pass with random inputs to check value head statistics.
+
+        Returns:
+            Dictionary with value_mean and value_std.
+        """
+        self.network.eval()
+        with torch.no_grad():
+            # Generate random observations (batch of 32)
+            batch_size = 32
+            obs_dim = self.config.network_config.observation_dim
+            action_dim = self.config.network_config.action_dim
+
+            random_obs = torch.randn(batch_size, obs_dim, device=self._device)
+            random_mask = torch.ones(batch_size, action_dim, device=self._device)
+
+            # Forward pass
+            _, values = self.network(random_obs, random_mask)
+            values = values.squeeze(-1)
+
+            return {
+                "value_mean": values.mean().item(),
+                "value_std": values.std().item(),
+            }
+
     def _get_current_lr(self) -> float:
         """Get learning rate for current iteration."""
         return get_learning_rate(
@@ -416,97 +677,276 @@ class MCTSTrainer:
             decay_type=self.config.lr_decay,
         )
 
-    def _generate_mcts_games(self) -> list[MCTSTrajectory]:
-        """Generate self-play games using MCTS.
+    def _compute_parallel_games(self) -> int:
+        """Compute optimal number of parallel games based on configuration.
+
+        Higher values improve GPU utilization but require more memory.
 
         Returns:
-            List of MCTSTrajectory objects.
+            Number of games to run in parallel.
+        """
+        return min(32, max(8, self.config.games_per_iteration // 2))
+
+    def _generate_games_for_opponent(
+        self, sampled: SampledOpponent, parallel_games: int
+    ) -> list:
+        """Generate games against a specific opponent type.
+
+        Args:
+            sampled: Sampled opponent from pool.
+            parallel_games: Number of games to run in parallel.
+
+        Returns:
+            List of game trajectories.
+        """
+        if sampled.opponent_type == OpponentType.CURRENT:
+            # Pure self-play: both players use current network
+            return generate_mcts_games_parallel(
+                network=self.network,
+                num_games=self.config.games_per_iteration,
+                config=self.config.mcts_config,
+                device=self._device,
+                parallel_games=parallel_games,
+            )
+        elif sampled.opponent_type == OpponentType.CHECKPOINT:
+            # Play against past checkpoint
+            opponent_network = self._get_or_create_opponent_network(sampled)
+            return generate_mcts_games_with_opponents(
+                network=self.network,
+                num_games=self.config.games_per_iteration,
+                opponent_network=opponent_network,
+                config=self.config.mcts_config,
+                device=self._device,
+                parallel_games=parallel_games,
+            )
+        else:
+            # Play against simple agent (random or heuristic)
+            return generate_mcts_games_with_opponents(
+                network=self.network,
+                num_games=self.config.games_per_iteration,
+                opponent_agent=sampled.agent,
+                config=self.config.mcts_config,
+                device=self._device,
+                parallel_games=parallel_games,
+            )
+
+    def _log_generation_stats(self, trajectories: list, gen_time: float) -> None:
+        """Compute and log game generation statistics.
+
+        Args:
+            trajectories: List of game trajectories.
+            gen_time: Time taken to generate games.
+        """
+        stats = compute_mcts_stats(trajectories)
+        logger.info(
+            f"Generated {stats.games_played} games in {gen_time:.1f}s "
+            f"({stats.total_steps} samples, "
+            f"P0={stats.p0_win_rate:.1%}, "
+            f"avg_len={stats.avg_game_length:.1f})"
+        )
+        self._total_games_played += stats.games_played
+        self._total_steps_collected += stats.total_steps
+
+    def _generate_mcts_games(self) -> MCTSTrainingData:
+        """Generate self-play games using MCTS and convert to training data.
+
+        Uses parallel game generation with BatchMCTS for maximum GPU efficiency.
+        Uses OpponentPool for diverse training opponents to prevent self-play collapse.
+        Expected speedup: 10-50x over sequential generation on GPU.
+
+        Returns:
+            MCTSTrainingData containing observations, policies, and values.
         """
         # Set network to evaluation mode for inference
         self.network.eval()
 
-        trajectories = generate_mcts_games(
-            network=self.network,
-            num_games=self.config.games_per_iteration,
-            num_simulations=self.config.mcts_simulations,
-            temperature=self.config.temperature,
-            device=self._device,
-            c_puct=self.config.c_puct,
+        parallel_games = self._compute_parallel_games()
+        logger.info(
+            f"Generating {self.config.games_per_iteration} MCTS games "
+            f"(parallel={parallel_games})..."
         )
 
-        self._total_games_played += self.config.games_per_iteration
-        return trajectories
+        gen_start = time.time()
 
-    def _trajectories_to_training_data(
-        self,
-        trajectories: list[MCTSTrajectory],
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Convert trajectories to training tensors.
+        # Sample opponent from pool for diversity
+        sampled = self._opponent_pool.sample_opponent()
+        logger.info(f"Opponent: {sampled.name}")
+
+        # Generate games
+        trajectories = self._generate_games_for_opponent(sampled, parallel_games)
+
+        # Log stats and update counters
+        gen_time = time.time() - gen_start
+        self._log_generation_stats(trajectories, gen_time)
+
+        # Convert to training data
+        return mcts_trajectories_to_training_data(trajectories)
+
+    def _get_or_create_opponent_network(
+        self, sampled: SampledOpponent,
+    ) -> BeastyBarNetwork:
+        """Get or create opponent network from checkpoint.
+
+        Reuses network instance when possible to reduce memory allocation.
 
         Args:
-            trajectories: List of game trajectories.
+            sampled: Sampled opponent with checkpoint state.
 
         Returns:
-            Tuple of (observations, target_policies, target_values, action_masks).
+            Network loaded with checkpoint weights.
         """
-        observations_list = []
-        policies_list = []
-        values_list = []
-        masks_list = []
+        from _02_agents.neural.network import BeastyBarNetwork
 
-        for traj in trajectories:
-            # Process both players' steps
-            for player in [0, 1]:
-                steps = traj.get_steps(player)
-                for step in steps:
-                    observations_list.append(step.observation)
-                    # Convert MCTS policy dict to array
-                    policy_array = mcts_policy_to_array(
-                        step.mcts_policy,
-                        self.config.network_config.action_dim,
-                    )
-                    policies_list.append(policy_array)
-                    values_list.append(step.value)
-                    masks_list.append(step.action_mask)
+        if self._opponent_network is None:
+            # Create new opponent network with same config
+            self._opponent_network = BeastyBarNetwork(self.config.network_config)
+            self._opponent_network = self._opponent_network.to(self._device)
+
+        # Load checkpoint weights
+        if sampled.network_state is not None:
+            self._opponent_network.load_state_dict(sampled.network_state)
+        self._opponent_network.eval()
+
+        return self._opponent_network
+
+    def _add_to_buffer(self, new_data: MCTSTrainingData) -> None:
+        """Add new training data to buffer, managing size limit.
+
+        Args:
+            new_data: New training data to add.
+        """
+        if self._training_buffer is None or len(self._training_buffer) == 0:
+            self._training_buffer = new_data
+            return
+
+        # Combine with existing data
+        combined_obs = np.concatenate([self._training_buffer.observations, new_data.observations])
+        combined_masks = np.concatenate([self._training_buffer.action_masks, new_data.action_masks])
+        combined_policies = np.concatenate(
+            [self._training_buffer.policy_targets, new_data.policy_targets]
+        )
+        combined_values = np.concatenate(
+            [self._training_buffer.value_targets, new_data.value_targets]
+        )
+
+        # Trim to buffer size (keep most recent)
+        if len(combined_obs) > self.config.buffer_size:
+            start_idx = len(combined_obs) - self.config.buffer_size
+            combined_obs = combined_obs[start_idx:]
+            combined_masks = combined_masks[start_idx:]
+            combined_policies = combined_policies[start_idx:]
+            combined_values = combined_values[start_idx:]
+
+        self._training_buffer = MCTSTrainingData(
+            observations=combined_obs,
+            action_masks=combined_masks,
+            policy_targets=combined_policies,
+            value_targets=combined_values,
+        )
+
+    def _prepare_training_tensors(
+        self, training_data: MCTSTrainingData
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Convert training data to shuffled tensors on device.
+
+        Args:
+            training_data: MCTSTrainingData containing samples.
+
+        Returns:
+            Tuple of (observations, action_masks, policy_targets, value_targets) tensors.
+        """
+        # Shuffle data
+        training_data = training_data.shuffle()
 
         # Convert to tensors
-        observations = torch.from_numpy(np.array(observations_list)).float().to(self._device)
-        target_policies = torch.from_numpy(np.array(policies_list)).float().to(self._device)
-        target_values = torch.from_numpy(np.array(values_list)).float().to(self._device)
-        action_masks = torch.from_numpy(np.array(masks_list)).float().to(self._device)
+        observations = torch.from_numpy(training_data.observations).float().to(self._device)
+        action_masks = torch.from_numpy(training_data.action_masks).float().to(self._device)
+        policy_targets = torch.from_numpy(training_data.policy_targets).float().to(self._device)
+        value_targets = torch.from_numpy(training_data.value_targets).float().to(self._device)
 
-        return observations, target_policies, target_values, action_masks
+        return observations, action_masks, policy_targets, value_targets
 
-    def _train_on_data(
+    def _compute_mcts_losses(
         self,
-        observations: torch.Tensor,
-        target_policies: torch.Tensor,
-        target_values: torch.Tensor,
+        policy_logits: torch.Tensor,
+        values: torch.Tensor,
+        policy_targets: torch.Tensor,
+        value_targets: torch.Tensor,
         action_masks: torch.Tensor,
-    ) -> dict[str, float]:
-        """Train network on collected data.
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Compute MCTS training losses.
 
         Args:
-            observations: Observation tensors, shape (N, obs_dim).
-            target_policies: Target MCTS policies, shape (N, action_dim).
-            target_values: Target game outcomes, shape (N,).
-            action_masks: Action masks, shape (N, action_dim).
+            policy_logits: Network policy output.
+            values: Network value output (squeezed).
+            policy_targets: Target MCTS policy distribution.
+            value_targets: Target game outcome values.
+            action_masks: Legal action masks.
 
         Returns:
-            Dictionary of training metrics.
+            Tuple of (policy_loss, value_loss, entropy_bonus, total_loss).
         """
-        num_samples = observations.shape[0]
-        if num_samples == 0:
-            return {}
+        p_loss = policy_loss(
+            predicted_logits=policy_logits,
+            target_policy=policy_targets,
+            action_mask=action_masks,
+        )
 
-        # Ensure network is in training mode (dropout, batch norm, etc.)
-        self.network.train()
+        v_loss = value_loss(
+            predicted_values=values,
+            target_values=value_targets,
+        )
 
-        # Update learning rate
-        current_lr = self._get_current_lr()
-        set_learning_rate(self.optimizer, current_lr)
+        ent_bonus = entropy_bonus(
+            logits=policy_logits,
+            action_mask=action_masks,
+        )
 
-        # Training metrics accumulator
+        # Combined loss
+        total_loss = (
+            self.config.policy_loss_weight * p_loss
+            + self.config.value_loss_weight * v_loss
+            - self.config.entropy_bonus_weight * ent_bonus
+        )
+
+        return p_loss, v_loss, ent_bonus, total_loss
+
+    def _apply_mcts_gradient_step(self, total_loss: torch.Tensor) -> None:
+        """Apply gradient update with optional clipping.
+
+        Args:
+            total_loss: Loss tensor to backpropagate.
+        """
+        self.optimizer.zero_grad()
+        total_loss.backward()
+
+        if self.config.max_grad_norm > 0:
+            torch.nn.utils.clip_grad_norm_(
+                self.network.parameters(),
+                self.config.max_grad_norm,
+            )
+
+        self.optimizer.step()
+
+    def _run_mcts_training_loop(
+        self,
+        observations: torch.Tensor,
+        action_masks: torch.Tensor,
+        policy_targets: torch.Tensor,
+        value_targets: torch.Tensor,
+    ) -> tuple[dict[str, float], int]:
+        """Run training epochs over the data.
+
+        Args:
+            observations: Observation tensor.
+            action_masks: Action mask tensor.
+            policy_targets: Policy target tensor.
+            value_targets: Value target tensor.
+
+        Returns:
+            Tuple of (accumulated_metrics, num_updates).
+        """
+        num_samples = len(observations)
         metrics_accum = {
             "policy_loss": 0.0,
             "value_loss": 0.0,
@@ -515,10 +955,9 @@ class MCTSTrainer:
         }
         num_updates = 0
 
-        # Multiple epochs over the data
         for _epoch in range(self.config.epochs_per_iteration):
-            # Shuffle data
-            indices = torch.randperm(num_samples)
+            # Shuffle indices for this epoch
+            indices = torch.randperm(num_samples, device=self._device)
 
             # Iterate through minibatches
             for start_idx in range(0, num_samples, self.config.batch_size):
@@ -527,50 +966,21 @@ class MCTSTrainer:
 
                 # Extract minibatch
                 obs_batch = observations[batch_indices]
-                policy_batch = target_policies[batch_indices]
-                value_batch = target_values[batch_indices]
                 mask_batch = action_masks[batch_indices]
+                policy_batch = policy_targets[batch_indices]
+                value_batch = value_targets[batch_indices]
 
                 # Forward pass
                 policy_logits, values = self.network(obs_batch, mask_batch)
-                values = values.squeeze(-1)  # (batch,)
+                values = values.squeeze(-1)
 
                 # Compute losses
-                p_loss = policy_loss(
-                    predicted_logits=policy_logits,
-                    target_policy=policy_batch,
-                    action_mask=mask_batch,
-                )
-
-                v_loss = value_loss(
-                    predicted_values=values,
-                    target_values=value_batch,
-                )
-
-                ent_bonus = entropy_bonus(
-                    logits=policy_logits,
-                    action_mask=mask_batch,
-                )
-
-                # Combined loss
-                total_loss = (
-                    self.config.policy_loss_weight * p_loss
-                    + self.config.value_loss_weight * v_loss
-                    - self.config.entropy_bonus_weight * ent_bonus
+                p_loss, v_loss, ent_bonus, total_loss = self._compute_mcts_losses(
+                    policy_logits, values, policy_batch, value_batch, mask_batch
                 )
 
                 # Optimization step
-                self.optimizer.zero_grad()
-                total_loss.backward()
-
-                # Gradient clipping for stability
-                if self.config.max_grad_norm > 0:
-                    torch.nn.utils.clip_grad_norm_(
-                        self.network.parameters(),
-                        self.config.max_grad_norm,
-                    )
-
-                self.optimizer.step()
+                self._apply_mcts_gradient_step(total_loss)
 
                 # Accumulate metrics
                 metrics_accum["policy_loss"] += p_loss.item()
@@ -578,6 +988,40 @@ class MCTSTrainer:
                 metrics_accum["entropy"] += ent_bonus.item()
                 metrics_accum["total_loss"] += total_loss.item()
                 num_updates += 1
+
+        return metrics_accum, num_updates
+
+    def _train_on_data(self, training_data: MCTSTrainingData) -> dict[str, float]:
+        """Train network on collected MCTS data.
+
+        Args:
+            training_data: MCTSTrainingData containing samples.
+
+        Returns:
+            Dictionary of training metrics.
+        """
+        num_samples = len(training_data)
+        if num_samples < self.config.min_buffer_size:
+            logger.warning(
+                f"Buffer size ({num_samples}) below minimum "
+                f"({self.config.min_buffer_size}), skipping training"
+            )
+            return {}
+
+        # Ensure network is in training mode
+        self.network.train()
+
+        # Update learning rate
+        current_lr = self._get_current_lr()
+        set_learning_rate(self.optimizer, current_lr)
+
+        # Prepare tensors
+        observations, action_masks, policy_targets, value_targets = self._prepare_training_tensors(training_data)
+
+        # Run training loop
+        metrics_accum, num_updates = self._run_mcts_training_loop(
+            observations, action_masks, policy_targets, value_targets
+        )
 
         # Average metrics
         if num_updates > 0:
@@ -587,7 +1031,7 @@ class MCTSTrainer:
         # Add additional metrics
         metrics_accum["learning_rate"] = current_lr
         metrics_accum["num_updates"] = float(num_updates)
-        metrics_accum["num_samples"] = float(num_samples)
+        metrics_accum["buffer_size"] = float(num_samples)
 
         return metrics_accum
 
@@ -602,43 +1046,25 @@ class MCTSTrainer:
 
         # Generate MCTS self-play games
         gen_start = time.time()
-        trajectories = self._generate_mcts_games()
+        new_data = self._generate_mcts_games()
         gen_time = time.time() - gen_start
 
-        # Convert to training data
-        observations, target_policies, target_values, action_masks = (
-            self._trajectories_to_training_data(trajectories)
-        )
-        num_steps = observations.shape[0]
-        self._total_steps_collected += num_steps
+        # Add to buffer
+        self._add_to_buffer(new_data)
 
-        # Train network
+        # Train network on buffer
         train_start = time.time()
-        train_metrics = self._train_on_data(
-            observations, target_policies, target_values, action_masks
-        )
+        train_metrics = self._train_on_data(self._training_buffer)
         train_time = time.time() - train_start
 
         # Combine metrics
         metrics.update(train_metrics)
         metrics["self_play/games_generated"] = float(self.config.games_per_iteration)
-        metrics["self_play/steps_collected"] = float(num_steps)
+        metrics["self_play/samples_collected"] = float(len(new_data))
         metrics["self_play/generation_time"] = gen_time
         metrics["train/training_time"] = train_time
         metrics["total_games_played"] = float(self._total_games_played)
         metrics["total_steps_collected"] = float(self._total_steps_collected)
-
-        # Game statistics
-        total_moves = sum(t.game_length for t in trajectories)
-        avg_game_length = total_moves / len(trajectories) if trajectories else 0
-        p0_wins = sum(1 for t in trajectories if t.winner == 0)
-        p1_wins = sum(1 for t in trajectories if t.winner == 1)
-        draws = sum(1 for t in trajectories if t.winner is None)
-
-        metrics["self_play/avg_game_length"] = avg_game_length
-        metrics["self_play/p0_win_rate"] = p0_wins / len(trajectories) if trajectories else 0
-        metrics["self_play/p1_win_rate"] = p1_wins / len(trajectories) if trajectories else 0
-        metrics["self_play/draw_rate"] = draws / len(trajectories) if trajectories else 0
 
         iteration_time = time.time() - iteration_start
         metrics["iteration_time"] = iteration_time
@@ -683,6 +1109,10 @@ class MCTSTrainer:
                 if (self._iteration + 1) % self.config.checkpoint_frequency == 0:
                     self._save_checkpoint()
 
+                # Add checkpoint to opponent pool for diversity training
+                if (self._iteration + 1) % self.config.checkpoint_to_pool_frequency == 0:
+                    self._add_to_opponent_pool()
+
                 # Evaluation
                 if (self._iteration + 1) % self.config.eval_frequency == 0:
                     self._run_evaluation()
@@ -721,52 +1151,58 @@ class MCTSTrainer:
         logger.info(f"Saved checkpoint: {checkpoint_path}")
         return checkpoint_path
 
+    def _add_to_opponent_pool(self) -> None:
+        """Add current network state to opponent pool.
+
+        This enables training against past versions of the network,
+        preventing self-play collapse and catastrophic forgetting.
+        """
+        # Deep copy network state for opponent pool
+        state_dict = {k: v.cpu().clone() for k, v in self.network.state_dict().items()}
+        self._opponent_pool.add_checkpoint(
+            state_dict=state_dict,
+            iteration=self._iteration,
+        )
+        logger.info(
+            f"Added iteration {self._iteration} to opponent pool "
+            f"(size: {len(self._opponent_pool.checkpoints)}/"
+            f"{self.config.opponent_config.max_checkpoints})"
+        )
+
     def _run_evaluation(self) -> dict[str, float]:
         """Run evaluation against baseline opponents.
+
+        Delegates to the shared evaluation module for consistency.
 
         Returns:
             Dictionary of evaluation metrics.
         """
-        from _02_agents.neural.agent import NeuralAgent
-        from _03_training.evaluation import (
-            EvaluationConfig,
-            evaluate_agent,
-            log_evaluation_results,
-        )
+        from _03_training.evaluation import run_evaluation
 
         logger.info(f"Running evaluation at iteration {self._iteration}")
 
-        # Create agent from current network
-        agent = NeuralAgent(
-            model=self.network,
-            device=self._device,
-            mode="greedy",  # Use greedy for evaluation
-        )
+        # Set network to eval mode for evaluation
+        self.network.eval()
 
-        # Configure evaluation
-        eval_config = EvaluationConfig(
+        metrics = run_evaluation(
+            network=self.network,
+            device=self._device,
+            tracker=self.tracker,
+            step=self._iteration,
             games_per_opponent=50,
             opponents=["random", "heuristic"],
             play_both_sides=True,
+            mode="greedy",
         )
 
-        # Run evaluation
-        results = evaluate_agent(agent, eval_config, device=self._device)
-
-        # Log results
-        log_evaluation_results(self.tracker, results, step=self._iteration)
-
-        # Extract metrics
-        metrics: dict[str, float] = {}
-        for result in results:
-            prefix = f"eval/{result.opponent_name}"
-            metrics[f"{prefix}/win_rate"] = result.win_rate
-            metrics[f"{prefix}/avg_margin"] = result.avg_point_margin
-            metrics[f"{prefix}/games"] = float(result.games_played)
-
+        # Log summary to console
         logger.info(
             "Evaluation results: "
-            + ", ".join(f"{r.opponent_name}={r.win_rate:.1%}" for r in results)
+            + ", ".join(
+                f"{k.split('/')[-2]}={v:.1%}"
+                for k, v in metrics.items()
+                if k.endswith("/win_rate")
+            )
         )
 
         return metrics

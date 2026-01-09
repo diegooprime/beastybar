@@ -378,6 +378,164 @@ def batch_states_to_tensor(
     return np.stack(tensors, axis=0)
 
 
+def _decode_card_owner(owner_val: float, perspective: int) -> int:
+    """Decode owner value from tensor to player index.
+
+    Args:
+        owner_val: Owner encoding from tensor (0=opponent, 1=self, 0.5=empty).
+        perspective: Player perspective for decoding.
+
+    Returns:
+        Owner player index or -1 for empty/unknown.
+    """
+    if owner_val > 0.7:
+        return perspective
+    if owner_val < 0.3:
+        return 1 - perspective
+    return -1
+
+
+def _decode_species_from_onehot(species_onehot: NDArray[np.float32]) -> int:
+    """Decode species index from one-hot encoding.
+
+    Args:
+        species_onehot: One-hot encoded species array.
+
+    Returns:
+        Species index or -1 if not confidently identified.
+    """
+    if species_onehot.max() > 0.5:
+        return int(np.argmax(species_onehot))
+    return -1
+
+
+def _decode_queue_card(
+    card_tensor: NDArray[np.float32], perspective: int
+) -> dict[str, object] | None:
+    """Decode a single queue card from tensor.
+
+    Args:
+        card_tensor: Card feature tensor of shape (_CARD_FEATURE_DIM,).
+        perspective: Player perspective for owner decoding.
+
+    Returns:
+        Card dict with full attributes or None if card not present.
+    """
+    present = card_tensor[0]
+    if present <= 0.5:
+        return None
+
+    owner = _decode_card_owner(card_tensor[1], perspective)
+    species_onehot = card_tensor[2 : 2 + _NUM_SPECIES]
+    species_idx = _decode_species_from_onehot(species_onehot)
+    strength = card_tensor[2 + _NUM_SPECIES] * _MAX_STRENGTH
+    points = card_tensor[3 + _NUM_SPECIES] * _MAX_POINTS
+    position = card_tensor[4 + _NUM_SPECIES]
+
+    return {
+        "present": True,
+        "owner": owner,
+        "species_idx": species_idx,
+        "strength": strength,
+        "points": points,
+        "position": position,
+    }
+
+
+def _decode_zone_card(
+    card_tensor: NDArray[np.float32], perspective: int
+) -> dict[str, object] | None:
+    """Decode a card from beasty_bar or thats_it zone.
+
+    Args:
+        card_tensor: Card feature tensor of shape (_CARD_FEATURE_DIM,).
+        perspective: Player perspective for owner decoding.
+
+    Returns:
+        Card dict with owner and species or None if not present.
+    """
+    present = card_tensor[0]
+    if present <= 0.5:
+        return None
+
+    owner = _decode_card_owner(card_tensor[1], perspective)
+    species_onehot = card_tensor[2 : 2 + _NUM_SPECIES]
+    species_idx = _decode_species_from_onehot(species_onehot)
+
+    return {"present": True, "owner": owner, "species_idx": species_idx}
+
+
+def _decode_hand_card(card_tensor: NDArray[np.float32]) -> dict[str, object] | None:
+    """Decode a card from own hand.
+
+    Args:
+        card_tensor: Card feature tensor of shape (_CARD_FEATURE_DIM,).
+
+    Returns:
+        Card dict with species or None if not present.
+    """
+    present = card_tensor[0]
+    if present <= 0.5:
+        return None
+
+    species_onehot = card_tensor[2 : 2 + _NUM_SPECIES]
+    species_idx = _decode_species_from_onehot(species_onehot)
+
+    return {"present": True, "species_idx": species_idx}
+
+
+def _decode_zone(
+    tensor: NDArray[np.float32],
+    offset: int,
+    num_slots: int,
+    perspective: int,
+    decode_fn: callable,
+) -> tuple[list[dict[str, object]], int]:
+    """Decode a zone from tensor.
+
+    Args:
+        tensor: Full observation tensor.
+        offset: Starting offset in tensor.
+        num_slots: Number of card slots in zone.
+        perspective: Player perspective.
+        decode_fn: Function to decode individual cards.
+
+    Returns:
+        Tuple of (list of present cards, new offset).
+    """
+    cards = []
+    for _ in range(num_slots):
+        card_tensor = tensor[offset : offset + _CARD_FEATURE_DIM]
+        offset += _CARD_FEATURE_DIM
+
+        card = decode_fn(card_tensor, perspective) if decode_fn.__code__.co_argcount > 1 else decode_fn(card_tensor)
+        if card is not None:
+            cards.append(card)
+    return cards, offset
+
+
+def _decode_scalars(tensor: NDArray[np.float32], offset: int) -> dict[str, object]:
+    """Decode scalar features from tensor.
+
+    Args:
+        tensor: Full observation tensor.
+        offset: Starting offset for scalars.
+
+    Returns:
+        Dictionary with decoded scalar values.
+    """
+    scalars = tensor[offset : offset + _SCALARS_DIM]
+    return {
+        "own_deck_count": scalars[0] * rules.DECK_SIZE,
+        "opponent_deck_count": scalars[1] * rules.DECK_SIZE,
+        "own_hand_count": scalars[2] * rules.HAND_SIZE,
+        "opponent_hand_count_scalar": scalars[3] * rules.HAND_SIZE,
+        "is_active_player": scalars[4] > 0.5,
+        "turn_normalized": scalars[5],
+        "queue_length_normalized": scalars[6],
+    }
+
+
 def tensor_to_observation(tensor: NDArray[np.float32], perspective: int) -> dict[str, object]:
     """Decode a tensor back into human-readable observation dict (for debugging).
 
@@ -395,96 +553,45 @@ def tensor_to_observation(tensor: NDArray[np.float32], perspective: int) -> dict
     offset = 0
 
     # Decode queue (5 x 17)
-    queue_cards = []
-    for _i in range(rules.MAX_QUEUE_LENGTH):
-        card_tensor = tensor[offset : offset + _CARD_FEATURE_DIM]
-        offset += _CARD_FEATURE_DIM
-
-        present = card_tensor[0]
-        if present > 0.5:
-            owner_val = card_tensor[1]
-            owner = perspective if owner_val > 0.7 else (1 - perspective if owner_val < 0.3 else -1)
-            species_onehot = card_tensor[2 : 2 + _NUM_SPECIES]
-            species_idx = int(np.argmax(species_onehot)) if species_onehot.max() > 0.5 else -1
-            strength = card_tensor[2 + _NUM_SPECIES] * _MAX_STRENGTH
-            points = card_tensor[3 + _NUM_SPECIES] * _MAX_POINTS
-            position = card_tensor[4 + _NUM_SPECIES]
-
-            queue_cards.append(
-                {
-                    "present": True,
-                    "owner": owner,
-                    "species_idx": species_idx,
-                    "strength": strength,
-                    "points": points,
-                    "position": position,
-                }
-            )
+    queue_cards, offset = _decode_zone(
+        tensor, offset, rules.MAX_QUEUE_LENGTH, perspective, _decode_queue_card
+    )
     result["queue"] = queue_cards
 
     # Decode Beasty Bar (24 x 17)
-    beasty_bar_cards = []
-    for _i in range(_TOTAL_CARD_SLOTS_IN_ZONES):
-        card_tensor = tensor[offset : offset + _CARD_FEATURE_DIM]
-        offset += _CARD_FEATURE_DIM
-
-        present = card_tensor[0]
-        if present > 0.5:
-            owner_val = card_tensor[1]
-            owner = perspective if owner_val > 0.7 else (1 - perspective if owner_val < 0.3 else -1)
-            species_onehot = card_tensor[2 : 2 + _NUM_SPECIES]
-            species_idx = int(np.argmax(species_onehot)) if species_onehot.max() > 0.5 else -1
-            beasty_bar_cards.append({"present": True, "owner": owner, "species_idx": species_idx})
+    beasty_bar_cards, offset = _decode_zone(
+        tensor, offset, _TOTAL_CARD_SLOTS_IN_ZONES, perspective, _decode_zone_card
+    )
     result["beasty_bar"] = beasty_bar_cards
 
     # Decode THAT'S IT (24 x 17)
-    thats_it_cards = []
-    for _i in range(_TOTAL_CARD_SLOTS_IN_ZONES):
-        card_tensor = tensor[offset : offset + _CARD_FEATURE_DIM]
-        offset += _CARD_FEATURE_DIM
-
-        present = card_tensor[0]
-        if present > 0.5:
-            owner_val = card_tensor[1]
-            owner = perspective if owner_val > 0.7 else (1 - perspective if owner_val < 0.3 else -1)
-            species_onehot = card_tensor[2 : 2 + _NUM_SPECIES]
-            species_idx = int(np.argmax(species_onehot)) if species_onehot.max() > 0.5 else -1
-            thats_it_cards.append({"present": True, "owner": owner, "species_idx": species_idx})
+    thats_it_cards, offset = _decode_zone(
+        tensor, offset, _TOTAL_CARD_SLOTS_IN_ZONES, perspective, _decode_zone_card
+    )
     result["thats_it"] = thats_it_cards
 
     # Decode own hand (4 x 17)
     own_hand_cards = []
-    for _i in range(rules.HAND_SIZE):
+    for _ in range(rules.HAND_SIZE):
         card_tensor = tensor[offset : offset + _CARD_FEATURE_DIM]
         offset += _CARD_FEATURE_DIM
-
-        present = card_tensor[0]
-        if present > 0.5:
-            species_onehot = card_tensor[2 : 2 + _NUM_SPECIES]
-            species_idx = int(np.argmax(species_onehot)) if species_onehot.max() > 0.5 else -1
-            own_hand_cards.append({"present": True, "species_idx": species_idx})
+        card = _decode_hand_card(card_tensor)
+        if card is not None:
+            own_hand_cards.append(card)
     result["own_hand"] = own_hand_cards
 
     # Decode opponent hand (4 x 3)
     opponent_hand_count = 0
-    for _i in range(rules.HAND_SIZE):
+    for _ in range(rules.HAND_SIZE):
         masked_tensor = tensor[offset : offset + _MASKED_CARD_FEATURE_DIM]
         offset += _MASKED_CARD_FEATURE_DIM
-
-        present = masked_tensor[0]
-        if present > 0.5:
+        if masked_tensor[0] > 0.5:
             opponent_hand_count += 1
     result["opponent_hand_count"] = opponent_hand_count
 
     # Decode scalars (7)
-    scalars = tensor[offset : offset + _SCALARS_DIM]
-    result["own_deck_count"] = scalars[0] * rules.DECK_SIZE
-    result["opponent_deck_count"] = scalars[1] * rules.DECK_SIZE
-    result["own_hand_count"] = scalars[2] * rules.HAND_SIZE
-    result["opponent_hand_count_scalar"] = scalars[3] * rules.HAND_SIZE
-    result["is_active_player"] = scalars[4] > 0.5
-    result["turn_normalized"] = scalars[5]
-    result["queue_length_normalized"] = scalars[6]
+    scalar_data = _decode_scalars(tensor, offset)
+    result.update(scalar_data)
 
     return result
 

@@ -21,10 +21,21 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
 from _01_simulator import actions, engine, simulate, state
-from _02_agents import HeuristicAgent, MCTSAgent, RandomAgent
-from _04_ui.claude_agent import get_claude_move
+from _02_agents import HeuristicAgent, RandomAgent
+
+# Import neural MCTS agent (requires network initialization)
+try:
+    from _02_agents.mcts import MCTSAgent
+except ImportError:
+    MCTSAgent = None  # type: ignore[misc,assignment]
 
 logger = logging.getLogger(__name__)
+
+# Lazy import to avoid circular dependency
+def _get_claude_move_func():
+    """Lazy import of claude agent to avoid circular imports."""
+    from _04_ui.claude_agent import get_claude_move
+    return get_claude_move
 
 # Rate limiting configuration
 RATE_LIMIT_REQUESTS = 60  # requests per window
@@ -57,8 +68,68 @@ class RateLimiter:
 AI_AGENTS = {
     "random": RandomAgent(seed=None),
     "heuristic": HeuristicAgent(seed=None),
-    "mcts": MCTSAgent(iterations=500, determinizations=8, seed=None),
 }
+
+# Add Neural agent if checkpoint exists
+def _load_neural_agent():
+    """Try to load neural agent from checkpoint."""
+    try:
+        import torch
+        import os
+        from _02_agents.neural import NeuralAgent
+        from _02_agents.neural.network import BeastyBarNetwork
+        from _02_agents.neural.utils import NetworkConfig
+
+        def load_from_checkpoint(ckpt_path):
+            """Load network from PPO or MCTS checkpoint."""
+            checkpoint = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+            # Extract network config (nested in training config)
+            config_dict = checkpoint.get("config", {})
+            if "network_config" in config_dict:
+                net_config = NetworkConfig.from_dict(config_dict["network_config"])
+            else:
+                net_config = NetworkConfig.from_dict(config_dict)
+
+            # Create and load network
+            network = BeastyBarNetwork(net_config)
+            network.load_state_dict(checkpoint["model_state_dict"])
+            network.eval()
+            return network, checkpoint.get("iteration", 0)
+
+        # Check for checkpoint path in environment or use default
+        checkpoint_path = os.environ.get("NEURAL_CHECKPOINT", None)
+        if checkpoint_path and Path(checkpoint_path).exists():
+            network, step = load_from_checkpoint(checkpoint_path)
+            logger.info(f"Loaded neural agent from {checkpoint_path} (iter {step})")
+            return NeuralAgent(network, mode="greedy")
+
+        # Try to find latest checkpoint
+        checkpoint_dirs = [
+            Path("checkpoints/ppo_h200_v1"),
+            Path("checkpoints/beastybar_neural"),
+        ]
+        for ckpt_dir in checkpoint_dirs:
+            if ckpt_dir.exists():
+                checkpoints = sorted(ckpt_dir.glob("iter_*.pt"))
+                if checkpoints:
+                    network, step = load_from_checkpoint(checkpoints[-1])
+                    logger.info(f"Loaded neural agent from {checkpoints[-1]} (iter {step})")
+                    return NeuralAgent(network, mode="greedy")
+        return None
+    except Exception as e:
+        logger.warning(f"Failed to load neural agent: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+_neural_agent = _load_neural_agent()
+if _neural_agent is not None:
+    AI_AGENTS["neural"] = _neural_agent
+
+# Add MCTS agent if available
+# NOTE: MCTSAgent signature changed - temporarily disabled
+# if MCTSAgent is not None:
+#     AI_AGENTS["mcts"] = MCTSAgent(iterations=500, determinizations=8, seed=None)
 
 # Claude Code is a special "opponent" - moves are entered manually by the user
 CLAUDE_CODE_OPPONENT = "claude"
@@ -237,6 +308,7 @@ def create_app() -> FastAPI:
         if ai_name == "claude":
             # Use Anthropic API
             try:
+                get_claude_move = _get_claude_move_func()
                 action = get_claude_move(game_state, player, legal)
             except Exception as e:
                 logger.exception("Claude API error")
@@ -260,12 +332,17 @@ def create_app() -> FastAPI:
     @app.get("/api/ai-agents")
     def api_ai_agents() -> list[dict]:
         """List available AI agents."""
-        return [
+        agents = [
             {"id": "random", "name": "Random", "description": "Plays random legal moves"},
-            {"id": "heuristic", "name": "Heuristic", "description": "Strong strategic AI (recommended)"},
+            {"id": "heuristic", "name": "Heuristic", "description": "Strong strategic AI"},
+        ]
+        if "neural" in AI_AGENTS:
+            agents.append({"id": "neural", "name": "Neural (PPO)", "description": "Trained neural network - 86% vs random!"})
+        agents.extend([
             {"id": "mcts", "name": "MCTS", "description": "Monte Carlo Tree Search AI"},
             {"id": "claude", "name": "Claude Opus 4.5", "description": "Play against Claude via Anthropic API"},
-        ]
+        ])
+        return agents
 
     @app.get("/api/claude-state")
     def api_claude_state() -> dict:
@@ -389,8 +466,15 @@ Reply with JUST the action number (e.g., "1" or "3").""",
         try:
             move_data = json.loads(CLAUDE_MOVE_FILE.read_text())
             return {"hasMove": True, "actionIndex": move_data.get("actionIndex")}
-        except Exception:
-            return {"hasMove": False, "error": "Invalid move file"}
+        except json.JSONDecodeError as e:
+            logger.warning(f"Invalid JSON in move file: {e}")
+            return {"hasMove": False, "error": "Invalid JSON in move file"}
+        except FileNotFoundError:
+            # File was deleted between exists() check and read
+            return {"hasMove": False}
+        except OSError as e:
+            logger.warning(f"Error reading move file: {e}")
+            return {"hasMove": False, "error": "Error reading move file"}
 
     @app.post("/api/claude-bridge/apply-move")
     def api_claude_apply_move() -> dict:
