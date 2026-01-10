@@ -1,0 +1,68 @@
+# RunPod H200 Configuration - Recommended for cloud training
+# Optimized for H200 SXM with async game generation
+#
+# Key features:
+# - 4096 games/iteration (sweet spot for speed vs data)
+# - 2048 minibatch size (GPU efficient)
+# - Async game generation (hides generation latency)
+# - No opponent pool (uses fast Cython path)
+# - Cosine LR decay with warmup
+
+network_config:
+  hidden_dim: 256
+  num_heads: 8
+  num_layers: 4
+  dropout: 0.1
+  species_embedding_dim: 64
+
+ppo_config:
+  learning_rate: 0.0001
+  clip_epsilon: 0.2
+  value_coef: 0.5
+  entropy_coef: 0.04
+  gamma: 0.99
+  gae_lambda: 0.95
+  ppo_epochs: 4
+  minibatch_size: 2048
+  max_grad_norm: 0.5
+  normalize_advantages: true
+  clip_value: true
+  target_kl: 0.02
+
+# Training schedule
+total_iterations: 500
+games_per_iteration: 4096
+checkpoint_frequency: 25
+eval_frequency: 10
+
+# Async game generation (NEW - hides generation latency)
+async_game_generation: true
+async_prefetch_batches: 2
+
+# Self-play settings
+self_play_temperature: 1.0
+shaped_rewards: false
+
+# IMPORTANT: Disable opponent pool for fast Cython path
+# Opponent pool uses pure Python which is 5x slower
+use_opponent_pool: false
+
+# Learning rate schedule
+lr_warmup_iterations: 20
+lr_decay: "cosine"
+
+# Buffer settings
+buffer_size: 400000
+min_buffer_size: 20000
+gradient_accumulation_steps: 1
+
+# Misc
+seed: 42
+device: "cuda"
+experiment_name: "runpod_h200"
+checkpoint_dir: "checkpoints"
+log_frequency: 1
+
+# Model selection
+save_best_model: true
+best_model_metric: "heuristic"

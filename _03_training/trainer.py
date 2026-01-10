@@ -29,6 +29,8 @@ from __future__ import annotations
 import json
 import logging
 import math
+import queue
+import threading
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -121,10 +123,12 @@ class TrainingConfig:
     ppo_config: PPOConfig = field(default_factory=PPOConfig)
 
     # Self-play settings
-    games_per_iteration: int = 256
+    games_per_iteration: int = 4096  # Games to generate per iteration
     self_play_temperature: float = 1.0
     num_workers: int = 1  # Number of parallel workers for game generation
     shaped_rewards: bool = False  # Use score-margin shaped rewards for better credit assignment
+    async_game_generation: bool = True  # Generate next batch while training (hides latency)
+    async_prefetch_batches: int = 2  # Number of batches to keep pre-generated in queue
 
     # Opponent diversity settings (prevents self-play collapse)
     use_opponent_pool: bool = True  # Enable opponent diversity training
@@ -499,6 +503,16 @@ class Trainer:
             num_workers=config.num_workers,
         )
 
+        # Async game generation queue (generates next batches while training)
+        self._game_queue: queue.Queue | None = None
+        self._game_worker_thread: threading.Thread | None = None
+        self._game_worker_stop = threading.Event()
+        if config.async_game_generation:
+            self._game_queue = queue.Queue(maxsize=config.async_prefetch_batches)
+            logger.info(
+                f"Async game generation enabled: {config.async_prefetch_batches} batches prefetch"
+            )
+
         # Create CheckpointManager for checkpoint management
         self.checkpoint_manager = CheckpointManager(
             checkpoint_dir=self._checkpoint_dir,
@@ -546,6 +560,75 @@ class Trainer:
         )
         self._total_games_played += self.config.games_per_iteration
         return transitions, trajectory_list, opponent_name, win_rate
+
+    def _game_generation_worker(self) -> None:
+        """Background worker that continuously generates game batches.
+
+        Runs in a separate thread and fills the game queue with pre-generated
+        batches. Training pulls from this queue, hiding game generation latency.
+        """
+        logger.info("Game generation worker started")
+        while not self._game_worker_stop.is_set():
+            try:
+                # Generate a batch of games
+                batch = self._generate_self_play_games()
+                # Put in queue (blocks if queue is full, which is fine)
+                # Use timeout to periodically check stop flag
+                try:
+                    self._game_queue.put(batch, timeout=1.0)
+                except queue.Full:
+                    continue  # Check stop flag and retry
+            except Exception as e:
+                logger.error(f"Game generation worker error: {e}")
+                if self._game_worker_stop.is_set():
+                    break
+                time.sleep(0.1)  # Brief pause on error
+        logger.info("Game generation worker stopped")
+
+    def _start_game_worker(self) -> None:
+        """Start the background game generation worker thread."""
+        if self._game_queue is not None and self._game_worker_thread is None:
+            self._game_worker_stop.clear()
+            self._game_worker_thread = threading.Thread(
+                target=self._game_generation_worker,
+                daemon=True,
+                name="GameGenWorker",
+            )
+            self._game_worker_thread.start()
+
+    def _stop_game_worker(self) -> None:
+        """Stop the background game generation worker thread."""
+        if self._game_worker_thread is not None:
+            self._game_worker_stop.set()
+            self._game_worker_thread.join(timeout=5.0)
+            self._game_worker_thread = None
+            # Drain the queue
+            if self._game_queue is not None:
+                while not self._game_queue.empty():
+                    try:
+                        self._game_queue.get_nowait()
+                    except queue.Empty:
+                        break
+
+    def _get_games_from_queue_or_generate(
+        self,
+    ) -> tuple[list[Transition], list[list[Transition]], str, float]:
+        """Get games from async queue if available, otherwise generate synchronously.
+
+        Returns:
+            Tuple of (transitions, trajectory_list, opponent_name, win_rate).
+        """
+        if self._game_queue is not None:
+            try:
+                # Try to get from queue with small timeout
+                return self._game_queue.get(timeout=0.1)
+            except queue.Empty:
+                # Queue empty - generate synchronously (shouldn't happen after warmup)
+                logger.debug("Game queue empty, generating synchronously")
+                return self._generate_self_play_games()
+        else:
+            # Async disabled - always generate synchronously
+            return self._generate_self_play_games()
 
     def _train_on_buffer(
         self, trajectory_list: list[list[Transition]] | None = None
@@ -789,9 +872,9 @@ class Trainer:
         iteration_start = time.time()
         metrics: dict[str, float] = {"iteration": float(self._iteration)}
 
-        # Generate self-play games (with opponent diversity)
+        # Get games from async queue or generate synchronously
         gen_start = time.time()
-        transitions, trajectory_list, opponent_name, win_rate = self._generate_self_play_games()
+        transitions, trajectory_list, opponent_name, win_rate = self._get_games_from_queue_or_generate()
         gen_time = time.time() - gen_start
 
         # Add to replay buffer
@@ -844,12 +927,29 @@ class Trainer:
 
         Executes training iterations until total_iterations is reached.
         Handles checkpointing, logging, and evaluation.
+
+        If async_game_generation is enabled, starts a background worker that
+        continuously pre-generates game batches, hiding generation latency.
         """
         logger.info(f"Starting training for {self.config.total_iterations} iterations")
         self._training_start_time = time.time()
 
         # Log hyperparameters
         self.tracker.log_hyperparameters(self.config.to_dict())
+
+        # Start async game generation worker if enabled
+        if self.config.async_game_generation and self._game_queue is not None:
+            # Pre-fill the queue before starting training loop
+            logger.info("Pre-filling game queue...")
+            prefill_start = time.time()
+            for i in range(self.config.async_prefetch_batches):
+                batch = self._generate_self_play_games()
+                self._game_queue.put(batch)
+                logger.info(f"Pre-filled batch {i + 1}/{self.config.async_prefetch_batches}")
+            prefill_time = time.time() - prefill_start
+            logger.info(f"Game queue pre-filled in {prefill_time:.1f}s")
+            # Now start the worker to keep queue filled
+            self._start_game_worker()
 
         try:
             while self._iteration < self.config.total_iterations:
@@ -885,6 +985,9 @@ class Trainer:
         except KeyboardInterrupt:
             logger.info("Training interrupted by user")
         finally:
+            # Stop async game generation worker
+            self._stop_game_worker()
+
             # Final checkpoint
             self._save_checkpoint(is_final=True)
             self.tracker.finish()

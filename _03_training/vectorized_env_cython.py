@@ -422,11 +422,327 @@ def generate_games_vectorized_cython(
     return trajectories, stats
 
 
+def _is_neural_network(obj: object) -> bool:
+    """Check if an object is a neural network (nn.Module or has forward method).
+
+    This is used to distinguish between Agent opponents (which need Python State objects)
+    and neural network opponents (which can use Cython acceleration).
+
+    Args:
+        obj: Object to check.
+
+    Returns:
+        True if the object appears to be a neural network.
+    """
+    # Check if it's a torch.nn.Module
+    if isinstance(obj, torch.nn.Module):
+        return True
+    # Duck typing: has forward method but not select_action (which agents have)
+    if hasattr(obj, "forward") and callable(getattr(obj, "forward", None)):
+        if not hasattr(obj, "select_action"):
+            return True
+    return False
+
+
+def generate_games_vectorized_cython_with_opponent(
+    network: nn.Module,
+    opponent: "Agent | nn.Module | None" = None,
+    opponent_network: nn.Module | None = None,
+    num_games: int = 256,
+    temperature: float = 1.0,
+    device: torch.device | None = None,
+    seeds: list[int] | None = None,
+    shaped_rewards: bool = False,
+    num_threads: int | None = None,
+) -> tuple[list[EnvTrajectory], dict[str, float]]:
+    """Generate games with opponent diversity using Cython-accelerated environment.
+
+    Player 0 (training player) always uses the main network with batched inference.
+    Player 1 (opponent) can be:
+    - None: Same as player 0 (standard self-play)
+    - Agent: Random/Heuristic agent - falls back to pure Python (Cython lacks State conversion)
+    - nn.Module: Another neural network (batched inference for both, Cython accelerated)
+    - opponent_network: Another neural network (batched inference for both, Cython accelerated)
+
+    The function automatically detects whether the opponent is a neural network or an agent:
+    - Neural networks (nn.Module or objects with forward() but not select_action()) use Cython
+    - Agents (objects with select_action() method) fall back to Python
+
+    Note: When opponent is an Agent, this falls back to pure Python because the Cython
+    extension doesn't expose a c_state_to_python conversion function needed for agents.
+
+    Args:
+        network: Neural network for player 0 (training player).
+        opponent: Optional opponent for player 1. Can be either:
+            - An Agent (RandomAgent, HeuristicAgent) - falls back to Python
+            - A neural network (nn.Module) - uses Cython acceleration
+        opponent_network: Optional neural network for player 1 (checkpoint).
+            Ignored if opponent is provided.
+        num_games: Number of games to generate.
+        temperature: Temperature for action sampling.
+        device: Device for network inference.
+        seeds: Optional list of seeds for each game.
+        shaped_rewards: If True, use score-margin shaped rewards.
+        num_threads: Number of threads for Cython parallel operations.
+
+    Returns:
+        Tuple of:
+            - trajectories: List of EnvTrajectory objects.
+            - stats: Dictionary of generation statistics.
+    """
+    # If no opponent, use standard self-play
+    if opponent is None and opponent_network is None:
+        return generate_games_vectorized_cython(
+            network=network,
+            num_games=num_games,
+            temperature=temperature,
+            device=device,
+            seeds=seeds,
+            shaped_rewards=shaped_rewards,
+            num_threads=num_threads,
+        )
+
+    # Check if opponent is a neural network (can use Cython path)
+    # This handles the case where a network is passed as `opponent` instead of `opponent_network`
+    if opponent is not None and _is_neural_network(opponent):
+        # Treat the network passed as `opponent` as `opponent_network`
+        opponent_network = opponent  # type: ignore[assignment]
+        opponent = None
+
+    # For agent opponents (have select_action method), fall back to pure Python
+    # (Cython doesn't expose c_state_to_python for agent.select_action calls)
+    has_agent_opponent = opponent is not None and hasattr(opponent, "select_action")
+    if has_agent_opponent:
+        from _03_training.vectorized_env import generate_games_vectorized_with_opponent
+
+        return generate_games_vectorized_with_opponent(
+            network=network,
+            opponent=opponent,
+            opponent_network=None,
+            num_games=num_games,
+            temperature=temperature,
+            device=device,
+            seeds=seeds,
+            shaped_rewards=shaped_rewards,
+        )
+
+    # Network opponent case - can use Cython acceleration
+    if device is None:
+        try:
+            device = next(network.parameters()).device
+        except StopIteration:
+            device = torch.device("cpu")
+
+    env = VectorizedGameEnvCython(
+        num_envs=num_games,
+        device=device,
+        num_threads=num_threads,
+    )
+
+    if seeds is None:
+        base_seed = np.random.randint(0, 2**31)
+        seeds = [base_seed + i for i in range(num_games)]
+    env.reset(seeds)
+
+    # Stats tracking
+    total_steps = 0
+    p0_inference_calls = 0
+    p1_inference_calls = 0
+
+    network.eval()
+    if opponent_network is not None:
+        opponent_network.eval()
+
+    with torch.no_grad():
+        while not env.all_done():
+            # Get observations and masks for all active games
+            obs, masks, active_indices = env.get_observations_and_masks()
+
+            if obs.size(0) == 0:
+                break
+
+            # Get active players for current batch
+            players = env._active_players
+
+            # Separate games by active player
+            p0_batch_indices = []
+            p1_batch_indices = []
+            p0_env_indices = []
+            p1_env_indices = []
+
+            for batch_idx, env_idx in enumerate(active_indices):
+                if players[batch_idx] == 0:
+                    p0_batch_indices.append(batch_idx)
+                    p0_env_indices.append(env_idx)
+                else:
+                    p1_batch_indices.append(batch_idx)
+                    p1_env_indices.append(env_idx)
+
+            # Process player 0 moves (always batched network inference)
+            if p0_batch_indices:
+                p0_obs = obs[p0_batch_indices]
+                p0_masks = masks[p0_batch_indices]
+
+                policy_logits, values = network(p0_obs, p0_masks)
+                values = values.squeeze(-1)
+                p0_inference_calls += 1
+
+                actions, action_probs = sample_actions_batch(policy_logits, p0_masks, temperature)
+
+                # Apply actions via Cython
+                actions_np = actions.cpu().numpy().astype(np.int64)
+                probs_np = action_probs.cpu().numpy()
+                values_np = values.cpu().numpy()
+                p0_env_indices_np = np.array(p0_env_indices, dtype=np.int64)
+
+                # Store trajectory data and step
+                for i, env_idx in enumerate(p0_env_indices):
+                    player = 0
+                    action_idx = int(actions_np[i])
+                    action_prob = float(probs_np[i])
+                    value = float(values_np[i])
+
+                    if env._use_cython:
+                        from _01_simulator._cython import encode_single_observation, get_single_legal_mask
+                        obs_arr = encode_single_observation(env._c_states, env_idx, player)
+                        mask_arr = get_single_legal_mask(env._c_states, env_idx, player)
+                    else:
+                        game = env._py_games[env_idx]
+                        obs_arr = state_to_tensor(game, player)
+                        mask_arr = legal_action_mask_tensor(game, player)
+
+                    pending = PendingStep(
+                        observation=obs_arr,
+                        action_mask=mask_arr,
+                        action=action_idx,
+                        action_prob=action_prob,
+                        value=value,
+                        player=player,
+                    )
+                    env.trajectories[env_idx].add_step(pending)
+
+                # Step using Cython
+                if env._use_cython:
+                    step_batch_parallel(
+                        env._c_states,
+                        p0_env_indices_np,
+                        actions_np,
+                        env.num_threads,
+                    )
+                    for env_idx in p0_env_indices:
+                        if env._c_states.is_terminal(env_idx):
+                            env.active[env_idx] = False
+                            scores = env._c_states.get_scores(env_idx)
+                            env.trajectories[env_idx].final_scores = scores
+                else:
+                    for i, env_idx in enumerate(p0_env_indices):
+                        game = env._py_games[env_idx]
+                        action = index_to_action(int(actions_np[i]))
+                        new_state = simulate.apply(game, action)
+                        env._py_games[env_idx] = new_state
+                        if simulate.is_terminal(new_state):
+                            env.active[env_idx] = False
+                            scores = simulate.score(new_state)
+                            env.trajectories[env_idx].final_scores = (scores[0], scores[1])
+
+                total_steps += len(p0_env_indices)
+
+            # Process player 1 moves (network opponent)
+            if p1_batch_indices and opponent_network is not None:
+                # Batched inference for opponent network
+                p1_obs = obs[p1_batch_indices]
+                p1_masks = masks[p1_batch_indices]
+
+                policy_logits, values = opponent_network(p1_obs, p1_masks)
+                values = values.squeeze(-1)
+                p1_inference_calls += 1
+
+                actions, action_probs = sample_actions_batch(policy_logits, p1_masks, temperature)
+
+                actions_np = actions.cpu().numpy().astype(np.int64)
+                probs_np = action_probs.cpu().numpy()
+                values_np = values.cpu().numpy()
+                p1_env_indices_np = np.array(p1_env_indices, dtype=np.int64)
+
+                # Store trajectory data
+                for i, env_idx in enumerate(p1_env_indices):
+                    player = 1
+                    action_idx = int(actions_np[i])
+                    action_prob = float(probs_np[i])
+                    value = float(values_np[i])
+
+                    if env._use_cython:
+                        from _01_simulator._cython import encode_single_observation, get_single_legal_mask
+                        obs_arr = encode_single_observation(env._c_states, env_idx, player)
+                        mask_arr = get_single_legal_mask(env._c_states, env_idx, player)
+                    else:
+                        game = env._py_games[env_idx]
+                        obs_arr = state_to_tensor(game, player)
+                        mask_arr = legal_action_mask_tensor(game, player)
+
+                    pending = PendingStep(
+                        observation=obs_arr,
+                        action_mask=mask_arr,
+                        action=action_idx,
+                        action_prob=action_prob,
+                        value=value,
+                        player=player,
+                    )
+                    env.trajectories[env_idx].add_step(pending)
+
+                # Step using Cython
+                if env._use_cython:
+                    step_batch_parallel(
+                        env._c_states,
+                        p1_env_indices_np,
+                        actions_np,
+                        env.num_threads,
+                    )
+                    for env_idx in p1_env_indices:
+                        if env._c_states.is_terminal(env_idx):
+                            env.active[env_idx] = False
+                            scores = env._c_states.get_scores(env_idx)
+                            env.trajectories[env_idx].final_scores = scores
+                else:
+                    for i, env_idx in enumerate(p1_env_indices):
+                        game = env._py_games[env_idx]
+                        action = index_to_action(int(actions_np[i]))
+                        new_state = simulate.apply(game, action)
+                        env._py_games[env_idx] = new_state
+                        if simulate.is_terminal(new_state):
+                            env.active[env_idx] = False
+                            scores = simulate.score(new_state)
+                            env.trajectories[env_idx].final_scores = (scores[0], scores[1])
+
+                total_steps += len(p1_env_indices)
+
+    trajectories = env.get_trajectories(shaped_rewards=shaped_rewards)
+
+    total_inference_calls = p0_inference_calls + p1_inference_calls
+    stats = {
+        "total_steps": float(total_steps),
+        "p0_inference_calls": float(p0_inference_calls),
+        "p1_inference_calls": float(p1_inference_calls),
+        "p1_agent_steps": 0.0,  # Always 0 for Cython path (agents fall back to pure Python)
+        "total_inference_calls": float(total_inference_calls),
+        "avg_batch_size": total_steps / max(total_inference_calls, 1),
+        "games_generated": float(num_games),
+        "using_cython": env.using_cython,
+    }
+
+    return trajectories, stats
+
+
+if TYPE_CHECKING:
+    from _02_agents.base import Agent
+
+
 __all__ = [
     "EnvTrajectory",
     "PendingStep",
     "VectorizedGameEnvCython",
     "generate_games_vectorized_cython",
+    "generate_games_vectorized_cython_with_opponent",
     "is_cython_available",
     "sample_actions_batch",
 ]

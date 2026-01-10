@@ -71,8 +71,11 @@ AI_AGENTS = {
 }
 
 # Add Neural agent if checkpoint exists
-def _load_neural_agent():
-    """Try to load neural agent from checkpoint."""
+def _load_neural_agent(ckpt_path: str | Path | None = None) -> tuple:
+    """Try to load neural agent from checkpoint.
+
+    Returns (agent, name, iteration) or (None, None, None).
+    """
     try:
         import torch
         import os
@@ -80,9 +83,9 @@ def _load_neural_agent():
         from _02_agents.neural.network import BeastyBarNetwork
         from _02_agents.neural.utils import NetworkConfig
 
-        def load_from_checkpoint(ckpt_path):
+        def load_from_checkpoint(path):
             """Load network from PPO or MCTS checkpoint."""
-            checkpoint = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+            checkpoint = torch.load(path, map_location="cpu", weights_only=False)
             # Extract network config (nested in training config)
             config_dict = checkpoint.get("config", {})
             if "network_config" in config_dict:
@@ -96,34 +99,43 @@ def _load_neural_agent():
             network.eval()
             return network, checkpoint.get("iteration", 0)
 
-        # Check for checkpoint path in environment or use default
-        checkpoint_path = os.environ.get("NEURAL_CHECKPOINT", None)
+        # Check for checkpoint path in environment or explicit path
+        checkpoint_path = ckpt_path or os.environ.get("NEURAL_CHECKPOINT", None)
         if checkpoint_path and Path(checkpoint_path).exists():
-            network, step = load_from_checkpoint(checkpoint_path)
-            logger.info(f"Loaded neural agent from {checkpoint_path} (iter {step})")
-            return NeuralAgent(network, mode="greedy")
+            network, iteration = load_from_checkpoint(checkpoint_path)
+            logger.info(f"Loaded neural agent from {checkpoint_path} (iter {iteration})")
+            return NeuralAgent(network, mode="greedy"), f"ppo_iter{iteration}", iteration
 
-        # Try to find latest checkpoint
+        # Try to find latest checkpoint - prioritize h200_maxperf
         checkpoint_dirs = [
+            Path("checkpoints/ppo_h200_maxperf"),
             Path("checkpoints/ppo_h200_v1"),
             Path("checkpoints/beastybar_neural"),
         ]
         for ckpt_dir in checkpoint_dirs:
             if ckpt_dir.exists():
+                # Check for final.pt first, then iter_*.pt
+                final_pt = ckpt_dir / "final.pt"
+                if final_pt.exists():
+                    network, iteration = load_from_checkpoint(final_pt)
+                    logger.info(f"Loaded neural agent from {final_pt} (iter {iteration})")
+                    return NeuralAgent(network, mode="greedy"), f"ppo_iter{iteration}", iteration
                 checkpoints = sorted(ckpt_dir.glob("iter_*.pt"))
                 if checkpoints:
-                    network, step = load_from_checkpoint(checkpoints[-1])
-                    logger.info(f"Loaded neural agent from {checkpoints[-1]} (iter {step})")
-                    return NeuralAgent(network, mode="greedy")
-        return None
+                    network, iteration = load_from_checkpoint(checkpoints[-1])
+                    logger.info(f"Loaded neural agent from {checkpoints[-1]} (iter {iteration})")
+                    return NeuralAgent(network, mode="greedy"), f"ppo_iter{iteration}", iteration
+        return None, None, None
     except Exception as e:
         logger.warning(f"Failed to load neural agent: {e}")
         import traceback
         traceback.print_exc()
-        return None
+        return None, None, None
 
-_neural_agent = _load_neural_agent()
+_neural_agent, _neural_name, _neural_iter = _load_neural_agent()
 if _neural_agent is not None:
+    AI_AGENTS[_neural_name] = _neural_agent
+    # Keep "neural" as alias for backwards compatibility
     AI_AGENTS["neural"] = _neural_agent
 
 # Add MCTS agent if available
@@ -336,8 +348,12 @@ def create_app() -> FastAPI:
             {"id": "random", "name": "Random", "description": "Plays random legal moves"},
             {"id": "heuristic", "name": "Heuristic", "description": "Strong strategic AI"},
         ]
-        if "neural" in AI_AGENTS:
-            agents.append({"id": "neural", "name": "Neural (PPO)", "description": "Trained neural network - 86% vs random!"})
+        if _neural_name and _neural_name in AI_AGENTS:
+            agents.append({
+                "id": _neural_name,
+                "name": f"PPO iter{_neural_iter}",
+                "description": f"Neural network trained for {_neural_iter} iterations - 97% vs random, 79% vs heuristic"
+            })
         agents.extend([
             {"id": "mcts", "name": "MCTS", "description": "Monte Carlo Tree Search AI"},
             {"id": "claude", "name": "Claude Opus 4.5", "description": "Play against Claude via Anthropic API"},

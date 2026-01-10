@@ -682,6 +682,45 @@ def generate_games_batched_with_opponent(
     Returns:
         List of GameTrajectory objects, one per game.
     """
+    # Try Cython-accelerated environment first (5-10x faster)
+    try:
+        from .vectorized_env_cython import (
+            generate_games_vectorized_cython_with_opponent,
+            is_cython_available,
+        )
+
+        if is_cython_available():
+            env_trajectories, stats = generate_games_vectorized_cython_with_opponent(
+                network=network,
+                opponent=opponent,
+                opponent_network=opponent_network,
+                num_games=num_games,
+                temperature=temperature,
+                device=device,
+                seeds=seeds,
+                shaped_rewards=shaped_rewards,
+            )
+            p0_calls = stats.get("p0_inference_calls", 0)
+            p1_calls = stats.get("p1_inference_calls", 0)
+            p1_agent = stats.get("p1_agent_steps", 0)
+
+            if p1_agent > 0:
+                logger.debug(
+                    f"Cython vectorized generation with agent opponent: "
+                    f"{p0_calls:.0f} P0 inference calls, {p1_agent:.0f} agent steps, "
+                    f"avg batch size {stats['avg_batch_size']:.1f}"
+                )
+            else:
+                logger.debug(
+                    f"Cython vectorized generation with network opponent: "
+                    f"{p0_calls:.0f} P0 calls, {p1_calls:.0f} P1 calls, "
+                    f"avg batch size {stats['avg_batch_size']:.1f}"
+                )
+            return _convert_env_trajectories(env_trajectories, shaped_rewards)
+    except ImportError:
+        pass
+
+    # Fall back to pure Python vectorized environment
     from .vectorized_env import generate_games_vectorized_with_opponent
 
     # Generate games using vectorized environment with opponent support
