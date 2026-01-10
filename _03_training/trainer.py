@@ -47,15 +47,19 @@ except ImportError:
     torch = None
     nn = None
 
+# Import heuristic variants creator
+from _02_agents.heuristic import create_heuristic_variants
 from _02_agents.neural.compile import maybe_compile_network
 from _02_agents.neural.utils import NetworkConfig, get_device, seed_all
 from _03_training.checkpoint_manager import CheckpointManager
+from _03_training.exploit_patch_cycle import CycleConfig, ExploitPatchManager
 from _03_training.game_generator import GameGenerator
 from _03_training.opponent_pool import (
     OpponentConfig,
     OpponentPool,
     OpponentType,
 )
+from _03_training.opponent_statistics import OpponentStatsTracker
 from _03_training.ppo import PPOBatch, PPOConfig, iterate_minibatches
 from _03_training.replay_buffer import ReplayBuffer, Transition
 from _03_training.tracking import ExperimentTracker, create_tracker
@@ -126,6 +130,12 @@ class TrainingConfig:
     use_opponent_pool: bool = True  # Enable opponent diversity training
     opponent_config: OpponentConfig = field(default_factory=OpponentConfig)
     pool_checkpoint_frequency: int = 50  # Add checkpoint to pool every N iterations
+
+    # Advanced opponent pool settings
+    use_mcts_opponents: bool = False  # Enable MCTS opponents in pool
+    use_heuristic_variants: bool = True  # Enable heuristic agent variants
+    use_exploit_patch: bool = False  # Enable automatic exploit-patch cycles
+    exploit_patch_interval: int = 200  # Iterations between exploit cycles
 
     # Training schedule
     total_iterations: int = 1000
@@ -447,9 +457,37 @@ class Trainer:
                 f"random={config.opponent_config.random_weight:.0%}, "
                 f"heuristic={config.opponent_config.heuristic_weight:.0%}"
             )
+
+            # Set up MCTS opponents if enabled
+            if config.use_mcts_opponents:
+                self.opponent_pool.set_mcts_network(self.network)
+                logger.info("MCTS opponents enabled in opponent pool")
+
+            # Set up heuristic variants if enabled
+            if config.use_heuristic_variants:
+                self._heuristic_variants = create_heuristic_variants()
+                logger.info(f"Heuristic variants enabled: {len(self._heuristic_variants)} variants")
+            else:
+                self._heuristic_variants = []
         else:
             self.opponent_pool = None
+            self._heuristic_variants = []
             logger.info("Opponent pool disabled - using pure self-play")
+
+        # Create opponent statistics tracker
+        self.stats_tracker = OpponentStatsTracker()
+
+        # Create exploit-patch manager if enabled
+        if config.use_exploit_patch:
+            self.exploit_patch_manager: ExploitPatchManager | None = ExploitPatchManager(
+                config=CycleConfig(cycle_interval=config.exploit_patch_interval),
+                checkpoints_dir=self._checkpoint_dir,
+            )
+            logger.info(
+                f"Exploit-patch cycles enabled: interval={config.exploit_patch_interval}"
+            )
+        else:
+            self.exploit_patch_manager = None
 
         # Create GameGenerator for self-play game generation
         self.game_generator = GameGenerator(
@@ -489,24 +527,25 @@ class Trainer:
             decay_type=self.config.lr_decay,
         )
 
-    def _generate_self_play_games(self) -> tuple[list[Transition], list[list[Transition]], str]:
+    def _generate_self_play_games(self) -> tuple[list[Transition], list[list[Transition]], str, float]:
         """Generate self-play games and return transitions with trajectory info.
 
         Delegates to GameGenerator for actual game generation. The generator
         handles opponent sampling, game execution, and transition collection.
 
         Returns:
-            Tuple of (all_transitions, trajectory_list, opponent_name) where:
+            Tuple of (all_transitions, trajectory_list, opponent_name, win_rate) where:
             - all_transitions: All transitions collected for replay buffer
             - trajectory_list: Separate lists per trajectory for GAE computation
             - opponent_name: Name of sampled opponent for logging
+            - win_rate: Win rate against the opponent (0.5 for self-play)
         """
-        transitions, trajectory_list, opponent_name = self.game_generator.generate_games(
+        transitions, trajectory_list, opponent_name, win_rate = self.game_generator.generate_games(
             num_games=self.config.games_per_iteration,
             shaped_rewards=self.config.shaped_rewards,
         )
         self._total_games_played += self.config.games_per_iteration
-        return transitions, trajectory_list, opponent_name
+        return transitions, trajectory_list, opponent_name, win_rate
 
     def _train_on_buffer(
         self, trajectory_list: list[list[Transition]] | None = None
@@ -752,7 +791,7 @@ class Trainer:
 
         # Generate self-play games (with opponent diversity)
         gen_start = time.time()
-        transitions, trajectory_list, opponent_name = self._generate_self_play_games()
+        transitions, trajectory_list, opponent_name, win_rate = self._generate_self_play_games()
         gen_time = time.time() - gen_start
 
         # Add to replay buffer
@@ -793,6 +832,7 @@ class Trainer:
         iteration_time = time.time() - iteration_start
         metrics["iteration_time"] = iteration_time
         metrics["self_play/opponent"] = hash(opponent_name) % 1000  # Numeric for logging
+        metrics["self_play/win_rate"] = win_rate
 
         # Store in history
         self._metrics_history.append(metrics)
@@ -909,6 +949,15 @@ class Trainer:
                 mode="greedy",
             )
 
+        # Record win rate for exploit-patch plateau detection
+        if self.exploit_patch_manager is not None:
+            heuristic_wr = metrics.get("eval/heuristic/win_rate", 0.5)
+            self.exploit_patch_manager.record_win_rate(heuristic_wr, self._iteration)
+
+        # Check if exploit cycle should start
+        if self.exploit_patch_manager is not None and self.exploit_patch_manager.should_start_cycle(self._iteration):
+            self._run_exploit_cycle()
+
         # Log summary to console
         logger.info(
             "Evaluation results: "
@@ -920,6 +969,47 @@ class Trainer:
         )
 
         return metrics
+
+    def _run_exploit_cycle(self) -> None:
+        """Run an exploit-patch training cycle.
+
+        Saves the current checkpoint, trains an exploiter against it,
+        and adds the exploiter to the opponent pool for future training.
+        """
+        if self.exploit_patch_manager is None:
+            return
+
+        logger.info(f"Starting exploit-patch cycle at iteration {self._iteration}")
+
+        # Save current checkpoint for exploiter training
+        checkpoint_path = self._save_checkpoint()
+
+        # Run the exploit cycle
+        exploiter_info = self.exploit_patch_manager.run_cycle(
+            main_checkpoint=checkpoint_path,
+            device=self._device,
+        )
+
+        # Add exploiter to opponent pool if successful
+        min_wr = self.exploit_patch_manager.config.min_exploiter_win_rate
+        if exploiter_info.win_rate_vs_target >= min_wr and self.opponent_pool is not None:
+            # Load exploiter checkpoint and add to pool
+            exploiter_state = torch.load(
+                exploiter_info.checkpoint_path,
+                map_location=self._device,
+                weights_only=False,
+            )
+            self.opponent_pool.add_checkpoint(
+                state_dict=exploiter_state["model_state_dict"],
+                iteration=self._iteration,
+                win_rate=exploiter_info.win_rate_vs_target,
+            )
+            logger.info(
+                f"Added exploiter to opponent pool "
+                f"(win rate: {exploiter_info.win_rate_vs_target:.2%})"
+            )
+
+        logger.info(f"Exploit-patch cycle completed at iteration {self._iteration}")
 
 
 # ============================================================================
@@ -986,6 +1076,14 @@ def save_training_checkpoint(trainer: Trainer, path: str) -> None:
                 t.name: c for t, c in trainer.opponent_pool._sample_counts.items()
             },
         }
+
+    # Save stats tracker state
+    if trainer.stats_tracker is not None:
+        checkpoint["stats_tracker"] = trainer.stats_tracker.to_dict()
+
+    # Save exploit-patch manager state if enabled
+    if trainer.exploit_patch_manager is not None:
+        checkpoint["exploit_patch_manager"] = trainer.exploit_patch_manager.to_dict()
 
     torch.save(checkpoint, checkpoint_path, pickle_protocol=4)
     logger.info(f"Saved training checkpoint to {checkpoint_path}")
@@ -1073,6 +1171,22 @@ def load_training_checkpoint(path: str, trainer: Trainer) -> None:
             f"Restored opponent pool with {len(trainer.opponent_pool.checkpoints)} checkpoints"
         )
 
+    # Restore stats tracker state if present
+    if trainer.stats_tracker is not None and "stats_tracker" in checkpoint:
+        trainer.stats_tracker = OpponentStatsTracker.from_dict(checkpoint["stats_tracker"])
+        logger.info(
+            f"Restored stats tracker with {len(trainer.stats_tracker.get_all_stats())} opponents"
+        )
+
+    # Restore exploit-patch manager state if present and enabled
+    if trainer.exploit_patch_manager is not None and "exploit_patch_manager" in checkpoint:
+        trainer.exploit_patch_manager = ExploitPatchManager.from_dict(
+            checkpoint["exploit_patch_manager"]
+        )
+        logger.info(
+            f"Restored exploit-patch manager with {len(trainer.exploit_patch_manager.exploiters)} exploiters"
+        )
+
     logger.info(f"Restored training from iteration {trainer._iteration}")
 
 
@@ -1124,10 +1238,14 @@ def create_trainer_from_checkpoint(
 __all__ = [
     "TORCH_AVAILABLE",
     "CheckpointManager",
+    "CycleConfig",
+    "ExploitPatchManager",
     "GameGenerator",
     "OpponentConfig",
+    "OpponentStatsTracker",
     "Trainer",
     "TrainingConfig",
+    "create_heuristic_variants",
     "create_trainer_from_checkpoint",
     "get_learning_rate",
     "load_training_checkpoint",

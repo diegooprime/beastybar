@@ -138,6 +138,12 @@ from .value_diagnostics import (
     extract_values_from_trajectories,
     log_value_diagnostics,
 )
+from .exploit_patch_cycle import (
+    CycleConfig,
+    CycleRecord,
+    ExploiterInfo,
+    ExploitPatchManager,
+)
 
 __all__ = [
     # Curriculum learning
@@ -159,6 +165,11 @@ __all__ = [
     "CurriculumConfig",
     "CurriculumScheduler",
     "CurriculumState",
+    # Exploit-patch cycle
+    "CycleConfig",
+    "CycleRecord",
+    "ExploiterInfo",
+    "ExploitPatchManager",
     "EarlyStopping",
     "EloRating",
     "EvaluationConfig",

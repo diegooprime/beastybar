@@ -11,7 +11,7 @@ Example:
         opponent_pool=pool,
         temperature=1.0,
     )
-    transitions, trajectories, opponent_name = generator.generate_games(
+    transitions, trajectories, opponent_name, win_rate = generator.generate_games(
         num_games=256,
         shaped_rewards=False,
     )
@@ -20,7 +20,7 @@ Example:
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from _02_agents.neural.network import BeastyBarNetwork
 from _02_agents.neural.utils import NetworkConfig
@@ -29,6 +29,7 @@ from _03_training.opponent_pool import (
     OpponentType,
     create_opponent_network,
 )
+from _03_training.opponent_statistics import OpponentStatsTracker
 from _03_training.self_play import (
     GameTrajectory,
     generate_games,
@@ -76,6 +77,7 @@ class GameGenerator:
         network_config: NetworkConfig | None = None,
         temperature: float = 1.0,
         num_workers: int = 1,
+        stats_tracker: OpponentStatsTracker | None = None,
     ) -> None:
         """Initialize the game generator.
 
@@ -87,6 +89,7 @@ class GameGenerator:
                 Required if opponent_pool contains checkpoints.
             temperature: Default temperature for action sampling.
             num_workers: Number of parallel workers for game generation.
+            stats_tracker: Optional tracker for per-opponent win rate statistics.
         """
         self.network = network
         self.device = device
@@ -94,13 +97,15 @@ class GameGenerator:
         self.network_config = network_config or NetworkConfig()
         self.temperature = temperature
         self.num_workers = num_workers
+        self.stats_tracker = stats_tracker
 
     def generate_games(
         self,
         num_games: int,
         shaped_rewards: bool = False,
         temperature: float | None = None,
-    ) -> tuple[list[Transition], list[list[Transition]], str]:
+        iteration: int = 0,
+    ) -> tuple[list[Transition], list[list[Transition]], str, float]:
         """Generate self-play games and return transitions with trajectory info.
 
         Uses the actual self-play module to generate real game trajectories.
@@ -111,12 +116,14 @@ class GameGenerator:
             num_games: Number of games to generate.
             shaped_rewards: If True, use score-margin shaped rewards.
             temperature: Temperature for action sampling. Uses default if None.
+            iteration: Current training iteration for stats tracking.
 
         Returns:
-            Tuple of (all_transitions, trajectory_list, opponent_name) where:
+            Tuple of (all_transitions, trajectory_list, opponent_name, win_rate) where:
             - all_transitions: All transitions collected for replay buffer
             - trajectory_list: Separate lists per trajectory for GAE computation
             - opponent_name: Name of sampled opponent for logging
+            - win_rate: Win rate against the opponent (0.5 for self-play)
         """
         temp = temperature if temperature is not None else self.temperature
 
@@ -141,6 +148,10 @@ class GameGenerator:
                     network_config=self.network_config,
                     device=self.device,
                 )
+                collect_both_players = False  # Only collect P0 (learning agent)
+            elif sampled.opponent_type == OpponentType.MCTS:
+                # Use MCTS agent from pool
+                opponent_agent = sampled.agent
                 collect_both_players = False  # Only collect P0 (learning agent)
             elif sampled.opponent_type in (OpponentType.RANDOM, OpponentType.HEURISTIC):
                 opponent_agent = sampled.agent
@@ -172,7 +183,67 @@ class GameGenerator:
                     trajectory_list.append(player_transitions)
                     all_transitions.extend(player_transitions)
 
-        return all_transitions, trajectory_list, opponent_name
+        # Compute win rate and update stats tracker if enabled
+        win_rate = self._compute_and_track_results(
+            trajectories=trajectories,
+            opponent_name=opponent_name,
+            iteration=iteration,
+            is_self_play=collect_both_players,
+        )
+
+        return all_transitions, trajectory_list, opponent_name, win_rate
+
+    def _compute_and_track_results(
+        self,
+        trajectories: list[GameTrajectory],
+        opponent_name: str,
+        iteration: int,
+        is_self_play: bool,
+    ) -> float:
+        """Compute win rate and optionally update stats tracker.
+
+        Args:
+            trajectories: Generated game trajectories.
+            opponent_name: Name of the opponent for stats tracking.
+            iteration: Current training iteration.
+            is_self_play: Whether this was self-play (both players same network).
+
+        Returns:
+            Win rate from P0's perspective (0.5 for self-play).
+        """
+        if is_self_play:
+            # Self-play has no meaningful win rate against "self"
+            return 0.5
+
+        # Determine results from P0's perspective
+        results: list[tuple[str, Literal["win", "loss", "draw"]]] = []
+        wins = 0
+        losses = 0
+        draws = 0
+
+        for trajectory in trajectories:
+            # Determine result from P0's perspective using winner attribute
+            # In self_play.py, P0 plays as player 0
+            if trajectory.winner == 0:
+                results.append((opponent_name, "win"))
+                wins += 1
+            elif trajectory.winner == 1:
+                results.append((opponent_name, "loss"))
+                losses += 1
+            else:
+                results.append((opponent_name, "draw"))
+                draws += 1
+
+        # Update stats tracker if enabled
+        if self.stats_tracker is not None and results:
+            self.stats_tracker.update_batch(results, iteration)
+
+        # Compute win rate
+        total = len(trajectories)
+        if total == 0:
+            return 0.5
+
+        return wins / total
 
     def generate_trajectories(
         self,
@@ -211,6 +282,9 @@ class GameGenerator:
                     network_config=self.network_config,
                     device=self.device,
                 )
+            elif sampled.opponent_type == OpponentType.MCTS:
+                # Use MCTS agent from pool
+                opponent_agent = sampled.agent
             elif sampled.opponent_type in (OpponentType.RANDOM, OpponentType.HEURISTIC):
                 opponent_agent = sampled.agent
 
@@ -226,4 +300,4 @@ class GameGenerator:
         )
 
 
-__all__ = ["GameGenerator"]
+__all__ = ["GameGenerator", "OpponentStatsTracker"]

@@ -13,6 +13,24 @@ from .base import Agent
 
 
 @dataclass
+class HeuristicConfig:
+    """Configuration for parameterized heuristic agents."""
+
+    # Material evaluation weights
+    bar_weight: float = 2.0
+    queue_front_weight: float = 1.1
+    queue_back_weight: float = 0.3
+    thats_it_weight: float = -0.5
+    hand_weight: float = 0.1
+
+    # Behavioral parameters
+    aggression: float = 0.5  # 0=defensive, 1=aggressive
+    noise_epsilon: float = 0.0  # Random noise for bounded rationality
+    species_weights: dict[str, float] | None = None  # Per-species multipliers
+    seed: int | None = None  # Random seed for noise
+
+
+@dataclass
 class MaterialEvaluator:
     """Configurable position evaluator using material advantage."""
 
@@ -21,6 +39,25 @@ class MaterialEvaluator:
     queue_back_weight: float = 0.3
     thats_it_weight: float = -0.5
     hand_weight: float = 0.1
+    species_weights: dict[str, float] | None = None
+
+    @classmethod
+    def from_config(cls, config: HeuristicConfig) -> MaterialEvaluator:
+        """Create an evaluator from a HeuristicConfig."""
+        return cls(
+            bar_weight=config.bar_weight,
+            queue_front_weight=config.queue_front_weight,
+            queue_back_weight=config.queue_back_weight,
+            thats_it_weight=config.thats_it_weight,
+            hand_weight=config.hand_weight,
+            species_weights=config.species_weights,
+        )
+
+    def _get_species_multiplier(self, species: str) -> float:
+        """Get the species-specific weight multiplier."""
+        if self.species_weights is None:
+            return 1.0
+        return self.species_weights.get(species, 1.0)
 
     def __call__(self, game_state: state.State, player: int) -> float:
         """Evaluate the position from player's perspective."""
@@ -29,7 +66,8 @@ class MaterialEvaluator:
         # Score cards in beasty bar
         for card in game_state.zones.beasty_bar:
             weight = self.bar_weight if card.owner == player else -self.bar_weight
-            score += weight * card.points
+            multiplier = self._get_species_multiplier(card.species)
+            score += weight * card.points * multiplier
 
         # Score cards in queue (position-weighted)
         queue = game_state.zones.queue
@@ -40,16 +78,19 @@ class MaterialEvaluator:
             weight = self.queue_front_weight * position_factor + self.queue_back_weight * (1 - position_factor)
             if card.owner != player:
                 weight = -weight
-            score += weight * card.points
+            multiplier = self._get_species_multiplier(card.species)
+            score += weight * card.points * multiplier
 
         # Score cards in that's it (negative)
         for card in game_state.zones.thats_it:
             weight = self.thats_it_weight if card.owner == player else -self.thats_it_weight
-            score += weight * card.points
+            multiplier = self._get_species_multiplier(card.species)
+            score += weight * card.points * multiplier
 
         # Small bonus for cards in hand (potential)
         for card in game_state.players[player].hand:
-            score += self.hand_weight * card.points
+            multiplier = self._get_species_multiplier(card.species)
+            score += self.hand_weight * card.points * multiplier
 
         return score
 
@@ -65,10 +106,56 @@ class HeuristicAgent(Agent):
         evaluator: EvaluatorFn | None = None,
         seed: int | None = None,
         lookahead: bool = True,
+        config: HeuristicConfig | None = None,
     ):
-        self._evaluator = evaluator or MaterialEvaluator()
-        self._rng = random.Random(seed)
+        self._config = config
+        # If config provided, create evaluator from it; otherwise use provided or default
+        if config is not None:
+            self._evaluator = evaluator or MaterialEvaluator.from_config(config)
+            self._aggression = config.aggression
+            self._noise_epsilon = config.noise_epsilon
+            effective_seed = config.seed if seed is None else seed
+        else:
+            self._evaluator = evaluator or MaterialEvaluator()
+            self._aggression = 0.5
+            self._noise_epsilon = 0.0
+            effective_seed = seed
+
+        self._rng = random.Random(effective_seed)
         self._lookahead = lookahead
+
+    @property
+    def name(self) -> str:
+        """Return a descriptive name based on configuration."""
+        if self._config is None:
+            return "HeuristicAgent"
+
+        parts = ["HeuristicAgent"]
+        cfg = self._config
+
+        # Describe key deviations from defaults
+        if cfg.aggression >= 0.7:
+            parts.append("aggressive")
+        elif cfg.aggression <= 0.3:
+            parts.append("defensive")
+
+        if cfg.bar_weight != 2.0:
+            parts.append(f"bar={cfg.bar_weight:.1f}")
+
+        if cfg.queue_front_weight != 1.1:
+            parts.append(f"qfront={cfg.queue_front_weight:.1f}")
+
+        if cfg.noise_epsilon > 0:
+            parts.append(f"noise={cfg.noise_epsilon:.2f}")
+
+        if cfg.species_weights:
+            species_str = ",".join(f"{k}={v}" for k, v in cfg.species_weights.items())
+            parts.append(f"species({species_str})")
+
+        if len(parts) == 1:
+            return "HeuristicAgent(default)"
+
+        return f"{parts[0]}({', '.join(parts[1:])})"
 
     def select_action(
         self,
@@ -83,6 +170,19 @@ class HeuristicAgent(Agent):
 
         for action in legal_actions:
             score = self._evaluate_action(game_state, action, player)
+
+            # Add aggression bias: higher aggression prefers playing cards
+            # (lower hand_index = playing a card vs. passing)
+            if self._aggression != 0.5:
+                aggression_bias = (self._aggression - 0.5) * 2.0  # Range: -1 to 1
+                # Slight bias toward playing (lower hand indices are typically plays)
+                score += aggression_bias * 0.5
+
+            # Add noise for bounded rationality
+            if self._noise_epsilon > 0:
+                noise = self._rng.gauss(0, self._noise_epsilon)
+                score += noise
+
             scored_actions.append((score, action))
 
         # Sort by score descending
@@ -265,4 +365,51 @@ class HeuristicAgent(Agent):
         return adjustment
 
 
-__all__ = ["HeuristicAgent", "MaterialEvaluator"]
+def create_heuristic_variants() -> list[HeuristicAgent]:
+    """Create a list of pre-configured heuristic agent variants.
+
+    Returns 5 variants with different play styles:
+    - Aggressive: Prioritizes bar entry, plays aggressively
+    - Defensive: Conservative play, lower aggression
+    - Queue Controller: Emphasizes queue front positioning
+    - Skunk Specialist: Values skunk-related plays higher
+    - Noisy/Human-like: Adds random noise for bounded rationality
+    """
+    variants: list[HeuristicAgent] = []
+
+    # 1. Aggressive variant
+    aggressive_config = HeuristicConfig(
+        bar_weight=3.0,
+        aggression=0.8,
+    )
+    variants.append(HeuristicAgent(config=aggressive_config))
+
+    # 2. Defensive variant
+    defensive_config = HeuristicConfig(
+        bar_weight=1.0,
+        aggression=0.2,
+    )
+    variants.append(HeuristicAgent(config=defensive_config))
+
+    # 3. Queue controller variant
+    queue_controller_config = HeuristicConfig(
+        queue_front_weight=2.0,
+    )
+    variants.append(HeuristicAgent(config=queue_controller_config))
+
+    # 4. Skunk specialist variant
+    skunk_specialist_config = HeuristicConfig(
+        species_weights={"skunk": 2.0},
+    )
+    variants.append(HeuristicAgent(config=skunk_specialist_config))
+
+    # 5. Noisy/human-like variant
+    noisy_config = HeuristicConfig(
+        noise_epsilon=0.15,
+    )
+    variants.append(HeuristicAgent(config=noisy_config))
+
+    return variants
+
+
+__all__ = ["HeuristicAgent", "HeuristicConfig", "MaterialEvaluator", "create_heuristic_variants"]
