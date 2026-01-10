@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neural Network Visualizer</title>
+    <style>
+        /* ============================================
+           Clean Minimal Theme
+           ============================================ */
+        :root {
+            --bg: #0c0c0f;
+            --bg-panel: #111115;
+            --bg-card: #18181c;
+            --border: #2a2a32;
+            --text: #e4e4e7;
+            --text-dim: #71717a;
+            --accent: #3b82f6;
+            --accent-dim: rgba(59, 130, 246, 0.15);
+            --positive: #22c55e;
+            --negative: #ef4444;
+            --white: #ffffff;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 24px;
+            background: var(--bg-panel);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .header h1 {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text);
+            letter-spacing: 0.5px;
+        }
+
+        .status {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .status.connected {
+            background: rgba(34, 197, 94, 0.15);
+            color: var(--positive);
+        }
+
+        .status.disconnected {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--negative);
+        }
+
+        .header-stats {
+            display: flex;
+            gap: 24px;
+            align-items: center;
+        }
+
+        .stat {
+            display: flex;
+            align-items: baseline;
+            gap: 6px;
+        }
+
+        .stat-label {
+            font-size: 11px;
+            color: var(--text-dim);
+            font-weight: 500;
+        }
+
+        .stat-value {
+            font-size: 14px;
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .stat-value.positive { color: var(--positive); }
+        .stat-value.negative { color: var(--negative); }
+        .stat-value.neutral { color: var(--text); }
+
+        /* Layout */
+        .main {
+            display: flex;
+            height: calc(100vh - 49px);
+        }
+
+        .canvas-container {
+            flex: 1;
+            position: relative;
+        }
+
+        #canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 280px;
+            background: var(--bg-panel);
+            border-left: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .sidebar-section {
+            padding: 16px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .sidebar-title {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 12px;
+        }
+
+        /* Policy Cards */
+        .policy-list {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .policy-card {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            background: var(--bg-card);
+            border-radius: 8px;
+            border: 1px solid transparent;
+            transition: border-color 0.15s;
+        }
+
+        .policy-card.selected {
+            border-color: var(--accent);
+            background: var(--accent-dim);
+        }
+
+        .card-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            background: var(--bg);
+        }
+
+        .card-info { flex: 1; }
+
+        .card-name {
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .card-meta {
+            font-size: 11px;
+            color: var(--text-dim);
+            display: flex;
+            gap: 8px;
+            margin-top: 2px;
+        }
+
+        .policy-prob {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--accent);
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* Controls */
+        .controls {
+            padding: 12px 16px;
+            background: var(--bg);
+            border-top: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: auto;
+        }
+
+        .btn {
+            padding: 6px 10px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text);
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .btn:hover { border-color: var(--accent); }
+        .btn:disabled { opacity: 0.4; cursor: default; }
+        .btn.active { background: var(--accent); border-color: var(--accent); color: white; }
+
+        .scrubber {
+            flex: 1;
+            height: 4px;
+            background: var(--bg-card);
+            border-radius: 2px;
+            cursor: pointer;
+        }
+
+        .scrubber-fill {
+            height: 100%;
+            background: var(--accent);
+            border-radius: 2px;
+            transition: width 0.1s;
+        }
+
+        .turn-display {
+            font-size: 11px;
+            color: var(--text-dim);
+            min-width: 40px;
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* Tooltip */
+        .tooltip {
+            position: fixed;
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.15s;
+            z-index: 1000;
+            max-width: 240px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+
+        .tooltip.visible { opacity: 1; }
+
+        .tooltip h3 {
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: var(--accent);
+        }
+
+        .tooltip-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4px;
+        }
+
+        .tooltip-stat {
+            display: flex;
+            justify-content: space-between;
+            padding: 4px 8px;
+            background: var(--bg);
+            border-radius: 4px;
+            font-size: 10px;
+        }
+
+        .tooltip-stat label { color: var(--text-dim); }
+        .tooltip-stat span { font-weight: 600; }
+
+        .empty-state {
+            color: var(--text-dim);
+            font-size: 12px;
+            text-align: center;
+            padding: 24px;
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="header-left">
+            <h1>Neural Network Visualizer</h1>
+            <span id="status" class="status disconnected">Disconnected</span>
+        </div>
+        <div class="header-stats">
+            <div class="stat">
+                <span class="stat-label">Turn</span>
+                <span id="turn" class="stat-value">—</span>
+            </div>
+            <div class="stat">
+                <span class="stat-label">Player</span>
+                <span id="player" class="stat-value">—</span>
+            </div>
+            <div class="stat">
+                <span class="stat-label">Confidence</span>
+                <span id="confidence" class="stat-value">—</span>
+            </div>
+            <div class="stat">
+                <span class="stat-label">Value</span>
+                <span id="value" class="stat-value neutral">—</span>
+            </div>
+        </div>
+    </header>
+
+    <div class="main">
+        <div class="canvas-container">
+            <canvas id="canvas"></canvas>
+        </div>
+
+        <div class="sidebar">
+            <div class="sidebar-section">
+                <div class="sidebar-title">Top Actions</div>
+                <div id="policy-list" class="policy-list">
+                    <div class="empty-state">Waiting for AI move...</div>
+                </div>
+            </div>
+
+            <div class="controls">
+                <button id="btn-prev" class="btn" disabled>◀</button>
+                <button id="btn-play" class="btn">▶</button>
+                <button id="btn-next" class="btn" disabled>▶</button>
+                <div class="scrubber" id="scrubber">
+                    <div class="scrubber-fill" id="scrubber-fill" style="width: 0%"></div>
+                </div>
+                <span id="turn-display" class="turn-display">—</span>
+                <button id="btn-live" class="btn active">Live</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="tooltip" class="tooltip"></div>
+
+    <script>
+        const App = {
+            ws: null,
+            isConnected: false,
+            isLive: true,
+            isPlaying: false,
+            history: [],
+            currentIndex: -1,
+            lastData: null,
+            particles: [],
+            time: 0,
+            hoveredNode: null,
+
+            // UI elements
+            el: {},
+            ctx: null,
+            w: 0,
+            h: 0,
+
+            // Animal emoji map
+            animals: {
+                lion: '🦁', hippo: '🦛', crocodile: '🐊', snake: '🐍',
+                zebra: '🦓', seal: '🦭', parrot: '🦜', monkey: '🐒',
+                kangaroo: '🦘', chameleon: '🦎', skunk: '🦨', giraffe: '🦒',
+            },
+
+            // Network layout
+            nodes: [
+                { id: 'queue', label: 'Queue', x: 0.12, y: 0.12, r: 32 },
+                { id: 'bar', label: 'Bar', x: 0.12, y: 0.30, r: 28 },
+                { id: 'thats_it', label: "That's It", x: 0.12, y: 0.48, r: 24 },
+                { id: 'hand', label: 'Hand', x: 0.12, y: 0.66, r: 32 },
+                { id: 'opponent', label: 'Opponent', x: 0.12, y: 0.84, r: 26 },
+                { id: 'fusion1', label: 'Fuse', x: 0.38, y: 0.30, r: 28 },
+                { id: 'fusion2', label: 'Integrate', x: 0.50, y: 0.50, r: 32 },
+                { id: 'fusion3', label: 'Decide', x: 0.62, y: 0.70, r: 28 },
+                { id: 'policy', label: 'Policy', x: 0.85, y: 0.35, r: 40 },
+                { id: 'value', label: 'Value', x: 0.85, y: 0.70, r: 32 },
+            ],
+
+            edges: [
+                { from: 'queue', to: 'fusion1' },
+                { from: 'bar', to: 'fusion1' },
+                { from: 'thats_it', to: 'fusion1' },
+                { from: 'hand', to: 'fusion1' },
+                { from: 'opponent', to: 'fusion1' },
+                { from: 'fusion1', to: 'fusion2' },
+                { from: 'fusion2', to: 'fusion3' },
+                { from: 'fusion3', to: 'policy' },
+                { from: 'fusion3', to: 'value' },
+            ],
+
+            init() {
+                this.cacheElements();
+                this.setupCanvas();
+                this.setupEvents();
+                this.connectWS();
+                this.animate();
+            },
+
+            cacheElements() {
+                this.el = {
+                    canvas: document.getElementById('canvas'),
+                    status: document.getElementById('status'),
+                    turn: document.getElementById('turn'),
+                    player: document.getElementById('player'),
+                    confidence: document.getElementById('confidence'),
+                    value: document.getElementById('value'),
+                    policyList: document.getElementById('policy-list'),
+                    btnPrev: document.getElementById('btn-prev'),
+                    btnPlay: document.getElementById('btn-play'),
+                    btnNext: document.getElementById('btn-next'),
+                    btnLive: document.getElementById('btn-live'),
+                    scrubber: document.getElementById('scrubber'),
+                    scrubberFill: document.getElementById('scrubber-fill'),
+                    turnDisplay: document.getElementById('turn-display'),
+                    tooltip: document.getElementById('tooltip'),
+                };
+            },
+
+            setupCanvas() {
+                const resize = () => {
+                    const rect = this.el.canvas.parentElement.getBoundingClientRect();
+                    this.w = rect.width;
+                    this.h = rect.height;
+                    this.el.canvas.width = rect.width;
+                    this.el.canvas.height = rect.height;
+                    this.ctx = this.el.canvas.getContext('2d');
+                };
+                resize();
+                window.addEventListener('resize', resize);
+            },
+
+            setupEvents() {
+                this.el.btnPrev.onclick = () => this.step(-1);
+                this.el.btnNext.onclick = () => this.step(1);
+                this.el.btnPlay.onclick = () => this.togglePlay();
+                this.el.btnLive.onclick = () => this.goLive();
+                this.el.scrubber.onclick = e => this.scrub(e);
+                this.el.canvas.onmousemove = e => this.onHover(e);
+                this.el.canvas.onmouseleave = () => this.hideTooltip();
+            },
+
+            connectWS() {
+                const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+                this.ws = new WebSocket(`${proto}//${location.host}/ws/visualizer`);
+
+                this.ws.onopen = () => {
+                    this.isConnected = true;
+                    this.el.status.textContent = 'Connected';
+                    this.el.status.className = 'status connected';
+                    this.ws.send(JSON.stringify({ type: 'subscribe', session_id: 'default' }));
+                };
+
+                this.ws.onclose = () => {
+                    this.isConnected = false;
+                    this.el.status.textContent = 'Disconnected';
+                    this.el.status.className = 'status disconnected';
+                    setTimeout(() => this.connectWS(), 3000);
+                };
+
+                this.ws.onmessage = e => {
+                    const data = JSON.parse(e.data);
+                    if (data.type === 'activation_update') {
+                        this.history.push(data);
+                        if (this.history.length > 100) this.history.shift();
+                        if (this.isLive) {
+                            this.currentIndex = this.history.length - 1;
+                            this.lastData = data;
+                            this.updateUI(data);
+                        }
+                        this.updateControls();
+                    }
+                };
+            },
+
+            updateUI(data) {
+                // Header stats
+                this.el.turn.textContent = data.turn ?? '—';
+                this.el.player.textContent = data.player !== undefined ? `P${data.player}` : '—';
+
+                if (data.policy) {
+                    const conf = data.policy.confidence;
+                    this.el.confidence.textContent = conf !== undefined ? `${(conf * 100).toFixed(0)}%` : '—';
+                }
+
+                if (data.value) {
+                    const val = data.value.estimate;
+                    this.el.value.textContent = (val >= 0 ? '+' : '') + val.toFixed(2);
+                    this.el.value.className = 'stat-value ' + (val > 0.05 ? 'positive' : val < -0.05 ? 'negative' : 'neutral');
+                }
+
+                // Policy list
+                this.updatePolicyList(data);
+            },
+
+            updatePolicyList(data) {
+                if (!data.policy?.top_5?.length) return;
+
+                let html = '';
+                for (const action of data.policy.top_5) {
+                    const species = (action.species || 'unknown').toLowerCase();
+                    const emoji = this.animals[species] || '🎴';
+                    const pct = (action.prob * 100).toFixed(1);
+                    const selected = action.is_selected ? 'selected' : '';
+
+                    html += `
+                        <div class="policy-card ${selected}">
+                            <div class="card-icon">${emoji}</div>
+                            <div class="card-info">
+                                <div class="card-name">${species.charAt(0).toUpperCase() + species.slice(1)}</div>
+                                <div class="card-meta">
+                                    <span>⚔ ${action.strength || 0}</span>
+                                    <span>★ ${action.points || 0}</span>
+                                </div>
+                            </div>
+                            <div class="policy-prob">${pct}%</div>
+                        </div>
+                    `;
+                }
+                this.el.policyList.innerHTML = html;
+            },
+
+            updateControls() {
+                this.el.btnPrev.disabled = this.currentIndex <= 0;
+                this.el.btnNext.disabled = this.currentIndex >= this.history.length - 1;
+
+                if (this.history.length > 0) {
+                    const pct = (this.currentIndex / Math.max(1, this.history.length - 1)) * 100;
+                    this.el.scrubberFill.style.width = pct + '%';
+                    this.el.turnDisplay.textContent = `${this.currentIndex + 1}/${this.history.length}`;
+                }
+
+                this.el.btnLive.classList.toggle('active', this.isLive);
+            },
+
+            step(dir) {
+                const newIdx = this.currentIndex + dir;
+                if (newIdx >= 0 && newIdx < this.history.length) {
+                    this.isLive = false;
+                    this.currentIndex = newIdx;
+                    this.lastData = this.history[newIdx];
+                    this.updateUI(this.lastData);
+                    if (newIdx === this.history.length - 1) this.isLive = true;
+                    this.updateControls();
+                }
+            },
+
+            togglePlay() {
+                this.isPlaying = !this.isPlaying;
+                this.el.btnPlay.textContent = this.isPlaying ? '⏸' : '▶';
+                if (this.isPlaying) {
+                    this.isLive = false;
+                    this.playInterval = setInterval(() => {
+                        if (this.currentIndex < this.history.length - 1) this.step(1);
+                        else this.togglePlay();
+                    }, 600);
+                } else {
+                    clearInterval(this.playInterval);
+                }
+            },
+
+            goLive() {
+                this.isLive = true;
+                if (this.history.length > 0) {
+                    this.currentIndex = this.history.length - 1;
+                    this.lastData = this.history[this.currentIndex];
+                    this.updateUI(this.lastData);
+                }
+                this.updateControls();
+            },
+
+            scrub(e) {
+                if (!this.history.length) return;
+                const rect = this.el.scrubber.getBoundingClientRect();
+                const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                this.isLive = false;
+                this.currentIndex = Math.round(pct * (this.history.length - 1));
+                this.lastData = this.history[this.currentIndex];
+                this.updateUI(this.lastData);
+                this.updateControls();
+            },
+
+            // Rendering
+            animate() {
+                this.time += 0.016;
+                this.render();
+                requestAnimationFrame(() => this.animate());
+            },
+
+            render() {
+                const ctx = this.ctx;
+                if (!ctx || !this.w || !this.h) return;
+
+                // Clear
+                ctx.fillStyle = '#0c0c0f';
+                ctx.fillRect(0, 0, this.w, this.h);
+
+                // Get positions
+                const pos = this.getPositions();
+                const act = this.getActivations();
+
+                // Draw edges
+                this.drawEdges(ctx, pos, act);
+
+                // Update & draw particles
+                this.updateParticles();
+                this.drawParticles(ctx);
+
+                // Draw nodes
+                this.drawNodes(ctx, pos, act);
+            },
+
+            getPositions() {
+                const pos = {};
+                for (const n of this.nodes) {
+                    pos[n.id] = {
+                        ...n,
+                        px: n.x * this.w,
+                        py: n.y * this.h,
+                    };
+                }
+                return pos;
+            },
+
+            getActivations() {
+                const map = {};
+                const data = this.lastData;
+                if (!data) return map;
+
+                if (data.zones) {
+                    Object.entries(data.zones).forEach(([k, v]) => { if (v) map[k] = v; });
+                }
+                if (data.fusion) {
+                    Object.entries(data.fusion).forEach(([k, v]) => { if (v) map[k] = v; });
+                }
+                if (data.policy) {
+                    map.policy = { l2_norm: (data.policy.confidence || 0.5) * 12 };
+                }
+                if (data.value) {
+                    map.value = { l2_norm: Math.abs(data.value.estimate || 0) * 8, mean: data.value.estimate };
+                }
+                return map;
+            },
+
+            drawEdges(ctx, pos, act) {
+                for (const edge of this.edges) {
+                    const from = pos[edge.from];
+                    const to = pos[edge.to];
+                    if (!from || !to) continue;
+
+                    const a = act[edge.from];
+                    const intensity = a ? Math.min(1, (a.l2_norm || 0) / 12) : 0.15;
+
+                    // Draw edge
+                    ctx.strokeStyle = `rgba(59, 130, 246, ${0.08 + intensity * 0.25})`;
+                    ctx.lineWidth = 1 + intensity * 2;
+
+                    ctx.beginPath();
+                    ctx.moveTo(from.px, from.py);
+                    ctx.lineTo(to.px, to.py);
+                    ctx.stroke();
+
+                    // Spawn particles
+                    if (Math.random() < intensity * 0.3) {
+                        this.particles.push({
+                            x: from.px, y: from.py,
+                            tx: to.px, ty: to.py,
+                            p: 0,
+                            speed: 0.008 + Math.random() * 0.012,
+                            size: 1.5 + intensity * 2,
+                        });
+                    }
+                }
+            },
+
+            updateParticles() {
+                this.particles = this.particles.filter(p => {
+                    p.p += p.speed;
+                    return p.p < 1;
+                });
+                if (this.particles.length > 300) {
+                    this.particles = this.particles.slice(-200);
+                }
+            },
+
+            drawParticles(ctx) {
+                for (const p of this.particles) {
+                    const x = p.x + (p.tx - p.x) * p.p;
+                    const y = p.y + (p.ty - p.y) * p.p;
+                    const alpha = 0.6 * (1 - p.p);
+
+                    ctx.beginPath();
+                    ctx.arc(x, y, p.size, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgba(59, 130, 246, ${alpha})`;
+                    ctx.fill();
+                }
+            },
+
+            drawNodes(ctx, pos, act) {
+                for (const node of this.nodes) {
+                    const p = pos[node.id];
+                    const a = act[node.id];
+                    const intensity = a ? Math.min(1, (a.l2_norm || 0) / 12) : 0.1;
+
+                    const x = p.px;
+                    const y = p.py;
+                    const r = p.r + intensity * 8;
+
+                    // Outer glow
+                    const glowAlpha = 0.1 + intensity * 0.2;
+                    const grad = ctx.createRadialGradient(x, y, r * 0.5, x, y, r * 2);
+                    grad.addColorStop(0, `rgba(59, 130, 246, ${glowAlpha})`);
+                    grad.addColorStop(1, 'rgba(59, 130, 246, 0)');
+                    ctx.fillStyle = grad;
+                    ctx.beginPath();
+                    ctx.arc(x, y, r * 2, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // Node circle
+                    ctx.fillStyle = '#18181c';
+                    ctx.beginPath();
+                    ctx.arc(x, y, r, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // Border
+                    ctx.strokeStyle = `rgba(59, 130, 246, ${0.3 + intensity * 0.5})`;
+                    ctx.lineWidth = 1.5;
+                    ctx.stroke();
+
+                    // Inner content
+                    if (node.id === 'policy') {
+                        this.drawPolicyNode(ctx, x, y, r);
+                    } else if (node.id === 'value') {
+                        this.drawValueNode(ctx, x, y, r);
+                    } else {
+                        // Show L2 norm
+                        ctx.fillStyle = `rgba(255, 255, 255, ${0.5 + intensity * 0.4})`;
+                        ctx.font = `600 ${Math.max(11, r * 0.5)}px -apple-system, sans-serif`;
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText(a ? a.l2_norm.toFixed(1) : '—', x, y);
+                    }
+
+                    // Label
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+                    ctx.font = '500 10px -apple-system, sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'top';
+                    ctx.fillText(node.label, x, y + r + 6);
+                }
+            },
+
+            drawPolicyNode(ctx, x, y, r) {
+                const data = this.lastData;
+                if (!data?.policy?.top_5?.[0]) {
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+                    ctx.font = `${r * 0.6}px -apple-system, sans-serif`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText('?', x, y);
+                    return;
+                }
+
+                const top = data.policy.top_5[0];
+                const species = (top.species || 'unknown').toLowerCase();
+                const emoji = this.animals[species] || '🎴';
+
+                // Emoji
+                ctx.font = `${r * 0.8}px -apple-system, sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(emoji, x, y);
+
+                // Probability ring
+                const prob = top.prob || 0;
+                ctx.strokeStyle = 'rgba(59, 130, 246, 0.8)';
+                ctx.lineWidth = 3;
+                ctx.lineCap = 'round';
+                ctx.beginPath();
+                ctx.arc(x, y, r - 4, -Math.PI / 2, -Math.PI / 2 + prob * Math.PI * 2);
+                ctx.stroke();
+            },
+
+            drawValueNode(ctx, x, y, r) {
+                const data = this.lastData;
+                const val = data?.value?.estimate ?? 0;
+
+                // Color based on value
+                const color = val > 0.05 ? '34, 197, 94' : val < -0.05 ? '239, 68, 68' : '148, 163, 184';
+
+                // Arc gauge
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+                ctx.lineWidth = 4;
+                ctx.lineCap = 'round';
+                ctx.beginPath();
+                ctx.arc(x, y, r * 0.7, Math.PI * 0.75, Math.PI * 2.25);
+                ctx.stroke();
+
+                // Value arc
+                const norm = (val + 1) / 2;
+                ctx.strokeStyle = `rgba(${color}, 0.9)`;
+                ctx.beginPath();
+                ctx.arc(x, y, r * 0.7, Math.PI * 0.75, Math.PI * 0.75 + norm * Math.PI * 1.5);
+                ctx.stroke();
+
+                // Value text
+                ctx.fillStyle = `rgba(${color}, 1)`;
+                ctx.font = `600 ${r * 0.4}px -apple-system, sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText((val >= 0 ? '+' : '') + val.toFixed(2), x, y + 2);
+            },
+
+            // Tooltip
+            onHover(e) {
+                const rect = this.el.canvas.getBoundingClientRect();
+                const mx = e.clientX - rect.left;
+                const my = e.clientY - rect.top;
+                const pos = this.getPositions();
+
+                let found = null;
+                for (const node of this.nodes) {
+                    const p = pos[node.id];
+                    const dist = Math.hypot(mx - p.px, my - p.py);
+                    if (dist < p.r + 10) {
+                        found = node;
+                        break;
+                    }
+                }
+
+                if (found && found !== this.hoveredNode) {
+                    this.hoveredNode = found;
+                    this.showTooltip(found, e);
+                } else if (!found && this.hoveredNode) {
+                    this.hideTooltip();
+                }
+            },
+
+            showTooltip(node, e) {
+                const act = this.getActivations()[node.id];
+                let html = `<h3>${node.label}</h3>`;
+
+                if (act) {
+                    html += '<div class="tooltip-grid">';
+                    html += `<div class="tooltip-stat"><label>L2</label><span>${act.l2_norm?.toFixed(2) ?? '—'}</span></div>`;
+                    html += `<div class="tooltip-stat"><label>Mean</label><span>${act.mean?.toFixed(3) ?? '—'}</span></div>`;
+                    html += `<div class="tooltip-stat"><label>Std</label><span>${act.std?.toFixed(3) ?? '—'}</span></div>`;
+                    html += `<div class="tooltip-stat"><label>Sparse</label><span>${act.sparsity !== undefined ? (act.sparsity * 100).toFixed(0) + '%' : '—'}</span></div>`;
+                    html += '</div>';
+                } else {
+                    html += '<div style="color: var(--text-dim); font-size: 11px;">No data</div>';
+                }
+
+                this.el.tooltip.innerHTML = html;
+                this.el.tooltip.style.left = (e.clientX + 12) + 'px';
+                this.el.tooltip.style.top = (e.clientY + 12) + 'px';
+                this.el.tooltip.classList.add('visible');
+            },
+
+            hideTooltip() {
+                this.hoveredNode = null;
+                this.el.tooltip.classList.remove('visible');
+            },
+        };
+
+        document.addEventListener('DOMContentLoaded', () => App.init());
+    </script>
+</body>
+</html>
