@@ -350,12 +350,24 @@ cdef void ability_chameleon(GameState* state, Card* card, Action* action) noexce
         elif target_species == SPECIES_SKUNK:
             ability_skunk(state, &queue.cards[card_idx])
 
-        # Change back to chameleon (find it again since queue may have changed)
+        # Change back to chameleon (find it in queue, beasty_bar, or thats_it)
         for i in range(state.queue.length):
             if (state.queue.cards[i].owner == card.owner and
                 state.queue.cards[i].entered_turn == card.entered_turn):
                 state.queue.cards[i].species_id = SPECIES_CHAMELEON
-                break
+                return
+        # Also check thats_it (chameleon may have been sent there, e.g., copying lion)
+        for i in range(state.thats_it.length):
+            if (state.thats_it.cards[i].owner == card.owner and
+                state.thats_it.cards[i].entered_turn == card.entered_turn):
+                state.thats_it.cards[i].species_id = SPECIES_CHAMELEON
+                return
+        # Also check beasty_bar (unlikely but possible)
+        for i in range(state.beasty_bar.length):
+            if (state.beasty_bar.cards[i].owner == card.owner and
+                state.beasty_bar.cards[i].entered_turn == card.entered_turn):
+                state.beasty_bar.cards[i].species_id = SPECIES_CHAMELEON
+                return
 
 
 cdef void ability_skunk(GameState* state, Card* card) noexcept nogil:

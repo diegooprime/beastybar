@@ -36,8 +36,15 @@ cdef void encode_card_features(
     # Clear output
     memset(output, 0, CARD_FEATURE_DIM * sizeof(float))
 
+    # Position normalized (always set, even for empty cards)
+    if zone_length > 1:
+        position_norm = <float>position / <float>(zone_length - 1)
+    else:
+        position_norm = 0.0
+    output[16] = position_norm
+
     if card_is_empty(card):
-        # Empty slot: presence=0, owner=0.5, rest zeros
+        # Empty slot: presence=0, owner=0.5, rest zeros (position already set)
         output[0] = 0.0
         output[1] = 0.5
         return
@@ -69,13 +76,7 @@ cdef void encode_card_features(
     # Points normalized
     points_norm = <float>SPECIES_POINTS[species_id] / <float>MAX_POINTS
     output[15] = points_norm
-
-    # Position normalized
-    if zone_length > 1:
-        position_norm = <float>position / <float>(zone_length - 1)
-    else:
-        position_norm = 0.0
-    output[16] = position_norm
+    # Position already set at start of function
 
 
 cdef void encode_masked_card_features(

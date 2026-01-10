@@ -18,20 +18,22 @@ from __future__ import annotations
 # Try to import Cython implementation, fall back to Python
 try:
     from ._cython_core import (
-        # Constants
-        SPECIES_CHAMELEON,
-        SPECIES_CROCODILE,
-        SPECIES_GIRAFFE,
-        SPECIES_HIPPO,
-        SPECIES_KANGAROO,
-        SPECIES_LION,
-        SPECIES_MONKEY,
-        SPECIES_PARROT,
-        SPECIES_SEAL,
-        SPECIES_SKUNK,
-        SPECIES_SNAKE,
-        SPECIES_UNKNOWN,
-        SPECIES_ZEBRA,
+        # Constants (have PY_ prefix in Cython module)
+        PY_SPECIES_CHAMELEON as SPECIES_CHAMELEON,
+        PY_SPECIES_CROCODILE as SPECIES_CROCODILE,
+        PY_SPECIES_GIRAFFE as SPECIES_GIRAFFE,
+        PY_SPECIES_HIPPO as SPECIES_HIPPO,
+        PY_SPECIES_KANGAROO as SPECIES_KANGAROO,
+        PY_SPECIES_LION as SPECIES_LION,
+        PY_SPECIES_MONKEY as SPECIES_MONKEY,
+        PY_SPECIES_PARROT as SPECIES_PARROT,
+        PY_SPECIES_SEAL as SPECIES_SEAL,
+        PY_SPECIES_SKUNK as SPECIES_SKUNK,
+        PY_SPECIES_SNAKE as SPECIES_SNAKE,
+        PY_SPECIES_UNKNOWN as SPECIES_UNKNOWN,
+        PY_SPECIES_ZEBRA as SPECIES_ZEBRA,
+        PY_ACTION_DIM as ACTION_DIM,
+        PY_OBSERVATION_DIM as OBSERVATION_DIM,
         # Types
         GameStateArray,
         # Batch functions (main API)
@@ -84,6 +86,8 @@ except ImportError:
     SPECIES_ZEBRA = 12
 
     GameStateArray = None  # type: ignore[assignment, misc]
+    ACTION_DIM = 124
+    OBSERVATION_DIM = 988
 
 
 def is_cython_available() -> bool:
@@ -95,6 +99,8 @@ __all__ = [
     # Availability check
     "is_cython_available",
     # Constants
+    "ACTION_DIM",
+    "OBSERVATION_DIM",
     "SPECIES_CHAMELEON",
     "SPECIES_CROCODILE",
     "SPECIES_GIRAFFE",
