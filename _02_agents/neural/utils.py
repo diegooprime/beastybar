@@ -343,6 +343,9 @@ def load_network_from_checkpoint(
     # Load checkpoint to extract config
     checkpoint = torch.load(path, map_location="cpu", weights_only=False)
     config_dict = checkpoint.get("config", {})
+    # Handle nested network_config (PPO checkpoints) vs flat config (neural checkpoints)
+    if "network_config" in config_dict:
+        config_dict = config_dict["network_config"]
     config = NetworkConfig.from_dict(config_dict) if config_dict else default_config()
 
     # Import network class if not provided
