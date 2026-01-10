@@ -148,16 +148,47 @@ uv run scripts/train_mcts.py --config configs/h100_mcts.yaml
 
 ## Opponent Diversity (Critical)
 
-Pure self-play causes training collapse (model exploits own weaknesses). The opponent pool mixes:
+Pure self-play causes training collapse—the model exploits its own weaknesses and develops blind spots against different playstyles. Research on hidden-information games (Libratus, Pluribus) shows diverse opponents are essential. The opponent pool mixes multiple agent types during training:
 
-| Opponent Type | Weight | Purpose |
-|--------------|--------|---------|
-| Current network | 60% | Main learning signal |
+| Opponent Type | Default Weight | Purpose |
+|--------------|----------------|---------|
+| Current network | 60% | Main learning signal (self-play) |
 | Past checkpoints | 20% | Prevent catastrophic forgetting |
 | Random agent | 10% | Baseline calibration |
 | Heuristic agent | 10% | Quality anchor |
+| MCTS agents | 0% | Strong search-based opponents (optional) |
 
-Checkpoints are added to the pool every 20 iterations (max 10 kept).
+### Opponent Types in Detail
+
+**Current Network** — The agent plays against itself, learning from the resulting win/loss signal. This is the core self-play loop that drives improvement but can stagnate without diversity.
+
+**Past Checkpoints** — Historical snapshots of the network saved every 20 iterations (max 10 kept). Training against older versions prevents catastrophic forgetting where the model "forgets" how to beat strategies it previously mastered.
+
+**Random Agent** — Plays uniformly random legal moves. Ensures the network doesn't lose to trivial strategies and provides a floor for basic competence. If win rate vs random drops, something is fundamentally broken.
+
+**Heuristic Agent** — Rule-based agent using material evaluation (card points weighted by zone: bar > queue front > hand > queue back > that's it). Configurable parameters include:
+- `bar_weight`: Value multiplier for cards in the Beasty Bar (default 2.0)
+- `aggression`: Bias toward offensive vs defensive plays (0-1 scale)
+- `noise_epsilon`: Random noise for bounded rationality (simulates human mistakes)
+- `species_weights`: Per-animal multipliers for specialized strategies
+
+Six pre-built heuristic variants are available via `create_heuristic_variants()`:
+1. **Aggressive** — High aggression (0.9), prioritizes attacking opponent position
+2. **Defensive** — Low aggression (0.1), focuses on protecting own cards
+3. **Bar Focused** — Triple weight on bar cards, plays for final scoring
+4. **Queue Controller** — Emphasizes queue front positioning for board control
+5. **Skunk Specialist** — Higher value on Skunk plays, aims for double-elimination
+6. **OnlineStrategies** — Reactive counter-play agent that tracks played cards to infer opponent's remaining hand and holds counter cards (Parrot, Skunk, Seal) for punishing overcommitments
+
+**MCTS Agents** — Monte Carlo Tree Search opponents using the current network for position evaluation. Six default configurations with varying characteristics:
+- `mcts_exploit` — Low exploration (c_puct=0.5), greedy play
+- `mcts_balanced` — Standard parameters (c_puct=1.5, 200 sims)
+- `mcts_explore` — High exploration (c_puct=3.0), considers unusual moves
+- `mcts_fast` — Shallow search (50 sims), quick but weaker
+- `mcts_deep` — Deep search (500 sims), strongest but slowest
+- `mcts_noisy` — High Dirichlet noise (ε=0.5), diverse move selection
+
+MCTS opponents are disabled by default (`mcts_weight=0`) because they use pure Python and are 5x slower than Cython-accelerated generation. Enable them for stronger training signal at the cost of throughput.
 
 ## Performance Optimizations
 
