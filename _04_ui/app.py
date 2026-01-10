@@ -14,11 +14,40 @@ from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
+
+# Visualization imports (lazy to avoid circular imports)
+_viz_manager = None
+_viz_capture_agents: dict[str, "VisualizingNeuralAgent"] = {}  # type: ignore[name-defined]
+
+
+def _get_viz_manager():
+    """Lazy import of visualization WebSocket manager."""
+    global _viz_manager
+    if _viz_manager is None:
+        from _04_ui.visualization.websocket_manager import visualizer_ws_manager
+        _viz_manager = visualizer_ws_manager
+    return _viz_manager
+
+
+def _get_visualizing_agent(agent, agent_name: str):
+    """Get or create a VisualizingNeuralAgent wrapper for an agent."""
+    global _viz_capture_agents
+    if agent_name not in _viz_capture_agents:
+        try:
+            from _02_agents.neural import NeuralAgent
+            if isinstance(agent, NeuralAgent):
+                from _04_ui.visualization.activation_capture import VisualizingNeuralAgent
+                _viz_capture_agents[agent_name] = VisualizingNeuralAgent(
+                    agent, _get_viz_manager()
+                )
+        except ImportError:
+            pass
+    return _viz_capture_agents.get(agent_name)
 
 from _01_simulator import actions, engine, simulate, state
 from _02_agents import HeuristicAgent, RandomAgent
@@ -223,6 +252,13 @@ class ActionPayload(BaseModel):
     params: list[int] = Field(default_factory=list)
 
 
+class AIBattleRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+    player1_agent: str = Field(alias="player1Agent")
+    player2_agent: str = Field(alias="player2Agent")
+    num_games: int = Field(default=50, ge=1, le=200, alias="numGames")
+
+
 def _get_session_id(request: Request) -> str:
     """Extract or generate session ID from request."""
     # Try to get from cookie first
@@ -301,7 +337,7 @@ def create_app() -> FastAPI:
         return _serialize(store.require_state(), store.seed, store)
 
     @app.post("/api/ai-move")
-    def api_ai_move() -> dict:
+    async def api_ai_move() -> dict:
         """Have the AI opponent make a move."""
         game_state = store.require_state()
 
@@ -334,7 +370,25 @@ def create_app() -> FastAPI:
                 ai_name = "heuristic"
             agent = AI_AGENTS[ai_name]
             masked_state = state.mask_state_for_player(game_state, player)
-            action = agent(masked_state, legal)
+
+            # Try to use visualizing wrapper for neural agents
+            viz_agent = _get_visualizing_agent(agent, ai_name)
+            if viz_agent is not None:
+                # Build game context for visualization
+                game_context = {
+                    "queue_cards": [c.species for c in game_state.zones.queue],
+                    "hand_cards": [c.species for c in game_state.players[player].hand],
+                    "bar_cards": [c.species for c in game_state.zones.beasty_bar],
+                    "scores": [
+                        sum(c.points for c in game_state.zones.beasty_bar if c.owner == p)
+                        for p in range(2)
+                    ],
+                }
+                action, _ = await viz_agent.select_action_with_viz(
+                    masked_state, legal, game_state.turn, player, game_context
+                )
+            else:
+                action = agent(masked_state, legal)
 
         # Apply the action
         _apply_action(store, action)
@@ -359,6 +413,115 @@ def create_app() -> FastAPI:
             {"id": "claude", "name": "Claude Opus 4.5", "description": "Play against Claude via Anthropic API"},
         ])
         return agents
+
+    @app.get("/api/ai-agents/battle")
+    def api_ai_agents_for_battle() -> list[dict]:
+        """List AI agents available for AI vs AI battles (excludes Claude)."""
+        agents = [
+            {"id": "random", "name": "Random", "description": "Plays random legal moves"},
+            {"id": "heuristic", "name": "Heuristic", "description": "Strong strategic AI"},
+        ]
+        if _neural_name and _neural_name in AI_AGENTS:
+            agents.append({
+                "id": _neural_name,
+                "name": f"PPO iter{_neural_iter}",
+                "description": f"Neural network trained for {_neural_iter} iterations"
+            })
+        # Note: Claude excluded from battles due to API cost/latency
+        return agents
+
+    @app.post("/api/ai-battle/start")
+    def api_ai_battle_start(request: AIBattleRequest) -> dict:
+        """Run multiple AI vs AI games and return full history for replay."""
+        # Validate agents
+        p1_agent_id = request.player1_agent
+        p2_agent_id = request.player2_agent
+
+        if p1_agent_id not in AI_AGENTS:
+            raise HTTPException(status_code=400, detail=f"Unknown agent: {p1_agent_id}")
+        if p2_agent_id not in AI_AGENTS:
+            raise HTTPException(status_code=400, detail=f"Unknown agent: {p2_agent_id}")
+
+        p1_agent = AI_AGENTS[p1_agent_id]
+        p2_agent = AI_AGENTS[p2_agent_id]
+        agents = [p1_agent, p2_agent]
+
+        games: list[dict] = []
+        wins = [0, 0]
+
+        for game_num in range(request.num_games):
+            # Create new game with random seed
+            seed = secrets.randbits(32)
+            game_state = simulate.new_game(seed, starting_player=game_num % 2)
+
+            turns: list[dict] = []
+            # Record initial state
+            turns.append({
+                "turnNumber": 0,
+                "activePlayer": game_state.active_player,
+                "action": None,
+                "state": _serialize_battle_state(game_state),
+                "events": [],
+            })
+
+            # Play game to completion
+            while not simulate.is_terminal(game_state):
+                player = game_state.active_player
+                agent = agents[player]
+                legal = simulate.legal_actions(game_state, player)
+
+                # Get agent's move
+                masked_state = state.mask_state_for_player(game_state, player)
+                action = agent(masked_state, legal)
+
+                # Apply action and get trace for events
+                new_state, steps = engine.step_with_trace(game_state, action)
+
+                # Extract events from steps for highlights
+                events = []
+                for step in steps:
+                    for event in step.events:
+                        events.append({"phase": step.name, "description": event})
+
+                # Get card info for the action
+                card = game_state.players[player].hand[action.hand_index]
+
+                turns.append({
+                    "turnNumber": game_state.turn,
+                    "activePlayer": player,
+                    "action": {
+                        "handIndex": action.hand_index,
+                        "params": list(action.params),
+                        "card": _card_view(card),
+                        "label": _action_label(card, action),
+                    },
+                    "state": _serialize_battle_state(new_state),
+                    "events": events,
+                })
+
+                game_state = new_state
+
+            # Game finished
+            final_scores = simulate.score(game_state)
+            winner = 0 if final_scores[0] > final_scores[1] else (1 if final_scores[1] > final_scores[0] else -1)
+            if winner >= 0:
+                wins[winner] += 1
+
+            games.append({
+                "gameNumber": game_num,
+                "seed": seed,
+                "winner": winner,
+                "finalScores": list(final_scores),
+                "turns": turns,
+            })
+
+        return {
+            "player1Agent": p1_agent_id,
+            "player2Agent": p2_agent_id,
+            "numGames": request.num_games,
+            "wins": wins,
+            "games": games,
+        }
 
     @app.get("/api/claude-state")
     def api_claude_state() -> dict:
@@ -570,7 +733,77 @@ Reply with JUST the action number (e.g., "1" or "3").""",
 
         return _serialize(current, store.seed, store)
 
+    # =========================================================================
+    # Neural Network Visualization Endpoints
+    # =========================================================================
+
+    @app.get("/visualizer")
+    def visualizer_page() -> FileResponse:
+        """Serve the neural network visualizer dashboard."""
+        return FileResponse(static_dir / "visualizer.html")
+
+    @app.websocket("/ws/visualizer")
+    async def websocket_visualizer(websocket: WebSocket):
+        """WebSocket endpoint for real-time activation streaming."""
+        viz_manager = _get_viz_manager()
+        await viz_manager.connect(websocket)
+
+        try:
+            while True:
+                data = await websocket.receive_text()
+                response = await viz_manager.handle_client_message(websocket, data)
+                if response:
+                    await viz_manager.send_to_client(websocket, response)
+        except WebSocketDisconnect:
+            await viz_manager.disconnect(websocket)
+
+    @app.get("/api/viz/status")
+    def api_viz_status() -> dict:
+        """Get visualization system status."""
+        viz_manager = _get_viz_manager()
+        return {
+            "connected_clients": viz_manager.connection_count,
+            "neural_agents_available": list(_viz_capture_agents.keys()),
+        }
+
+    @app.get("/api/viz/history")
+    def api_viz_history() -> list[dict]:
+        """Get activation history for replay mode."""
+        from _04_ui.visualization.data_compression import snapshot_to_dict
+
+        # Find any visualizing agent with history
+        for agent_name, viz_agent in _viz_capture_agents.items():
+            if viz_agent.activation_history:
+                return [
+                    snapshot_to_dict(snapshot)
+                    for snapshot in viz_agent.activation_history
+                ]
+        return []
+
+    @app.post("/api/viz/clear-history")
+    def api_viz_clear_history() -> dict:
+        """Clear activation history (call on new game)."""
+        for viz_agent in _viz_capture_agents.values():
+            viz_agent.clear_history()
+        return {"status": "cleared"}
+
     return app
+
+
+def _serialize_battle_state(game_state: state.State) -> dict:
+    """Serialize game state for AI battle replay (both hands visible)."""
+    return {
+        "turn": game_state.turn,
+        "activePlayer": game_state.active_player,
+        "isTerminal": simulate.is_terminal(game_state),
+        "score": simulate.score(game_state) if simulate.is_terminal(game_state) else None,
+        "queue": [_card_view(card) for card in game_state.zones.queue],
+        "zones": {
+            "beastyBar": [_card_view(card) for card in game_state.zones.beasty_bar],
+            "thatsIt": [_card_view(card) for card in game_state.zones.thats_it],
+        },
+        "hands": [[_card_view(card) for card in player_state.hand] for player_state in game_state.players],
+    }
 
 
 def _serialize(game_state: state.State, seed: int | None, store: SessionStore) -> dict:
@@ -871,3 +1104,6 @@ def _count_score(beasty_bar: tuple[state.Card, ...], player: int) -> int:
 
 
 __all__ = ["create_app"]
+
+# Create app instance for uvicorn
+app = create_app()

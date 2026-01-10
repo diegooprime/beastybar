@@ -812,6 +812,455 @@
         font-size: 1.25rem;
       }
     }
+
+    /* ===================== AI Battle Mode ===================== */
+
+    /* Battle Mode Container - wraps game area + sidebar */
+    .battle-wrapper {
+      display: none;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .battle-wrapper.active {
+      display: flex;
+    }
+
+    /* Hide normal game area when in battle mode */
+    body.battle-mode .game-area,
+    body.battle-mode .hand-area,
+    body.battle-mode .hint-bar {
+      display: none;
+    }
+
+    body.battle-mode .battle-wrapper {
+      display: flex;
+    }
+
+    /* Battle main content (board + hands) */
+    .battle-main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Battle board area */
+    .battle-board {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1.5rem;
+      padding: 1rem;
+      overflow: hidden;
+    }
+
+    /* Dual hand areas */
+    .battle-hand {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      padding: 0.75rem 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .battle-hand-top {
+      border-radius: 0 0 0.75rem 0.75rem;
+      border-top: 2px solid var(--p0-color);
+    }
+
+    .battle-hand-bottom {
+      border-radius: 0.75rem 0.75rem 0 0;
+      border-bottom: 2px solid var(--p1-color);
+    }
+
+    .battle-hand-label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      writing-mode: vertical-rl;
+      text-orientation: mixed;
+      transform: rotate(180deg);
+      padding: 0.5rem 0;
+    }
+
+    .battle-hand-top .battle-hand-label { color: var(--p0-color); }
+    .battle-hand-bottom .battle-hand-label { color: var(--p1-color); }
+
+    .battle-hand-cards {
+      display: flex;
+      gap: 0.5rem;
+      min-height: 100px;
+    }
+
+    .battle-hand .card {
+      width: 80px;
+      height: 112px;
+    }
+
+    .battle-hand .hand-empty {
+      color: var(--text-dim);
+      font-size: 0.8rem;
+      padding: 1rem 2rem;
+    }
+
+    /* Active player highlight in battle mode */
+    .battle-hand.active-player {
+      box-shadow: 0 0 20px var(--accent-glow);
+      border-color: var(--accent);
+    }
+
+    /* Battle Scoreboard Sidebar */
+    .battle-sidebar {
+      width: 280px;
+      background: var(--bg-card);
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+    }
+
+    .battle-sidebar-header {
+      padding: 1rem;
+      border-bottom: 1px solid var(--border);
+      text-align: center;
+    }
+
+    .battle-sidebar-title {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 0.25rem;
+    }
+
+    .battle-sidebar-subtitle {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    .battle-scores {
+      padding: 1rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .battle-score-row {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.75rem;
+      background: var(--bg-elevated);
+      border-radius: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .battle-score-row:last-child {
+      margin-bottom: 0;
+    }
+
+    .battle-score-color {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .battle-score-row[data-player="0"] .battle-score-color { background: var(--p0-color); }
+    .battle-score-row[data-player="1"] .battle-score-color { background: var(--p1-color); }
+
+    .battle-score-name {
+      flex: 1;
+      font-size: 0.875rem;
+      font-weight: 500;
+    }
+
+    .battle-score-wins {
+      font-size: 1.25rem;
+      font-weight: 700;
+    }
+
+    .battle-score-row[data-player="0"] .battle-score-wins { color: var(--p0-color); }
+    .battle-score-row[data-player="1"] .battle-score-wins { color: var(--p1-color); }
+
+    .battle-progress {
+      padding: 1rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .battle-progress-label {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.5rem;
+    }
+
+    .battle-progress-bar {
+      height: 8px;
+      background: var(--bg-elevated);
+      border-radius: 4px;
+      overflow: hidden;
+      margin-bottom: 0.5rem;
+    }
+
+    .battle-progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--p0-color), var(--p1-color));
+      border-radius: 4px;
+      transition: width 0.3s ease;
+    }
+
+    .battle-progress-text {
+      font-size: 0.875rem;
+      color: var(--text);
+      text-align: center;
+    }
+
+    .battle-winrate {
+      padding: 1rem;
+      flex: 1;
+    }
+
+    .battle-winrate-bar {
+      display: flex;
+      height: 24px;
+      border-radius: 4px;
+      overflow: hidden;
+      margin-bottom: 0.5rem;
+    }
+
+    .battle-winrate-p0 {
+      background: var(--p0-color);
+      transition: width 0.3s ease;
+    }
+
+    .battle-winrate-p1 {
+      background: var(--p1-color);
+      transition: width 0.3s ease;
+    }
+
+    .battle-winrate-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    /* Playback Controls */
+    .battle-controls {
+      padding: 1rem;
+      background: var(--bg-dark);
+      border-top: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .battle-controls-row {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .battle-play-btn {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      border: none;
+      background: var(--accent);
+      color: white;
+      font-size: 1.25rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s;
+      flex-shrink: 0;
+    }
+
+    .battle-play-btn:hover {
+      background: #2563eb;
+      transform: scale(1.05);
+    }
+
+    .battle-play-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .battle-speed-control {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .battle-speed-label {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .battle-speed-slider {
+      width: 100%;
+      height: 6px;
+      -webkit-appearance: none;
+      appearance: none;
+      background: var(--bg-elevated);
+      border-radius: 3px;
+      outline: none;
+    }
+
+    .battle-speed-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--accent);
+      cursor: pointer;
+      transition: transform 0.15s;
+    }
+
+    .battle-speed-slider::-webkit-slider-thumb:hover {
+      transform: scale(1.2);
+    }
+
+    .battle-exit-btn {
+      padding: 0.5rem 1rem;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: 0.375rem;
+      color: var(--text);
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .battle-exit-btn:hover {
+      background: var(--border);
+    }
+
+    /* Battle Setup Modal */
+    .battle-setup-field {
+      display: flex;
+      gap: 1rem;
+    }
+
+    .battle-setup-field .modal-field {
+      flex: 1;
+    }
+
+    /* Ability highlight effects */
+    .card.event-kill {
+      animation: event-kill 0.5s ease-out;
+    }
+
+    @keyframes event-kill {
+      0%, 100% { box-shadow: none; }
+      50% { box-shadow: 0 0 20px 5px var(--danger-glow); }
+    }
+
+    .card.event-move {
+      animation: event-move 0.5s ease-out;
+    }
+
+    @keyframes event-move {
+      0%, 100% { box-shadow: none; }
+      50% { box-shadow: 0 0 20px 5px var(--warning); }
+    }
+
+    .card.event-score {
+      animation: event-score 0.5s ease-out;
+    }
+
+    @keyframes event-score {
+      0%, 100% { box-shadow: none; }
+      50% { box-shadow: 0 0 20px 5px var(--success-glow); }
+    }
+
+    /* Loading overlay for battle computation */
+    .battle-loading-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.95);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+
+    .battle-loading-overlay.visible {
+      display: flex;
+    }
+
+    .battle-loading-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1rem;
+      padding: 2rem 3rem;
+      background: var(--bg-card);
+      border-radius: 1rem;
+      border: 1px solid var(--border);
+      min-width: 300px;
+    }
+
+    .battle-loading-spinner {
+      width: 48px;
+      height: 48px;
+      border: 4px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .battle-loading-title {
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .battle-loading-subtitle {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+    }
+
+    .battle-loading-progress {
+      width: 100%;
+      height: 6px;
+      background: var(--bg-elevated);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .battle-loading-progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), #8b5cf6);
+      border-radius: 3px;
+      width: 0%;
+      animation: loading-pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes loading-pulse {
+      0%, 100% { width: 20%; margin-left: 0%; }
+      50% { width: 60%; margin-left: 40%; }
+    }
+
+    .battle-loading-eta {
+      font-size: 0.875rem;
+      color: var(--accent);
+      font-weight: 500;
+    }
   </style>
 </head>
 <body>
@@ -843,6 +1292,7 @@
       <button id="ai-move-btn" class="btn btn-ai" style="display: none;">
         AI Move
       </button>
+      <button id="ai-battle-btn" class="btn btn-secondary">AI Battle</button>
       <button id="new-game-btn" class="btn btn-secondary">New Game</button>
     </div>
   </header>
@@ -897,6 +1347,153 @@
 
   <!-- Hint Bar -->
   <div class="hint-bar" id="hint">Select a card to play</div>
+
+  <!-- Battle Mode Container -->
+  <div class="battle-wrapper" id="battle-wrapper">
+    <div class="battle-main">
+      <!-- Loading Overlay -->
+      <div class="battle-loading-overlay" id="battle-loading-overlay">
+        <div class="battle-loading-content">
+          <div class="battle-loading-spinner"></div>
+          <div class="battle-loading-title" id="battle-loading-title">Computing games...</div>
+          <div class="battle-loading-subtitle" id="battle-loading-subtitle">This may take a moment</div>
+          <div class="battle-loading-progress">
+            <div class="battle-loading-progress-bar" id="battle-loading-progress-bar"></div>
+          </div>
+          <div class="battle-loading-eta" id="battle-loading-eta">Estimated: ~5 seconds</div>
+        </div>
+      </div>
+
+      <!-- Player 0 Hand (Top) -->
+      <div class="battle-hand battle-hand-top" id="battle-hand-0">
+        <span class="battle-hand-label" id="battle-hand-label-0">Player 1</span>
+        <div class="battle-hand-cards" id="battle-hand-cards-0"></div>
+      </div>
+
+      <!-- Battle Board -->
+      <div class="battle-board">
+        <!-- Heaven's Gate (Left) -->
+        <div class="side-pile" id="battle-heaven-pile">
+          <div class="pile-header">
+            <span class="pile-title heaven">Heaven's Gate</span>
+            <span class="pile-count" id="battle-heaven-count">0</span>
+          </div>
+          <div class="pile-cards" id="battle-heaven-cards"></div>
+        </div>
+
+        <!-- Queue (Center) -->
+        <div class="queue-container">
+          <div class="queue-direction">
+            <span><span class="arrow">←</span> Heaven's Gate</span>
+            <span class="queue-label">Queue</span>
+            <span>That's It <span class="arrow">→</span></span>
+          </div>
+          <div class="queue" id="battle-queue"></div>
+        </div>
+
+        <!-- That's It (Right) -->
+        <div class="side-pile" id="battle-hell-pile">
+          <div class="pile-header">
+            <span class="pile-title hell">That's It</span>
+            <span class="pile-count" id="battle-hell-count">0</span>
+          </div>
+          <div class="pile-cards" id="battle-hell-cards"></div>
+        </div>
+      </div>
+
+      <!-- Player 1 Hand (Bottom) -->
+      <div class="battle-hand battle-hand-bottom" id="battle-hand-1">
+        <span class="battle-hand-label" id="battle-hand-label-1">Player 2</span>
+        <div class="battle-hand-cards" id="battle-hand-cards-1"></div>
+      </div>
+    </div>
+
+    <!-- Battle Sidebar -->
+    <div class="battle-sidebar">
+      <div class="battle-sidebar-header">
+        <div class="battle-sidebar-title">AI Battle</div>
+        <div class="battle-sidebar-subtitle" id="battle-matchup">Neural vs Heuristic</div>
+      </div>
+
+      <div class="battle-scores">
+        <div class="battle-score-row" data-player="0">
+          <span class="battle-score-color"></span>
+          <span class="battle-score-name" id="battle-p0-name">Player 1</span>
+          <span class="battle-score-wins" id="battle-p0-wins">0</span>
+        </div>
+        <div class="battle-score-row" data-player="1">
+          <span class="battle-score-color"></span>
+          <span class="battle-score-name" id="battle-p1-name">Player 2</span>
+          <span class="battle-score-wins" id="battle-p1-wins">0</span>
+        </div>
+      </div>
+
+      <div class="battle-progress">
+        <div class="battle-progress-label">Progress</div>
+        <div class="battle-progress-bar">
+          <div class="battle-progress-fill" id="battle-progress-fill" style="width: 0%"></div>
+        </div>
+        <div class="battle-progress-text" id="battle-progress-text">Game 0 / 0</div>
+      </div>
+
+      <div class="battle-winrate">
+        <div class="battle-progress-label">Win Rate</div>
+        <div class="battle-winrate-bar">
+          <div class="battle-winrate-p0" id="battle-winrate-p0" style="width: 50%"></div>
+          <div class="battle-winrate-p1" id="battle-winrate-p1" style="width: 50%"></div>
+        </div>
+        <div class="battle-winrate-labels">
+          <span id="battle-winrate-p0-pct">50%</span>
+          <span id="battle-winrate-p1-pct">50%</span>
+        </div>
+      </div>
+
+      <div class="battle-controls">
+        <div class="battle-controls-row">
+          <button class="battle-play-btn" id="battle-play-btn" title="Play/Pause">▶</button>
+          <div class="battle-speed-control">
+            <span class="battle-speed-label">Speed: <span id="battle-speed-value">200ms</span></span>
+            <input type="range" class="battle-speed-slider" id="battle-speed-slider"
+                   min="50" max="1000" value="200" step="50">
+          </div>
+        </div>
+        <button class="battle-exit-btn" id="battle-exit-btn">Exit Battle Mode</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Battle Setup Modal -->
+  <div class="modal-overlay" id="battle-modal">
+    <div class="modal" style="max-width: 500px;">
+      <div class="modal-title">AI Battle Setup</div>
+
+      <div class="battle-setup-field">
+        <div class="modal-field">
+          <label class="modal-label">Player 1 (Blue)</label>
+          <select class="modal-select" id="battle-p1-select">
+            <option value="heuristic">Heuristic</option>
+          </select>
+        </div>
+        <div class="modal-field">
+          <label class="modal-label">Player 2 (Orange)</label>
+          <select class="modal-select" id="battle-p2-select">
+            <option value="random">Random</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="modal-field">
+        <label class="modal-label">Number of Games (1-200)</label>
+        <input type="number" class="modal-input" id="battle-games-input"
+               value="50" min="1" max="200" placeholder="50">
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="battle-cancel">Cancel</button>
+        <button class="btn btn-primary" id="battle-start">Start Battle</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Claude Move Modal -->
   <div class="modal-overlay" id="claude-modal">
@@ -1617,6 +2214,474 @@
 
       gameOverScore.textContent = `${humanScore} - ${aiScore}`;
     }
+
+    // ===================== AI Battle Mode =====================
+
+    // Battle state
+    let battleData = null;
+    let battleState = 'idle'; // idle, loading, playing, paused, complete
+    let battleGameIndex = 0;
+    let battleTurnIndex = 0;
+    let battleWins = [0, 0];
+    let battlePlaybackTimer = null;
+    let battleSpeed = 200; // ms per turn
+
+    // Battle elements
+    const aiBattleBtn = document.getElementById('ai-battle-btn');
+    const battleWrapper = document.getElementById('battle-wrapper');
+    const battleModal = document.getElementById('battle-modal');
+    const battleP1Select = document.getElementById('battle-p1-select');
+    const battleP2Select = document.getElementById('battle-p2-select');
+    const battleGamesInput = document.getElementById('battle-games-input');
+    const battleCancelBtn = document.getElementById('battle-cancel');
+    const battleStartBtn = document.getElementById('battle-start');
+    const battlePlayBtn = document.getElementById('battle-play-btn');
+    const battleSpeedSlider = document.getElementById('battle-speed-slider');
+    const battleSpeedValue = document.getElementById('battle-speed-value');
+    const battleExitBtn = document.getElementById('battle-exit-btn');
+
+    // Battle display elements
+    const battleMatchup = document.getElementById('battle-matchup');
+    const battleP0Name = document.getElementById('battle-p0-name');
+    const battleP1Name = document.getElementById('battle-p1-name');
+    const battleP0Wins = document.getElementById('battle-p0-wins');
+    const battleP1Wins = document.getElementById('battle-p1-wins');
+    const battleProgressFill = document.getElementById('battle-progress-fill');
+    const battleProgressText = document.getElementById('battle-progress-text');
+    const battleWinrateP0 = document.getElementById('battle-winrate-p0');
+    const battleWinrateP1 = document.getElementById('battle-winrate-p1');
+    const battleWinrateP0Pct = document.getElementById('battle-winrate-p0-pct');
+    const battleWinrateP1Pct = document.getElementById('battle-winrate-p1-pct');
+    const battleHandLabel0 = document.getElementById('battle-hand-label-0');
+    const battleHandLabel1 = document.getElementById('battle-hand-label-1');
+    const battleHandCards0 = document.getElementById('battle-hand-cards-0');
+    const battleHandCards1 = document.getElementById('battle-hand-cards-1');
+    const battleHand0 = document.getElementById('battle-hand-0');
+    const battleHand1 = document.getElementById('battle-hand-1');
+    const battleQueue = document.getElementById('battle-queue');
+    const battleHeavenCards = document.getElementById('battle-heaven-cards');
+    const battleHeavenCount = document.getElementById('battle-heaven-count');
+    const battleHellCards = document.getElementById('battle-hell-cards');
+    const battleHellCount = document.getElementById('battle-hell-count');
+
+    // Loading overlay elements
+    const battleLoadingOverlay = document.getElementById('battle-loading-overlay');
+    const battleLoadingTitle = document.getElementById('battle-loading-title');
+    const battleLoadingSubtitle = document.getElementById('battle-loading-subtitle');
+    const battleLoadingEta = document.getElementById('battle-loading-eta');
+
+    // ETA estimation based on agent IDs (ms per game)
+    // Estimates are conservative (better to overestimate than underestimate)
+    function estimateGameTime(agentId1, agentId2) {
+      function isNeural(id) {
+        return id.includes('ppo') || id.includes('neural') || id.includes('iter');
+      }
+      const neural1 = isNeural(agentId1);
+      const neural2 = isNeural(agentId2);
+
+      // Both neural: ~600ms/game
+      if (neural1 && neural2) return 600;
+      // One neural: ~600ms/game (neural inference dominates)
+      if (neural1 || neural2) return 600;
+      // Heuristic vs Heuristic: ~20ms/game
+      if (agentId1 === 'heuristic' && agentId2 === 'heuristic') return 20;
+      // Heuristic vs Random or Random vs Random: ~10ms/game
+      return 10;
+    }
+
+    function formatEta(ms) {
+      if (ms < 1000) return 'less than 1 second';
+      const seconds = Math.ceil(ms / 1000);
+      if (seconds < 60) return `~${seconds} second${seconds > 1 ? 's' : ''}`;
+      const minutes = Math.ceil(seconds / 60);
+      return `~${minutes} minute${minutes > 1 ? 's' : ''}`;
+    }
+
+    function showBattleLoading(numGames, agentId1, agentId2, displayName1, displayName2) {
+      const msPerGame = estimateGameTime(agentId1, agentId2);
+      const totalMs = numGames * msPerGame;
+
+      battleLoadingTitle.textContent = `Computing ${numGames} games...`;
+      battleLoadingSubtitle.textContent = `${displayName1} vs ${displayName2}`;
+      battleLoadingEta.textContent = `Estimated: ${formatEta(totalMs)}`;
+      battleLoadingOverlay.classList.add('visible');
+    }
+
+    function hideBattleLoading() {
+      battleLoadingOverlay.classList.remove('visible');
+    }
+
+    // Load available agents for battle
+    async function loadBattleAgents() {
+      try {
+        const res = await fetch('/api/ai-agents/battle');
+        if (res.ok) {
+          const agents = await res.json();
+          battleP1Select.innerHTML = '';
+          battleP2Select.innerHTML = '';
+          agents.forEach((agent, idx) => {
+            const opt1 = document.createElement('option');
+            opt1.value = agent.id;
+            opt1.textContent = agent.name;
+            battleP1Select.appendChild(opt1);
+
+            const opt2 = document.createElement('option');
+            opt2.value = agent.id;
+            opt2.textContent = agent.name;
+            battleP2Select.appendChild(opt2);
+          });
+          // Set different defaults
+          if (agents.length > 1) {
+            battleP2Select.selectedIndex = 1;
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load battle agents:', err);
+      }
+    }
+
+    // Show battle modal
+    function showBattleModal() {
+      loadBattleAgents();
+      battleModal.classList.add('visible');
+    }
+
+    function hideBattleModal() {
+      battleModal.classList.remove('visible');
+    }
+
+    // Enter battle mode
+    function enterBattleMode() {
+      document.body.classList.add('battle-mode');
+      battleWrapper.classList.add('active');
+    }
+
+    // Exit battle mode
+    function exitBattleMode() {
+      stopBattlePlayback();
+      document.body.classList.remove('battle-mode');
+      battleWrapper.classList.remove('active');
+      battleData = null;
+      battleState = 'idle';
+      battleGameIndex = 0;
+      battleTurnIndex = 0;
+      battleWins = [0, 0];
+    }
+
+    // Start battle
+    async function startBattle() {
+      const p1Agent = battleP1Select.value;
+      const p2Agent = battleP2Select.value;
+      const p1Name = battleP1Select.options[battleP1Select.selectedIndex].text;
+      const p2Name = battleP2Select.options[battleP2Select.selectedIndex].text;
+      const numGames = Math.min(200, Math.max(1, parseInt(battleGamesInput.value) || 50));
+
+      hideBattleModal();
+      enterBattleMode();
+      battleState = 'loading';
+
+      // Show loading overlay with ETA (pass agent IDs for estimation, names for display)
+      showBattleLoading(numGames, p1Agent, p2Agent, p1Name, p2Name);
+
+      // Update sidebar to show loading state
+      battleMatchup.textContent = `${p1Name} vs ${p2Name}`;
+      battleProgressText.textContent = 'Computing...';
+      battlePlayBtn.disabled = true;
+
+      try {
+        const res = await fetch('/api/ai-battle/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            player1Agent: p1Agent,
+            player2Agent: p2Agent,
+            numGames: numGames
+          })
+        });
+
+        if (!res.ok) {
+          throw new Error('Battle request failed');
+        }
+
+        battleData = await res.json();
+        battleState = 'paused';
+        battleGameIndex = 0;
+        battleTurnIndex = 0;
+        battleWins = [0, 0];
+
+        // Hide loading overlay
+        hideBattleLoading();
+
+        // Update UI with agent names
+        battleP0Name.textContent = p1Name;
+        battleP1Name.textContent = p2Name;
+        battleHandLabel0.textContent = p1Name;
+        battleHandLabel1.textContent = p2Name;
+
+        // Enable playback
+        battlePlayBtn.disabled = false;
+        updateBattleUI();
+        renderBattleState();
+
+        // Auto-start playback
+        startBattlePlayback();
+
+      } catch (err) {
+        console.error('Battle failed:', err);
+        hideBattleLoading();
+        alert('Failed to start battle. Please try again.');
+        exitBattleMode();
+      }
+    }
+
+    // Playback control
+    function startBattlePlayback() {
+      if (battleState === 'complete' || !battleData) return;
+      battleState = 'playing';
+      battlePlayBtn.textContent = '⏸';
+      scheduleBattleStep();
+    }
+
+    function pauseBattlePlayback() {
+      battleState = 'paused';
+      battlePlayBtn.textContent = '▶';
+      if (battlePlaybackTimer) {
+        clearTimeout(battlePlaybackTimer);
+        battlePlaybackTimer = null;
+      }
+    }
+
+    function stopBattlePlayback() {
+      battleState = 'idle';
+      battlePlayBtn.textContent = '▶';
+      if (battlePlaybackTimer) {
+        clearTimeout(battlePlaybackTimer);
+        battlePlaybackTimer = null;
+      }
+    }
+
+    function toggleBattlePlayback() {
+      if (battleState === 'playing') {
+        pauseBattlePlayback();
+      } else if (battleState === 'paused' || battleState === 'complete') {
+        // If complete, restart from beginning
+        if (battleState === 'complete') {
+          battleGameIndex = 0;
+          battleTurnIndex = 0;
+          battleWins = [0, 0];
+        }
+        startBattlePlayback();
+      }
+    }
+
+    function scheduleBattleStep() {
+      if (battleState !== 'playing') return;
+      battlePlaybackTimer = setTimeout(() => {
+        advanceBattleStep();
+      }, battleSpeed);
+    }
+
+    function advanceBattleStep() {
+      if (!battleData || battleState !== 'playing') return;
+
+      const games = battleData.games;
+      if (battleGameIndex >= games.length) {
+        battleState = 'complete';
+        battlePlayBtn.textContent = '↻';
+        return;
+      }
+
+      const currentGame = games[battleGameIndex];
+      const turns = currentGame.turns;
+
+      // Advance to next turn
+      battleTurnIndex++;
+
+      if (battleTurnIndex >= turns.length) {
+        // Game complete - update wins and move to next game
+        if (currentGame.winner >= 0) {
+          battleWins[currentGame.winner]++;
+        }
+        battleGameIndex++;
+        battleTurnIndex = 0;
+
+        // Check if all games complete
+        if (battleGameIndex >= games.length) {
+          battleState = 'complete';
+          battlePlayBtn.textContent = '↻';
+          updateBattleUI();
+          renderBattleState();
+          return;
+        }
+      }
+
+      updateBattleUI();
+      renderBattleState();
+      scheduleBattleStep();
+    }
+
+    function updateBattleUI() {
+      if (!battleData) return;
+
+      const totalGames = battleData.games.length;
+      const currentGame = battleGameIndex + 1;
+      const progressPct = (battleGameIndex / totalGames) * 100;
+
+      // Update progress
+      battleProgressFill.style.width = `${progressPct}%`;
+      battleProgressText.textContent = `Game ${Math.min(currentGame, totalGames)} / ${totalGames}`;
+
+      // Update wins
+      battleP0Wins.textContent = battleWins[0];
+      battleP1Wins.textContent = battleWins[1];
+
+      // Update win rate
+      const totalWins = battleWins[0] + battleWins[1];
+      if (totalWins > 0) {
+        const p0Pct = Math.round((battleWins[0] / totalWins) * 100);
+        const p1Pct = 100 - p0Pct;
+        battleWinrateP0.style.width = `${p0Pct}%`;
+        battleWinrateP1.style.width = `${p1Pct}%`;
+        battleWinrateP0Pct.textContent = `${p0Pct}%`;
+        battleWinrateP1Pct.textContent = `${p1Pct}%`;
+      } else {
+        battleWinrateP0.style.width = '50%';
+        battleWinrateP1.style.width = '50%';
+        battleWinrateP0Pct.textContent = '-';
+        battleWinrateP1Pct.textContent = '-';
+      }
+    }
+
+    function renderBattleState() {
+      if (!battleData) return;
+
+      const games = battleData.games;
+      if (battleGameIndex >= games.length) {
+        // Show final state of last game
+        const lastGame = games[games.length - 1];
+        const lastTurn = lastGame.turns[lastGame.turns.length - 1];
+        renderBattleTurn(lastTurn.state, lastTurn.activePlayer);
+        return;
+      }
+
+      const currentGame = games[battleGameIndex];
+      const turns = currentGame.turns;
+      const turnIdx = Math.min(battleTurnIndex, turns.length - 1);
+      const turn = turns[turnIdx];
+
+      renderBattleTurn(turn.state, turn.activePlayer);
+    }
+
+    function renderBattleTurn(state, activePlayer) {
+      // Highlight active player hand
+      battleHand0.classList.toggle('active-player', activePlayer === 0);
+      battleHand1.classList.toggle('active-player', activePlayer === 1);
+
+      // Update header turn badge
+      const p1Name = battleP0Name.textContent;
+      const p2Name = battleP1Name.textContent;
+      turnBadge.classList.remove('your-turn', 'ai-turn');
+      if (state.isTerminal) {
+        turnBadge.classList.add('ai-turn');
+        turnText.textContent = 'Game Over';
+      } else {
+        turnBadge.classList.add(activePlayer === 0 ? 'your-turn' : 'ai-turn');
+        turnText.textContent = activePlayer === 0 ? `${p1Name}'s Turn` : `${p2Name}'s Turn`;
+      }
+
+      // Calculate and update current game scores in header
+      const gameScores = [0, 0];
+      if (state.zones && state.zones.beastyBar) {
+        state.zones.beastyBar.forEach(card => {
+          gameScores[card.owner] += card.points;
+        });
+      }
+      scoreLabels[0].textContent = p1Name;
+      scoreLabels[1].textContent = p2Name;
+      scoreValues[0].textContent = gameScores[0];
+      scoreValues[1].textContent = gameScores[1];
+
+      // Highlight active player in scoreboard
+      scoreItems.forEach(el => el.classList.remove('active'));
+      if (!state.isTerminal) {
+        scoreItems[activePlayer].classList.add('active');
+      }
+
+      // Render hands
+      renderBattleHand(battleHandCards0, state.hands[0]);
+      renderBattleHand(battleHandCards1, state.hands[1]);
+
+      // Render queue
+      renderBattleQueue(state.queue);
+
+      // Render piles
+      renderBattlePile(battleHeavenCards, battleHeavenCount, state.zones.beastyBar);
+      renderBattlePile(battleHellCards, battleHellCount, state.zones.thatsIt);
+    }
+
+    function renderBattleHand(container, cards) {
+      container.innerHTML = '';
+      if (!cards || !cards.length) {
+        container.innerHTML = '<div class="hand-empty">No cards</div>';
+        return;
+      }
+      cards.forEach(card => {
+        const el = createCardElement(card, { isHandCard: true });
+        container.appendChild(el);
+      });
+    }
+
+    function renderBattleQueue(cards) {
+      battleQueue.innerHTML = '';
+      if (!cards || !cards.length) {
+        for (let i = 0; i < 5; i++) {
+          const slot = document.createElement('div');
+          slot.className = 'queue-slot';
+          slot.textContent = i + 1;
+          battleQueue.appendChild(slot);
+        }
+        return;
+      }
+      cards.forEach(card => {
+        const el = createCardElement(card, {});
+        battleQueue.appendChild(el);
+      });
+    }
+
+    function renderBattlePile(container, countEl, cards) {
+      countEl.textContent = cards ? cards.length : 0;
+      container.innerHTML = '';
+      if (!cards || !cards.length) {
+        container.innerHTML = '<div class="pile-empty">Empty</div>';
+        return;
+      }
+      [...cards].reverse().forEach(card => {
+        const el = document.createElement('div');
+        el.className = 'pile-card';
+        el.innerHTML = `
+          <span class="pile-card-owner" data-owner="${card.owner}"></span>
+          <span class="pile-card-name">${card.species}</span>
+          <span class="pile-card-pts">+${card.points}</span>
+        `;
+        container.appendChild(el);
+      });
+    }
+
+    // Battle event listeners
+    aiBattleBtn.addEventListener('click', showBattleModal);
+    battleCancelBtn.addEventListener('click', hideBattleModal);
+    battleStartBtn.addEventListener('click', startBattle);
+    battlePlayBtn.addEventListener('click', toggleBattlePlayback);
+    battleExitBtn.addEventListener('click', exitBattleMode);
+
+    battleModal.addEventListener('click', (e) => {
+      if (e.target === battleModal) hideBattleModal();
+    });
+
+    battleSpeedSlider.addEventListener('input', () => {
+      battleSpeed = parseInt(battleSpeedSlider.value);
+      battleSpeedValue.textContent = `${battleSpeed}ms`;
+    });
 
     // Init
     refreshState();
