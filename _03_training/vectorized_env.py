@@ -961,6 +961,54 @@ def generate_games_vectorized_with_opponent(
     return trajectories, stats
 
 
+# =============================================================================
+# Cython Auto-Detection: Use Cython implementations when available
+# =============================================================================
+# This section transparently swaps in Cython-accelerated implementations
+# when the Cython extension is built. Code importing from this module will
+# automatically get the faster versions without any changes.
+
+_USING_CYTHON = False
+
+try:
+    from _03_training.vectorized_env_cython import (
+        generate_games_vectorized_cython,
+        is_cython_available,
+    )
+
+    if is_cython_available():
+        # Cython is available - use accelerated version
+        _original_generate_games_vectorized = generate_games_vectorized
+
+        def generate_games_vectorized(
+            network,
+            num_games: int,
+            temperature: float = 1.0,
+            device=None,
+            seeds: list[int] | None = None,
+            shaped_rewards: bool = False,
+        ):
+            """Auto-dispatching wrapper that uses Cython when available."""
+            return generate_games_vectorized_cython(
+                network=network,
+                num_games=num_games,
+                temperature=temperature,
+                device=device,
+                seeds=seeds,
+                shaped_rewards=shaped_rewards,
+            )
+
+        _USING_CYTHON = True
+
+except ImportError:
+    pass
+
+
+def is_using_cython() -> bool:
+    """Check if Cython acceleration is being used."""
+    return _USING_CYTHON
+
+
 __all__ = [
     "EnvTrajectory",
     "PendingStep",
@@ -969,4 +1017,5 @@ __all__ = [
     "generate_games_vectorized",
     "generate_games_vectorized_with_opponent",
     "sample_actions_batch",
+    "is_using_cython",
 ]
