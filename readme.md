@@ -1,104 +1,154 @@
-Beasty Bar is a board game I like a lot. It's fun, simple, easy to learn and requires strategy. 
-I played a ton with friends and wanted the “best” strategy. I searched online. Nothing.
-So I’m building a simulator to test strategies until I find the best one. Then I’ll use the engine to sharpen my intuition and win more games.
-First project of this type for me.
-Purpose: Have the best Beasty Bar strategy in the world.
+# Beasty Bar AI
 
-### Project structure:
-- **_01_simulator**: Full game rules and state management (deterministic, side-effect free)
-- **_02_agents**: AI players (Random, Heuristic, MCTS)
-- **_03_training**: Tournament runner and Elo ratings
-- **_04_ui**: FastAPI interface and static viewer for human vs. human play
-- **_05_other**: Tests, utilities, docs, and references
+**Goal: Create the best Beasty Bar player ever, for any opponent, all the time.**
 
-The code for each section is independent so we can modify one without fucking up the other sections. 
+A complete AI training platform for the board game [Beasty Bar](https://tesera.ru/images/items/1525203/BeastyBar_EN-online.pdf). Includes a deterministic game engine, multiple AI agents (random, heuristic, MCTS, neural), and training infrastructure with AlphaZero-style self-play.
 
-### Quick Start
+## Project Structure
 
-#### 1. Setup Environment
+```
+beastybar/
+├── _01_simulator/     # Game engine (deterministic, immutable state)
+│   ├── engine.py      # Core rules: legal_actions(), step(), is_terminal()
+│   ├── state.py       # Immutable State, Card, Zones dataclasses
+│   ├── cards.py       # Species-specific handlers (12 animals)
+│   ├── action_space.py# Fixed 124-action catalog for neural networks
+│   ├── observations.py# 988-dim state encoding for neural networks
+│   └── _cython/       # Optional Cython acceleration (200x speedup)
+│
+├── _02_agents/        # AI players
+│   ├── random_agent.py# Baseline: uniform random from legal actions
+│   ├── heuristic.py   # Rule-based with material evaluation
+│   ├── mcts/          # Monte Carlo Tree Search
+│   │   ├── search.py  # PUCT-based tree search with neural guidance
+│   │   ├── batch_mcts.py # Batched MCTS with virtual loss (10x speedup)
+│   │   └── agent.py   # MCTSAgent wrapper
+│   └── neural/        # Neural network agent
+│       ├── network.py # Transformer policy-value network (17M params)
+│       └── agent.py   # NeuralAgent with batch inference
+│
+├── _03_training/      # Training infrastructure
+│   ├── trainer.py     # PPO training orchestrator
+│   ├── mcts_trainer.py# AlphaZero-style MCTS training
+│   ├── mcts_self_play.py # MCTS game generation
+│   ├── game_generator.py # Self-play with opponent diversity
+│   ├── opponent_pool.py  # Mixed opponent sampling (critical for stability)
+│   ├── evaluation.py  # Win rate evaluation with confidence intervals
+│   ├── ppo.py         # Proximal Policy Optimization
+│   └── checkpoint_manager.py # Model persistence
+│
+├── _04_ui/            # Web interface
+│   ├── app.py         # FastAPI server
+│   └── static/        # HTML/JS frontend
+│
+├── _05_other/         # Tests and documentation
+│   ├── tests/         # Comprehensive test suite
+│   └── rules.md       # Official Beasty Bar rules
+│
+├── scripts/           # CLI tools
+│   ├── train.py       # PPO training script
+│   ├── train_mcts.py  # MCTS training script
+│   ├── evaluate.py    # Model evaluation
+│   └── play.py        # Interactive play
+│
+└── configs/           # Training configurations
+    ├── h100_mcts.yaml # H100 GPU MCTS config
+    ├── default.yaml   # Standard PPO config
+    └── fast.yaml      # Quick testing config
+```
+
+## Quick Start
+
+### 1. Setup Environment
+
 ```bash
+# Using uv (recommended)
+uv sync
+
+# Or pip
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
 ```
 
-#### 2. Run the UI (Human vs Human)
+### 2. Run Tests
+
+```bash
+pytest _05_other/tests -ra
+```
+
+### 3. Run the Web UI
+
 ```bash
 uvicorn _04_ui.app:create_app --reload
 # Visit http://localhost:8000
 ```
 
-#### 3. Run Tests
-```bash
-pytest _05_other/tests -ra
-```
-
-#### 4. Run Training (on NUC)
-All training runs happen on `primenuc@prime-nuc`. Use the remote script:
+### 4. Train an Agent
 
 ```bash
-# Sync code and run benchmark
-./scripts/remote.sh sync
-./scripts/remote.sh run --games 100
+# PPO training (fast, good baseline)
+uv run scripts/train.py --config configs/default.yaml
 
-# Long training in background (tmux)
-./scripts/remote.sh train --games 500 --include-slow
-
-# Monitor
-./scripts/remote.sh status   # check if running
-./scripts/remote.sh attach   # view live (Ctrl+B, D to detach)
-./scripts/remote.sh logs     # tail output
+# MCTS training (slower, higher quality)
+uv run scripts/train_mcts.py --config configs/h100_mcts.yaml
 ```
 
-### How It Works
+### 5. Evaluate a Model
 
-1. **Simulator** (`_01_simulator/`) provides deterministic game engine with seed-threaded randomness
-2. **Agents** (`_02_agents/`) play against each other to find optimal strategies
-3. **Training** (`_03_training/`) runs tournaments and tracks Elo ratings
-4. **UI** (`_04_ui/`) lets humans play both sides of a match, inspect turn history, and replay deterministic seeds
+```bash
+uv run scripts/evaluate.py \
+  --model checkpoints/model.pt \
+  --opponents random,heuristic \
+  --games 100
+```
 
----
-
-## Neural Network Training
-
-### Architecture
+## Neural Network Architecture
 
 **Transformer-based policy-value network** (17M parameters):
-- Input: 988-dim observation (game state encoding)
-- Output: 124-dim policy logits + scalar value
-- Hidden: 256-dim, 8 attention heads, 4 transformer layers
-- Species embeddings: 64-dim learned embeddings for 12 animal types
 
-### Training Approaches
+| Component | Details |
+|-----------|---------|
+| Input | 988-dim observation (game state encoding) |
+| Output | 124-dim policy logits + scalar value |
+| Hidden | 256-dim, 8 attention heads, 4 transformer layers |
+| Species embeddings | 64-dim learned embeddings for 12 animals |
 
-We tried two approaches in parallel:
+The observation encodes:
+- Queue cards (5 slots x 17 features)
+- Beasty Bar cards (24 slots)
+- That's It cards (24 slots)
+- Own hand (4 cards, full visibility)
+- Opponent hand (4 slots, masked)
+- Scalars (turn, active player, hand counts)
 
-#### 1. PPO (Proximal Policy Optimization)
-- Standard RL approach with clipped surrogate objective
-- Fast game generation (~2048 games in 17s)
-- **Problem**: Exploded with NaN losses at iteration 80
+## Training Approaches
 
-#### 2. AlphaZero-style MCTS (Current)
-- MCTS search (200 simulations) generates improved policy targets
-- Network trained via cross-entropy against MCTS visit distributions
-- Value target = game outcome (+1/-1/0)
-- **Status**: Active, showing healthy learning
+### PPO (Proximal Policy Optimization)
 
-### Key Problems & Solutions
+Standard RL with clipped surrogate objective.
 
-#### Problem 1: MCTS Too Slow
-- **Symptom**: ~35 seconds per game (sequential neural network calls)
-- **Solution**: BatchMCTS - batch leaf evaluations across parallel games
-- **Result**: ~0.17s per game (200x speedup)
+**Pros:** Fast game generation (~2048 games in 17s)
+**Cons:** Hit NaN losses at iteration 80 in some runs
 
-#### Problem 2: Self-Play Collapse
-- **Symptom**: Model performance degraded from 56% to 16% vs random
-- **Cause**: Pure self-play leads to co-adaptation; model exploits own weaknesses
-- **Solution**: Opponent diversity pool
+```bash
+uv run scripts/train.py --config configs/default.yaml
+```
 
-### Opponent Diversity (Critical Fix)
+### AlphaZero-style MCTS (Recommended)
 
-Instead of 100% self-play, training now uses mixed opponents:
+MCTS search generates improved policy targets for supervised learning.
+
+**Pros:** More stable, stronger final performance
+**Cons:** Slower (MCTS search overhead)
+
+```bash
+uv run scripts/train_mcts.py --config configs/h100_mcts.yaml
+```
+
+## Opponent Diversity (Critical)
+
+Pure self-play causes training collapse (model exploits own weaknesses). The opponent pool mixes:
 
 | Opponent Type | Weight | Purpose |
 |--------------|--------|---------|
@@ -107,77 +157,112 @@ Instead of 100% self-play, training now uses mixed opponents:
 | Random agent | 10% | Baseline calibration |
 | Heuristic agent | 10% | Quality anchor |
 
-Checkpoints added to pool every 20 iterations (max 10 kept).
+Checkpoints are added to the pool every 20 iterations (max 10 kept).
 
-### MCTS Configuration (Tuned for Exploration)
+## Performance Optimizations
+
+### Cython Acceleration
+
+The simulator has optional Cython bindings for 200x speedup in batch game generation.
+
+```bash
+# Build Cython extensions
+bash scripts/build_cython.sh
+
+# Benchmark
+uv run scripts/benchmark_cython.py
+```
+
+Auto-detected at import; falls back to pure Python if not available.
+
+### BatchMCTS
+
+Batched neural network evaluation across parallel search trees with virtual loss for diverse exploration.
+
+| Feature | Sequential MCTS | Batch MCTS |
+|---------|----------------|------------|
+| Network calls | N x simulations | ~simulations (batched) |
+| GPU utilization | Low | High |
+| Throughput | Baseline | 5-10x faster |
+
+## MCTS Configuration
 
 ```yaml
 mcts_config:
-  num_simulations: 200      # Search depth
-  c_puct: 2.0               # Exploration constant (was 1.5)
-  temperature_drop_move: 30 # Stay stochastic longer (was 15)
-  final_temperature: 0.25   # Less deterministic (was 0.1)
-  dirichlet_alpha: 0.5      # More uniform noise (was 0.3)
-  dirichlet_epsilon: 0.4    # More noise mixing (was 0.25)
+  num_simulations: 200      # Search depth per move
+  c_puct: 2.0               # Exploration constant
+  temperature: 1.0          # Action sampling temperature
+  temperature_drop_move: 30 # Stay stochastic longer
+  final_temperature: 0.25   # Less deterministic late game
+  dirichlet_alpha: 0.5      # Root noise concentration
+  dirichlet_epsilon: 0.4    # Root noise mixing
   batch_size: 32            # Batched leaf evaluation
-  virtual_loss: 3.0         # Parallel MCTS exploration
+  virtual_loss: 3.0         # Parallel MCTS penalty
 ```
 
-### Training Hyperparameters
+## Training Hyperparameters
 
 ```yaml
-learning_rate: 0.00005      # Slow learning (was 0.0001)
-entropy_bonus_weight: 0.05  # Encourage exploration (was 0.01)
-games_per_iteration: 128
-batch_size: 512
-epochs_per_iteration: 4
-total_iterations: 200
+learning_rate: 0.00005      # Slow learning for stability
+entropy_bonus_weight: 0.05  # Encourage exploration
+games_per_iteration: 128    # Self-play games per step
+batch_size: 512             # Training batch size
+epochs_per_iteration: 4     # Network updates per iteration
+total_iterations: 200       # Training length
 ```
 
-### Running Training (RunPod H100)
+## Key Metrics to Watch
+
+| Metric | Target | Meaning |
+|--------|--------|---------|
+| Policy loss | Decreasing | Network matching MCTS policies |
+| Value loss | Decreasing | Predicting game outcomes |
+| Entropy | 0.5-2.0 | Healthy exploration (not collapsed) |
+| Win rate vs random | >50% | Learning basic strategy |
+| Win rate vs heuristic | >40% | Real strategic understanding |
+
+## Game Rules Summary
+
+Beasty Bar is a 2-player card game where animals jostle to enter Heaven's Gate.
+
+**Turn structure:**
+1. Play one card at the back of the queue
+2. Execute the card's animal action
+3. Process recurring actions (Hippo, Crocodile, Giraffe)
+4. Five-animal check: front 2 enter bar, last 1 bounced
+5. Draw a card
+
+**12 Animals** (strength in parentheses):
+- **Lion (12)**: Scares monkeys, moves to front
+- **Hippo (11)**: Recurring - passes weaker animals toward gate
+- **Crocodile (10)**: Recurring - eats weaker animals ahead
+- **Snake (9)**: Sorts queue by strength descending
+- **Giraffe (8)**: Recurring - jumps over one weaker animal
+- **Zebra (7)**: Permanent blocker for hippo/croc
+- **Seal (6)**: Reverses entire queue
+- **Chameleon (5)**: Imitates another species
+- **Monkey (4)**: If 2+, bounces hippos/crocs, moves to front
+- **Kangaroo (3)**: Jumps over last 1-2 animals
+- **Parrot (2)**: Bounces any one animal
+- **Skunk (1)**: Expels highest and second-highest strength animals
+
+**Scoring:** Points per animal in the Beasty Bar. Winner has most points.
+
+## Development
 
 ```bash
-# SSH to RunPod
-ssh runpod
+# Run linting
+uv run ruff check .
 
-# Start MCTS training with opponent diversity
-cd ~/beastybar
-nohup python -m _03_training.run_mcts_training \
-  --config configs/h100_mcts.yaml \
-  > logs/mcts_training.log 2>&1 &
+# Run type checking
+uv run mypy _01_simulator _02_agents _03_training
 
-# Monitor
-tail -f logs/mcts_training.log
+# Run all tests
+uv run pytest _05_other/tests -ra
 ```
 
-### Training Metrics to Watch
+## References
 
-- **Policy loss**: Should decrease (network matching MCTS policies)
-- **Value loss**: Should decrease (predicting game outcomes)
-- **Entropy**: Should stay moderate (0.5-2.0), not collapse to 0
-- **Win rate vs random**: Should increase above 50%
-- **Win rate vs heuristic**: Target >40% indicates real learning
-
-### File Structure
-
-```
-_03_training/
-├── mcts_trainer.py      # AlphaZero training loop
-├── mcts_self_play.py    # BatchMCTS game generation
-├── opponent_pool.py     # Diverse opponent sampling
-├── trainer.py           # PPO training (deprecated)
-├── evaluation.py        # Win rate evaluation
-└── tracking.py          # Metrics logging
-
-configs/
-├── h100_mcts.yaml       # MCTS training config
-└── h100_scaled.yaml     # PPO config (deprecated)
-```
-
----
-
-### Misc
-- Built in Python. Fast to build. I want to get better at it.
-- FastAPI + static html. Fast, simple and zero build.
-- Beasty Bar intro: https://tesera.ru/images/items/1525203/BeastyBar_EN-online.pdf
-- Beady Bar more rules: https://www.ultraboardgames.com/beasty-bar/game-rules.php
+- [Beasty Bar Rules PDF](https://tesera.ru/images/items/1525203/BeastyBar_EN-online.pdf)
+- [AlphaZero Paper](https://arxiv.org/abs/1712.01815)
+- [PPO Paper](https://arxiv.org/abs/1707.06347)
