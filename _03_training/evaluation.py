@@ -96,15 +96,44 @@ def create_opponent(name: str) -> Agent:
     elif name_lower == "heuristic":
         return HeuristicAgent(seed=None)
     elif name_lower.startswith("mcts-"):
+        from _02_agents.neural.utils import get_device, load_network_from_checkpoint
+
         try:
-            iterations = int(name_lower.split("-")[1])
+            num_simulations = int(name_lower.split("-")[1])
         except (IndexError, ValueError) as e:
-            raise ValueError(f"Invalid MCTS specification: {name}. Use 'mcts-N' where N is iterations.") from e
-        return MCTSAgent(iterations=iterations, seed=None)
+            raise ValueError(f"Invalid MCTS specification: {name}. Use 'mcts-N' where N is simulations.") from e
+
+        # Load network from PPO checkpoint for meaningful MCTS search
+        # Use the latest PPO v2 checkpoint
+        from pathlib import Path
+
+        ppo_checkpoint = Path("checkpoints/ppo_h200_v2/iter_000199.pt")
+        if ppo_checkpoint.exists():
+            network, _config, _step = load_network_from_checkpoint(ppo_checkpoint, device=get_device())
+        else:
+            # Fallback to default config with random weights
+            from _02_agents.neural.network import BeastyBarNetwork
+            from _02_agents.neural.utils import default_config
+
+            network = BeastyBarNetwork(default_config())
+            network = network.to(get_device())
+        network.eval()
+
+        return MCTSAgent(
+            network=network,
+            num_simulations=num_simulations,
+            temperature=0.1,  # Near-greedy for evaluation
+        )
+    elif name_lower == "self" or name_lower.startswith("ppo"):
+        # Self-play: load the same PPO model as opponent
+        from _02_agents.neural.agent import load_neural_agent
+
+        checkpoint = "checkpoints/ppo_h200_v2/iter_000199.pt"
+        return load_neural_agent(checkpoint, mode="greedy", device="mps")
     else:
         raise ValueError(
             f"Unknown opponent: {name}. "
-            f"Available: random, heuristic, mcts-100, mcts-500, mcts-1000"
+            f"Available: random, heuristic, mcts-100, mcts-500, mcts-1000, self"
         )
 
 

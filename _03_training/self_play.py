@@ -602,9 +602,33 @@ def generate_games_batched(
     Returns:
         List of GameTrajectory objects, one per game.
     """
+    # Try Cython-accelerated environment first (5-10x faster)
+    try:
+        from .vectorized_env_cython import (
+            generate_games_vectorized_cython,
+            is_cython_available,
+        )
+
+        if is_cython_available():
+            env_trajectories, stats = generate_games_vectorized_cython(
+                network=network,
+                num_games=num_games,
+                temperature=temperature,
+                device=device,
+                seeds=seeds,
+                shaped_rewards=shaped_rewards,
+            )
+            logger.debug(
+                f"Cython vectorized generation: {stats['inference_calls']} inference calls, "
+                f"avg batch size {stats['avg_batch_size']:.1f}"
+            )
+            return _convert_env_trajectories(env_trajectories, shaped_rewards)
+    except ImportError:
+        pass
+
+    # Fall back to pure Python vectorized environment
     from .vectorized_env import generate_games_vectorized
 
-    # Generate games using vectorized environment
     env_trajectories, stats = generate_games_vectorized(
         network=network,
         num_games=num_games,
@@ -730,19 +754,25 @@ def _convert_single_env_trajectory(
     """Convert a single EnvTrajectory to GameTrajectory.
 
     Args:
-        env_traj: EnvTrajectory from vectorized environment.
+        env_traj: EnvTrajectory from vectorized environment (Python or Cython).
         shaped_rewards: Whether to use shaped rewards.
 
     Returns:
         GameTrajectory or None if conversion not possible.
     """
-    final_state = env_traj.final_state
-    if final_state is None:
+    # Support both Python EnvTrajectory (has final_state) and Cython (has final_scores)
+    if hasattr(env_traj, "final_state"):
+        final_state = env_traj.final_state
+        if final_state is None:
+            return None
+        scores = simulate.score(final_state)
+        final_scores = (scores[0], scores[1])
+    elif hasattr(env_traj, "final_scores") and env_traj.final_scores is not None:
+        final_scores = env_traj.final_scores
+    else:
         return None
 
     # Compute game outcome
-    scores = simulate.score(final_state)
-    final_scores = (scores[0], scores[1])
     winner = compute_winner(final_scores)
     reward_p0, reward_p1 = compute_rewards(winner, final_scores, shaped=shaped_rewards)
 
@@ -767,17 +797,18 @@ def _convert_env_trajectories(
     """Convert vectorized env trajectories to GameTrajectory format.
 
     Args:
-        env_trajectories: List of EnvTrajectory objects from vectorized env.
+        env_trajectories: List of EnvTrajectory objects from vectorized env
+            (either Python or Cython version).
         shaped_rewards: Whether shaped rewards were used.
 
     Returns:
         List of GameTrajectory objects compatible with existing code.
     """
-    from .vectorized_env import EnvTrajectory
-
     result = []
     for env_traj in env_trajectories:
-        if not isinstance(env_traj, EnvTrajectory):
+        # Check for required attributes (duck typing) instead of isinstance
+        # to support both Python EnvTrajectory and Cython EnvTrajectory
+        if not hasattr(env_traj, "steps_p0") or not hasattr(env_traj, "steps_p1"):
             continue
 
         game_traj = _convert_single_env_trajectory(env_traj, shaped_rewards)

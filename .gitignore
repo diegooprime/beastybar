@@ -26,3 +26,4 @@ _01_simulator/_cython/*.html
 
 # Lock files (optional - can be tracked if desired)
 # uv.lock
+.DS_Store
