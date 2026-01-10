@@ -365,17 +365,245 @@ class HeuristicAgent(Agent):
         return adjustment
 
 
-def create_heuristic_variants() -> list[HeuristicAgent]:
+class OnlineStrategies(Agent):
+    """Reactive agent that holds counter cards and punishes opponent mistakes.
+
+    This agent tracks played cards to infer what the opponent likely still holds,
+    then applies reactive rules to exploit timing windows:
+
+    1. Crocodile timing: Hold Crocodile until opponent plays Chameleon.
+       Chameleon copies abilities but reverts to strength 5, easy prey for Crocodile (10).
+
+    2. Skunk timing: Hold Skunk until the top 2 STRENGTH species in queue
+       belong primarily to the opponent. Skunk removes all animals of those species.
+       Considers net point gain (opponent lost - our lost) before playing.
+
+    3. Lion timing: Hold Lion until opponent's Lion is gone from the queue.
+       When 2+ lions are in queue, the newly played lion is bounced to THAT'S IT.
+       Playing when opponent's lion is in queue means OUR lion gets bounced.
+
+    4. Parrot targeting: Prioritize opponent's cards near the front of the queue.
+       Front cards are more valuable targets since they're closer to entering the bar.
+
+    Falls back to MaterialEvaluator scoring when no punishment opportunity exists.
+    """
+
+    def __init__(self, seed: int | None = None):
+        """Initialize the agent.
+
+        Args:
+            seed: Random seed for tiebreaking.
+        """
+        self._rng = random.Random(seed)
+        self._evaluator = MaterialEvaluator()
+
+    @property
+    def name(self) -> str:
+        """Return descriptive agent name."""
+        return "OnlineStrategies"
+
+    def _get_opponent_played_species(self, game_state: state.State, opponent: int) -> set[str]:
+        """Get species the opponent has already played (visible in all zones).
+
+        Args:
+            game_state: Current game state.
+            opponent: Opponent player index.
+
+        Returns:
+            Set of species names opponent has played.
+        """
+        played: set[str] = set()
+        for card in game_state.zones.beasty_bar:
+            if card.owner == opponent:
+                played.add(card.species)
+        for card in game_state.zones.thats_it:
+            if card.owner == opponent:
+                played.add(card.species)
+        for card in game_state.zones.queue:
+            if card.owner == opponent:
+                played.add(card.species)
+        return played
+
+    def _get_opponent_remaining_species(self, game_state: state.State, opponent: int) -> set[str]:
+        """Infer what species the opponent likely still holds.
+
+        Each player starts with exactly one of each species (12 cards).
+        Cards visible in any zone have been played.
+
+        Args:
+            game_state: Current game state.
+            opponent: Opponent player index.
+
+        Returns:
+            Set of species names opponent likely still has.
+        """
+        from _01_simulator.rules import BASE_DECK
+
+        played = self._get_opponent_played_species(game_state, opponent)
+        return set(BASE_DECK) - played
+
+    def _calculate_reactive_bonus(
+        self,
+        game_state: state.State,
+        action: actions.Action,
+        card: state.Card,
+        player: int,
+    ) -> float:
+        """Calculate reactive bonus/penalty for playing a card.
+
+        Applies strategic timing rules based on board state and opponent tracking.
+
+        Args:
+            game_state: Current game state.
+            action: The action being evaluated.
+            card: The card being played.
+            player: The player index.
+
+        Returns:
+            Bonus (positive) or penalty (negative) adjustment.
+        """
+        bonus = 0.0
+        opponent = 1 - player
+        queue = game_state.zones.queue
+        queue_len = len(queue)
+        species = card.species
+
+        opponent_played = self._get_opponent_played_species(game_state, opponent)
+
+        # Rule 1: Crocodile timing - hold until Chameleon is vulnerable
+        # Chameleon copies abilities but reverts to strength 5, easy prey for Crocodile (10)
+        if species == "crocodile":
+            chameleon_in_queue = any(c.species == "chameleon" for c in queue)
+            if chameleon_in_queue:
+                bonus += 5.0  # Big opportunity to eat the Chameleon
+            else:
+                # Check if opponent still has Chameleon - might want to wait
+                if "chameleon" not in opponent_played:
+                    bonus -= 1.0  # Slight penalty for playing early
+
+        # Rule 2: Skunk timing - hold until skunk removes valuable opponent cards
+        # Skunk expels all animals of the top 2 STRENGTH species (not points!)
+        if species == "skunk":
+            # Compute which species would be removed (by strength)
+            species_strengths: dict[str, int] = {}
+            for c in queue:
+                if c.species != "skunk":
+                    species_strengths[c.species] = c.strength
+
+            if len(species_strengths) >= 2:
+                # Get top 2 strength species that would be removed
+                sorted_species = sorted(species_strengths.items(), key=lambda x: x[1], reverse=True)
+                top_two = {sp for sp, _ in sorted_species[:2]}
+
+                # Calculate net point gain (opponent removed - our removed)
+                opp_removed_points = sum(c.points for c in queue if c.owner == opponent and c.species in top_two)
+                my_removed_points = sum(c.points for c in queue if c.owner == player and c.species in top_two)
+                net_gain = opp_removed_points - my_removed_points
+
+                if net_gain >= 4:
+                    bonus += 4.0  # Strong skunk opportunity
+                elif net_gain >= 2:
+                    bonus += 2.0  # Decent skunk opportunity
+                elif net_gain <= -2:
+                    bonus -= 3.0  # Skunk would hurt us more than opponent
+            else:
+                bonus -= 1.5  # Not enough distinct species to target
+
+        # Rule 3: Lion timing - avoid being bounced
+        # When 2+ lions in queue, the newly played lion is sent to THAT'S IT
+        # If opponent's lion is in queue, playing our lion means OUR lion bounces
+        if species == "lion":
+            opp_lion_in_queue = any(c.species == "lion" and c.owner == opponent for c in queue)
+            if opp_lion_in_queue:
+                bonus -= 5.0  # DANGER! Our lion will be bounced
+            elif "lion" in opponent_played:
+                bonus += 3.0  # Safe - opponent's lion already played and gone from queue
+            else:
+                # Opponent may still have Lion in hand - risky
+                bonus -= 2.0  # Hold back to avoid being bounced later
+
+        # Rule 4: Parrot targeting - prioritize opponent cards near the front
+        # Cards at the front of the queue are more valuable targets because they're
+        # closer to entering the bar. Remove them now to deny future bar entries.
+        # Note: Playing parrot does NOT trigger the five-card check because parrot
+        # removes a card, keeping queue length the same or reducing it.
+        if species == "parrot" and action.params:
+            target_idx = action.params[0]
+            if 0 <= target_idx < queue_len:
+                target = queue[target_idx]
+                if target.owner == opponent:
+                    # Bonus based on position: front cards (low index) are more valuable
+                    # Position 0 is best, position queue_len-1 is worst
+                    position_value = 1.0 - (target_idx / max(queue_len, 1))
+                    bonus += target.points * 0.3 + position_value * 2.0
+                else:
+                    # Penalty for removing our own cards
+                    bonus -= target.points * 0.5
+
+        return bonus
+
+    def select_action(
+        self,
+        game_state: state.State,
+        legal_actions: Sequence[actions.Action],
+    ) -> actions.Action:
+        """Select action using reactive strategy with MaterialEvaluator fallback.
+
+        Args:
+            game_state: Current game state.
+            legal_actions: Available legal actions.
+
+        Returns:
+            The selected action.
+        """
+        if len(legal_actions) == 1:
+            return legal_actions[0]
+
+        player = game_state.active_player
+        scored_actions: list[tuple[float, actions.Action]] = []
+
+        for action in legal_actions:
+            card = game_state.players[player].hand[action.hand_index]
+
+            # Simulate the action to get base evaluation
+            try:
+                next_state = engine.step(game_state, action)
+            except BeastyBarError:
+                scored_actions.append((float("-inf"), action))
+                continue
+
+            # Base score from MaterialEvaluator
+            base_score = self._evaluator(next_state, player)
+
+            # Add reactive bonus/penalty
+            reactive_bonus = self._calculate_reactive_bonus(game_state, action, card, player)
+
+            total_score = base_score + reactive_bonus
+            scored_actions.append((total_score, action))
+
+        # Sort by score descending
+        scored_actions.sort(key=lambda x: -x[0])
+
+        # Get all actions with the best score (with epsilon for floating point)
+        best_score = scored_actions[0][0]
+        best_actions = [a for s, a in scored_actions if abs(s - best_score) < 1e-6]
+
+        # Random tiebreak among best actions
+        return self._rng.choice(best_actions)
+
+
+def create_heuristic_variants() -> list[Agent]:
     """Create a list of pre-configured heuristic agent variants.
 
-    Returns 5 variants with different play styles:
+    Returns 6 variants with different play styles:
     - Aggressive: Prioritizes bar entry, plays aggressively
     - Defensive: Conservative play, lower aggression
     - Queue Controller: Emphasizes queue front positioning
     - Skunk Specialist: Values skunk-related plays higher
     - Noisy/Human-like: Adds random noise for bounded rationality
+    - OnlineStrategies: Reactive counter-play and opponent tracking
     """
-    variants: list[HeuristicAgent] = []
+    variants: list[Agent] = []
 
     # 1. Aggressive variant
     aggressive_config = HeuristicConfig(
@@ -409,7 +637,16 @@ def create_heuristic_variants() -> list[HeuristicAgent]:
     )
     variants.append(HeuristicAgent(config=noisy_config))
 
+    # 6. OnlineStrategies - reactive counter-play
+    variants.append(OnlineStrategies())
+
     return variants
 
 
-__all__ = ["HeuristicAgent", "HeuristicConfig", "MaterialEvaluator", "create_heuristic_variants"]
+__all__ = [
+    "HeuristicAgent",
+    "HeuristicConfig",
+    "MaterialEvaluator",
+    "OnlineStrategies",
+    "create_heuristic_variants",
+]
