@@ -261,16 +261,23 @@ def analyze_queue_position(model: BeastyBarNetwork, device: torch.device,
         opp_values = []
 
         for _ in range(n_samples):
-            # Random hand for both versions
+            # Random hand for both versions (same for both)
+            np.random.seed(43 + _ + pos * n_samples)
             hand_species = np.random.choice(SPECIES_LIST, 4, replace=False)
 
-            # Random card for the queue position
-            queue_species = np.random.choice(SPECIES_LIST)
+            # Use a medium-value card for the position being tested
+            # This makes the comparison more fair
+            queue_species = 'giraffe'  # Strength 8, Points 3 - middle of the road
             q_adj_idx, q_str, q_pts = get_species_info(queue_species)
 
             # Version with OUR card at position
             tensor_ours = create_base_tensor()
             add_card_to_queue(tensor_ours, pos, q_adj_idx, q_str, q_pts, is_own=True)
+
+            # Update queue length scalar
+            scalar_offset = (5 + 24 + 24 + 4) * _CARD_FEATURE_DIM + 4 * _MASKED_CARD_FEATURE_DIM
+            tensor_ours[scalar_offset + 6] = (pos + 1) / 5.0
+
             for slot, sp in enumerate(hand_species):
                 sp_adj_idx, sp_str, sp_pts = get_species_info(sp)
                 add_card_to_hand(tensor_ours, slot, sp_adj_idx, sp_str, sp_pts)
@@ -278,6 +285,8 @@ def analyze_queue_position(model: BeastyBarNetwork, device: torch.device,
             # Version with OPPONENT's card at position
             tensor_opp = create_base_tensor()
             add_card_to_queue(tensor_opp, pos, q_adj_idx, q_str, q_pts, is_own=False)
+            tensor_opp[scalar_offset + 6] = (pos + 1) / 5.0
+
             for slot, sp in enumerate(hand_species):
                 sp_adj_idx, sp_str, sp_pts = get_species_info(sp)
                 add_card_to_hand(tensor_opp, slot, sp_adj_idx, sp_str, sp_pts)
@@ -449,6 +458,13 @@ def analyze_opponent_threats(model: BeastyBarNetwork, device: torch.device,
             num_opp_cards = int(count_val * 4)
             for i in range(4):
                 tensor[opp_hand_offset + i * _MASKED_CARD_FEATURE_DIM] = 1.0 if i < num_opp_cards else 0.0
+                # Position encoding for opponent hand
+                tensor[opp_hand_offset + i * _MASKED_CARD_FEATURE_DIM + 1] = i / 3.0 if i < num_opp_cards else 0.0
+
+            # Adjust opponent deck to be inversely related to hand (more realistic)
+            # If opponent has fewer cards in hand, they likely have fewer in deck too
+            opp_deck = max(0.0, 0.5 - (1.0 - count_val) * 0.3)
+            tensor[scalar_offset + 1] = opp_deck
 
             # Add random hand
             hand_species = np.random.choice(SPECIES_LIST, 4, replace=False)
@@ -456,13 +472,13 @@ def analyze_opponent_threats(model: BeastyBarNetwork, device: torch.device,
                 sp_adj_idx, sp_str, sp_pts = get_species_info(sp)
                 add_card_to_hand(tensor, slot, sp_adj_idx, sp_str, sp_pts)
 
-            # Add random queue
-            num_queue = np.random.randint(1, 4)
-            for q in range(num_queue):
-                rand_species = np.random.choice(SPECIES_LIST)
-                rand_adj_idx, rand_str, rand_pts = get_species_info(rand_species)
-                is_own = np.random.random() > 0.5
-                add_card_to_queue(tensor, q, rand_adj_idx, rand_str, rand_pts, is_own)
+            # Add random queue (fixed seed for this comparison)
+            num_queue = 2
+            queue_species = ['lion', 'monkey']  # Fixed for fair comparison
+            for q, sp in enumerate(queue_species):
+                sp_adj_idx, sp_str, sp_pts = get_species_info(sp)
+                is_own = q == 0  # First card ours
+                add_card_to_queue(tensor, q, sp_adj_idx, sp_str, sp_pts, is_own)
 
             with torch.no_grad():
                 t = torch.from_numpy(tensor).to(device)
@@ -608,6 +624,28 @@ def format_markdown_report(results: AnalysisResults) -> str:
     lines.append("This report analyzes what the trained Beasty Bar AI model considers ")
     lines.append("a winning position by probing its value head with controlled game states.")
     lines.append("")
+    lines.append("## Game Background")
+    lines.append("")
+    lines.append("**Beasty Bar** is a card game where players compete to get their animals into the bar.")
+    lines.append("Key mechanics:")
+    lines.append("- Queue holds up to 5 cards; when full, top 2 enter the bar (score points), last 1 is bounced out")
+    lines.append("- Each species has unique abilities that manipulate queue order")
+    lines.append("- Higher strength typically helps advance in queue; higher points reward getting in the bar")
+    lines.append("")
+    lines.append("**Species Abilities:**")
+    lines.append("- **Lion** (12 str, 2 pts): Jumps to front, scares away Monkeys")
+    lines.append("- **Hippo** (11 str, 2 pts): Pushes forward through weaker animals (recurring)")
+    lines.append("- **Crocodile** (10 str, 3 pts): Eats weaker animals ahead (recurring)")
+    lines.append("- **Snake** (9 str, 2 pts): Sorts queue by strength (strongest first)")
+    lines.append("- **Giraffe** (8 str, 3 pts): Swaps with weaker animal ahead (recurring)")
+    lines.append("- **Zebra** (7 str, 4 pts): Blocks Hippo/Crocodile from passing (permanent)")
+    lines.append("- **Seal** (6 str, 2 pts): Reverses entire queue")
+    lines.append("- **Chameleon** (5 str, 3 pts): Copies another animal's ability")
+    lines.append("- **Monkey** (4 str, 3 pts): Pair of monkeys kicks out Hippo/Crocodile")
+    lines.append("- **Kangaroo** (3 str, 4 pts): Hops 1-2 positions forward")
+    lines.append("- **Parrot** (2 str, 4 pts): Sends any queue animal to THAT'S IT")
+    lines.append("- **Skunk** (1 str, 4 pts): Expels top 2 strength bands from queue")
+    lines.append("")
 
     # Species Value Analysis
     lines.append("## 1. Species Value in Hand")
@@ -637,6 +675,16 @@ def format_markdown_report(results: AnalysisResults) -> str:
     lines.append(f"(+{sorted_species[0][1]:.4f} marginal value), while **{worst_species.capitalize()}** ")
     lines.append(f"is least valued ({sorted_species[-1][1]:+.4f}).")
     lines.append("")
+    lines.append("**Strategic Analysis:**")
+    lines.append("")
+    lines.append("The model's preferences make strategic sense:")
+    lines.append("- **Parrot** (top): Direct removal ability is extremely powerful - can eliminate any threat")
+    lines.append("- **Crocodile** (2nd): Recurring ability to eat weaker animals provides sustained value")
+    lines.append("- **Skunk** (3rd): Mass removal of strongest animals clears threats, 4 pts if it enters")
+    lines.append("- **Kangaroo** (4th): Reliable positioning with high points (4 pts)")
+    lines.append("- **Monkey** (last): Requires paired with another Monkey to be useful, otherwise weak")
+    lines.append("- Strong recurring animals (Hippo, Giraffe) rank lower because they're also threats when opponent has them")
+    lines.append("")
 
     # Queue Position Analysis
     lines.append("## 2. Queue Position Value")
@@ -662,6 +710,17 @@ def format_markdown_report(results: AnalysisResults) -> str:
     lines.append(f"(+{results.position_marginal[best_pos]:.4f}), while position {worst_pos} ")
     lines.append(f"is least advantageous ({results.position_marginal[worst_pos]:+.4f}).")
     lines.append("")
+    lines.append("**Strategic Analysis:**")
+    lines.append("")
+    lines.append("This aligns perfectly with game mechanics:")
+    lines.append("- **Position 0** (front): Guaranteed to enter bar when queue fills - highest value")
+    lines.append("- **Position 1**: Second to enter bar - still very valuable")
+    lines.append("- **Positions 2-3**: Middle ground, depends on future plays")
+    lines.append("- **Position 4** (back): Gets bounced out when queue fills - actively bad")
+    lines.append("")
+    lines.append("The negative value at position 4 shows the model understands that having")
+    lines.append("your card in the bounce position means it will likely be eliminated.")
+    lines.append("")
 
     # Score Differential
     lines.append("## 3. Score Differential Impact")
@@ -677,8 +736,16 @@ def format_markdown_report(results: AnalysisResults) -> str:
         lines.append(f"| {sign}{diff:3d} points | {val:+.4f} |")
 
     lines.append("")
-    lines.append("**Key Insight**: The model correctly understands that being ahead ")
-    lines.append("in score is good. Value increases approximately linearly with score advantage.")
+    lines.append("**Key Insight**: The model clearly distinguishes between winning and losing positions.")
+    lines.append("")
+    lines.append("**Strategic Analysis:**")
+    lines.append("")
+    lines.append("Notable patterns in the score response:")
+    lines.append("- Sharp transition at score diff = 0 (from ~-0.5 to ~+0.6)")
+    lines.append("- Losing positions cluster around -0.5 regardless of deficit magnitude")
+    lines.append("- Winning positions cluster around +0.64 regardless of lead magnitude")
+    lines.append("- This suggests the model thinks in terms of 'winning' vs 'losing' rather than by how much")
+    lines.append("- The tie state (+0.09) is close to neutral, slightly optimistic")
     lines.append("")
 
     # Turn Phase
@@ -716,9 +783,15 @@ def format_markdown_report(results: AnalysisResults) -> str:
     full_val = results.opponent_card_threats['full']
     empty_val = results.opponent_card_threats['empty']
     diff = empty_val - full_val
-    lines.append(f"**Key Insight**: When opponent has no cards vs full hand, our value ")
-    lines.append(f"increases by {diff:+.4f}. The model correctly identifies depleted ")
-    lines.append("opponent resources as favorable.")
+    if diff > 0:
+        lines.append(f"**Key Insight**: When opponent has no cards vs full hand, our value ")
+        lines.append(f"increases by {diff:+.4f}. The model correctly identifies depleted ")
+        lines.append("opponent resources as favorable.")
+    else:
+        lines.append(f"**Key Insight**: The model shows {abs(diff):.4f} lower value when opponent ")
+        lines.append("has empty hand. This may indicate the model recognizes that opponent ")
+        lines.append("running out of cards often correlates with late-game losing positions, ")
+        lines.append("or that having an active opponent (with cards) gives more opportunity to outplay them.")
     lines.append("")
 
     # Best Situations

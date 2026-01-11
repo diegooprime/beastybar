@@ -595,14 +595,18 @@ class OnlineStrategies(Agent):
 def create_heuristic_variants() -> list[Agent]:
     """Create a list of pre-configured heuristic agent variants.
 
-    Returns 6 variants with different play styles:
+    Returns 8 variants with different play styles:
     - Aggressive: Prioritizes bar entry, plays aggressively
     - Defensive: Conservative play, lower aggression
     - Queue Controller: Emphasizes queue front positioning
     - Skunk Specialist: Values skunk-related plays higher
     - Noisy/Human-like: Adds random noise for bounded rationality
     - OnlineStrategies: Reactive counter-play and opponent tracking
+    - OutcomeHeuristic: Forward simulation with hand-tuned weights
+    - DistilledOutcomeHeuristic: Forward simulation with PPO-extracted weights
     """
+    from .outcome_heuristic import DistilledOutcomeHeuristic, OutcomeHeuristic
+
     variants: list[Agent] = []
 
     # 1. Aggressive variant
@@ -639,6 +643,12 @@ def create_heuristic_variants() -> list[Agent]:
 
     # 6. OnlineStrategies - reactive counter-play
     variants.append(OnlineStrategies())
+
+    # 7. OutcomeHeuristic - forward simulation with hand-tuned weights
+    variants.append(OutcomeHeuristic())
+
+    # 8. DistilledOutcomeHeuristic - forward simulation with PPO-extracted weights
+    variants.append(DistilledOutcomeHeuristic())
 
     return variants
 

@@ -1,6 +1,6 @@
 # RunPod Training
 
-Quick setup for training on RunPod H100/H200 GPUs.
+Quick setup for training on RunPod H200 SXM GPUs.
 
 ## Setup
 
@@ -35,12 +35,24 @@ EOF
 
 ## Training
 
+The hardcoded defaults in `TrainingConfig` are optimized for H200 SXM:
+- 131K games/iteration, 32K minibatch
+- Opponent pool ON (80% Cython, 20% Python fallback for heuristic/random)
+- 16 async workers, 32 prefetch batches
+- 1000 iterations
+
 ```bash
 ssh -p $RUNPOD_PORT -i $SSH_KEY root@$RUNPOD_IP << 'EOF'
 cd /workspace/beastybar && source .venv/bin/activate
+
+# Set wandb API key
+export WANDB_API_KEY="<your-api-key>"
+
+# Start training with wandb tracking
 nohup python scripts/train.py \
-  --config configs/runpod_h200.yaml \
-  --iterations 600 \
+  --tracker wandb \
+  --wandb-project beastybar \
+  --experiment-name <run-name> \
   > training.log 2>&1 &
 EOF
 ```
@@ -103,11 +115,12 @@ RunPod has two SSH methods. **Use Direct TCP for file transfer:**
 - **rsync not found:** `apt-get install -y rsync`
 - **torch not found:** `uv pip install torch --index-url https://download.pytorch.org/whl/cu124`
 - **Cython wrong arch:** Rebuild on Linux: `python _01_simulator/_cython/setup.py build_ext --inplace`
-- **Slow training:** Use `configs/runpod_h200.yaml` with `use_opponent_pool: false` for Cython path
 
-## Expected Performance
+## Cython + Opponent Pool
 
-| Mode | Time/Iteration |
-|------|----------------|
-| Async + Cython | ~30-40s |
-| With opponent pool | ~225s (avoid) |
+With default opponent weights (60% current, 20% checkpoint, 10% random, 10% heuristic):
+- **80% of iterations use Cython** (neural network opponents)
+- **20% fall back to Python** (random/heuristic agents need State conversion)
+
+This is the recommended setup - opponent diversity prevents self-play collapse.
+To go 100% Cython (faster but may collapse), use `--config configs/runpod_h200.yaml`.

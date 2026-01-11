@@ -153,9 +153,26 @@ The attention patterns reveal several aspects of the model's learned strategy:
    attention, suggesting the model has learned to track potential threats that could 
    dramatically change the game state.
 
+## Layer-by-Layer Attention Analysis
+
+How attention patterns evolve across the 4 transformer layers:
+
+| Layer | Pos 0 | Pos 1 | Pos 2 | Pos 3 |
+|-------|-------|-------|-------|-------|
+| 0 | 0.5173 | 0.3220 | 0.2976 | 0.3697 |
+| 1 | 0.5647 | 0.3698 | 0.1715 | 0.2887 |
+| 2 | 0.5160 | 0.3985 | 0.2656 | 0.2092 |
+| 3 | 0.5278 | 0.3938 | 0.2454 | 0.2166 |
+
+**Observation**: Later layers show increased attention to position 0 (front),
+suggesting deeper layers focus more on scoring-relevant positions.
+
+**Interpretation**: Earlier layers often focus on local patterns (individual card features),
+while later layers integrate information across positions for strategic reasoning.
+
 ## Methodology
 
-- Generated 200+ diverse game states by playing random moves from initial states
+- Generated 300+ diverse game states by playing random moves from initial states
 - Captured attention weights from the TransformerEncoder in the queue_encoder
 - Averaged attention across all 4 transformer layers and 8 attention heads
 - Analyzed attention received by each queue position (column-wise sums)

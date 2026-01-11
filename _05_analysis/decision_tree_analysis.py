@@ -433,13 +433,13 @@ def interpret_rules_to_insights(tree_rules: str, feature_importance: list) -> li
     insights = []
 
     # Analyze feature importance
-    top_features = [f[0] for f in feature_importance[:5]]
+    top_features = [f[0] for f in feature_importance[:10]]
 
     if any("hand_" in f for f in top_features):
         hand_features = [f for f in top_features if f.startswith("hand_")]
         if hand_features:
             species = [f.replace("hand_", "") for f in hand_features]
-            insights.append(f"Card availability is crucial: having {', '.join(species)} strongly influences decisions")
+            insights.append(f"Card availability is crucial: having {', '.join(species[:3])} strongly influences decisions")
 
     if "queue_length" in top_features:
         insights.append("Queue length is a key decision factor - tactics change based on how full the queue is")
@@ -459,7 +459,43 @@ def interpret_rules_to_insights(tree_rules: str, feature_importance: list) -> li
     if "turn_number" in top_features:
         insights.append("Game phase matters - early, mid, and late game have different optimal plays")
 
+    if "can_use_parrot" in top_features:
+        insights.append("Parrot usage is conditional - the AI waits for the right moment to remove opponents")
+
+    if any("opponent" in f for f in top_features):
+        insights.append("Opponent awareness - the AI considers opponent's queue position and card counts")
+
     return insights
+
+
+def analyze_species_decision_patterns(X: np.ndarray, y: np.ndarray, feature_names: list) -> dict:
+    """Analyze when each species is preferred."""
+    patterns = {}
+
+    for species in SPECIES_NAMES:
+        mask = y == species
+        if not mask.any():
+            continue
+
+        species_X = X[mask]
+        other_X = X[~mask]
+
+        # Find features that differ significantly
+        species_means = species_X.mean(axis=0)
+        other_means = other_X.mean(axis=0)
+        diff = species_means - other_means
+
+        # Get top differentiating features
+        top_diff_indices = np.argsort(np.abs(diff))[::-1][:5]
+        pattern_info = []
+        for idx in top_diff_indices:
+            if abs(diff[idx]) > 0.05:
+                direction = "higher" if diff[idx] > 0 else "lower"
+                pattern_info.append((feature_names[idx], diff[idx], direction))
+
+        patterns[species] = pattern_info
+
+    return patterns
 
 
 def main():
@@ -476,9 +512,9 @@ def main():
     agent = load_neural_agent(checkpoint_path, mode="greedy")
     print(f"   Model loaded on device: {agent.device}")
 
-    # Generate training data
+    # Generate training data (increased samples for better fidelity)
     print("\n2. Generating game states and NN decisions...")
-    X, y = generate_training_data(agent, num_samples=6000, seed=42)
+    X, y = generate_training_data(agent, num_samples=10000, seed=42)
     print(f"   Generated {len(X)} samples")
     print(f"   Species distribution: {Counter(y).most_common()}")
 
@@ -487,13 +523,13 @@ def main():
     # Train decision trees with different depths
     print("\n3. Training decision trees...")
     results = {}
-    for depth in [5, 6, 7, 8]:
+    for depth in [5, 6, 7, 8, 10, 12]:
         clf, accuracy = train_decision_tree(X, y, max_depth=depth)
         results[depth] = (clf, accuracy)
         print(f"   Depth {depth}: Fidelity = {accuracy:.1%}")
 
-    # Use depth 7 as the main model (balance of accuracy and interpretability)
-    best_depth = 7
+    # Use depth 8 for main analysis (good balance of accuracy and interpretability)
+    best_depth = 8
     clf, fidelity = results[best_depth]
 
     # Extract rules
@@ -510,8 +546,12 @@ def main():
     print("\n6. Generating strategic insights...")
     insights = interpret_rules_to_insights(tree_rules, importance)
 
+    # Analyze species patterns
+    print("\n7. Analyzing species-specific decision patterns...")
+    species_patterns = analyze_species_decision_patterns(X, y, feature_names)
+
     # Write report
-    print("\n7. Writing report...")
+    print("\n8. Writing report...")
 
     report = f"""# Neural Network Decision Tree Analysis
 
@@ -593,17 +633,47 @@ the neural network has learned:
                 report += "Parrot provides targeted removal to That's It.\n"
             elif species == "giraffe":
                 report += "Giraffe's recurring ability to move forward is valuable.\n"
+            elif species == "hippo":
+                report += "Hippo has recurring push ability, strong for queue control.\n"
+            elif species == "zebra":
+                report += "Zebra provides 4 points and stays permanently once in the bar.\n"
+            elif species == "crocodile":
+                report += "Crocodile's recurring eat ability threatens weaker cards.\n"
             else:
                 report += f"{species.title()} has specific tactical value.\n"
         elif feat == "queue_length":
             report += f"- **queue_length** (importance: {imp:.3f}): The number of cards in queue determines available tactics and timing.\n"
         elif feat == "score_difference":
             report += f"- **score_difference** (importance: {imp:.3f}): The AI plays differently when ahead vs behind in score.\n"
+        elif feat == "can_use_parrot":
+            report += f"- **can_use_parrot** (importance: {imp:.3f}): Parrot availability combined with targets in queue triggers targeted removal.\n"
         elif "queue_" in feat:
             species = feat.replace("queue_", "")
             report += f"- **{feat}** (importance: {imp:.3f}): Presence of {species} in queue affects card selection.\n"
         else:
             report += f"- **{feat}** (importance: {imp:.3f}): This game state aspect influences card choices.\n"
+
+    # Add species-specific patterns section
+    report += """
+
+---
+
+## Species-Specific Decision Patterns
+
+When does the neural network prefer to play each species? Here's what makes each
+card choice distinctive:
+
+"""
+
+    for species in ["lion", "hippo", "crocodile", "giraffe", "zebra", "monkey", "parrot", "skunk"]:
+        if species in species_patterns and species_patterns[species]:
+            report += f"### {species.title()}\n"
+            patterns = species_patterns[species]
+            for feat_name, diff_val, direction in patterns[:3]:
+                if "hand_" in feat_name and feat_name.replace("hand_", "") == species:
+                    continue  # Skip the obvious "has this card" pattern
+                report += f"- When `{feat_name}` is {direction} than average (diff: {diff_val:+.2f})\n"
+            report += "\n"
 
     report += f"""
 

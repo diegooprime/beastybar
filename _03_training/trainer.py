@@ -613,13 +613,15 @@ class Trainer:
         )
 
         # Async game generation with multiprocessing (generates next batches while training)
+        # Use spawn context for CUDA compatibility (fork + CUDA = deadlocks)
+        self._mp_ctx = mp.get_context("spawn")
         self._game_queue: mp.Queue | None = None
         self._game_workers: list[mp.Process] = []
         self._game_worker_stop: mp.Event | None = None
         if config.async_game_generation:
             # Use multiprocessing queue for true parallelism (bypasses GIL)
-            self._game_queue = mp.Queue(maxsize=config.async_prefetch_batches)
-            self._game_worker_stop = mp.Event()
+            self._game_queue = self._mp_ctx.Queue(maxsize=config.async_prefetch_batches)
+            self._game_worker_stop = self._mp_ctx.Event()
             logger.info(
                 f"Async game generation enabled: {config.async_num_workers} workers, "
                 f"{config.async_prefetch_batches} batches prefetch"
@@ -708,11 +710,8 @@ class Trainer:
         # Calculate games per worker (distribute evenly)
         games_per_worker = self.config.games_per_iteration // self.config.async_num_workers
 
-        # Use spawn context for cross-platform compatibility
-        ctx = mp.get_context("spawn")
-
         for worker_id in range(self.config.async_num_workers):
-            process = ctx.Process(
+            process = self._mp_ctx.Process(
                 target=_game_generation_worker_process,
                 args=(
                     worker_id,

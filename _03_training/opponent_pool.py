@@ -141,6 +141,7 @@ class OpponentPool:
         self.checkpoints: list[CheckpointEntry] = []
         self._random_agent: Agent | None = None
         self._heuristic_agent: Agent | None = None
+        self._heuristic_variants: list[Agent] | None = None
         self._mcts_agents: dict[str, MCTSAgent] = {}
         self._mcts_network: BeastyBarNetwork | None = None
         self._sample_counts: dict[OpponentType, int] = dict.fromkeys(OpponentType, 0)
@@ -164,10 +165,12 @@ class OpponentPool:
 
     @property
     def heuristic_agent(self) -> Agent:
-        if self._heuristic_agent is None:
-            from _02_agents.heuristic import HeuristicAgent
-            self._heuristic_agent = HeuristicAgent()
-        return self._heuristic_agent
+        """Sample a random heuristic variant."""
+        if self._heuristic_variants is None:
+            from _02_agents.heuristic import create_heuristic_variants
+            self._heuristic_variants = create_heuristic_variants()
+        # Randomly sample from variants each time
+        return self._rng.choice(self._heuristic_variants)
 
     @property
     def mcts_agents(self) -> dict[str, MCTSAgent]:
