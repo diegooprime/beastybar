@@ -1,12 +1,15 @@
-# RunPod H200 Configuration - Recommended for cloud training
-# Optimized for H200 SXM with async game generation
+# RunPod H200 Configuration - Benchmarked on H200 SXM (150GB VRAM)
+#
+# Benchmark Results (2025-01-11):
+# - minibatch_size=32768 achieves 146,769 samples/sec (best throughput)
+# - minibatch_size=65536 uses 45.9GB VRAM but lower throughput
+# - Inference: 750k samples/sec at batch 524288
 #
 # Key features:
-# - 4096 games/iteration (sweet spot for speed vs data)
-# - 2048 minibatch size (GPU efficient)
-# - Async game generation (hides generation latency)
-# - No opponent pool (uses fast Cython path)
-# - Cosine LR decay with warmup
+# - 32768 minibatch size (optimal GPU throughput)
+# - 8192 games/iteration for more data per iteration
+# - Entropy/temperature scheduling enabled
+# - Adaptive opponent weighting for curriculum learning
 
 network_config:
   hidden_dim: 256
@@ -19,50 +22,64 @@ ppo_config:
   learning_rate: 0.0001
   clip_epsilon: 0.2
   value_coef: 0.5
-  entropy_coef: 0.04
+  entropy_coef: 0.04  # Will decay to 0.01 via scheduling
   gamma: 0.99
   gae_lambda: 0.95
   ppo_epochs: 4
-  minibatch_size: 2048
+  minibatch_size: 32768  # Optimal for H200 (146k samples/sec, 23GB VRAM)
   max_grad_norm: 0.5
   normalize_advantages: true
   clip_value: true
   target_kl: 0.02
 
 # Training schedule
-total_iterations: 500
-games_per_iteration: 4096
+total_iterations: 400  # 600+400 = 1000 total
+games_per_iteration: 8192  # More data per iteration
 checkpoint_frequency: 25
 eval_frequency: 10
+
+# Scheduling (linear decay)
+entropy_schedule: "linear"
+entropy_start: 0.04
+entropy_end: 0.01
+temperature_schedule: "linear"
+temperature_start: 1.0
+temperature_end: 0.5
 
 # Async game generation - DISABLED due to multiprocessing issues
 async_game_generation: false
 async_prefetch_batches: 2
 
 # Self-play settings
-self_play_temperature: 1.0
+self_play_temperature: 1.0  # Overridden by temperature_schedule
 shaped_rewards: false
 
-# IMPORTANT: Disable opponent pool for fast Cython path
-# Opponent pool uses pure Python which is 5x slower
-use_opponent_pool: false
+# Adaptive opponent weighting
+use_adaptive_weights: true
+min_opponent_weight: 0.05
+
+# Cython enforcement
+force_cython: true
 
 # Learning rate schedule
 lr_warmup_iterations: 20
 lr_decay: "cosine"
 
 # Buffer settings
-buffer_size: 400000
-min_buffer_size: 20000
+buffer_size: 800000  # Larger for 8192 games/iter
+min_buffer_size: 40000
 gradient_accumulation_steps: 1
 
 # Misc
 seed: 42
 device: "cuda"
-experiment_name: "runpod_h200"
+experiment_name: "h200_iter600_to_1000"
 checkpoint_dir: "checkpoints"
 log_frequency: 1
 
 # Model selection
 save_best_model: true
 best_model_metric: "heuristic"
+
+# Resume from checkpoint
+resume_from: "checkpoints/v4/final.pt"
