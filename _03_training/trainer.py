@@ -29,8 +29,8 @@ from __future__ import annotations
 import json
 import logging
 import math
+import multiprocessing as mp
 import queue
-import threading
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -80,6 +80,110 @@ def _ensure_torch() -> None:
 
 
 # ============================================================================
+# Multiprocessing Game Generation Worker
+# ============================================================================
+
+
+def _game_generation_worker_process(
+    worker_id: int,
+    output_queue: mp.Queue,
+    stop_event: mp.Event,
+    network_state_dict: dict[str, Any],
+    network_config_dict: dict[str, Any],
+    opponent_config_dict: dict[str, Any],
+    games_per_batch: int,
+    temperature: float,
+    shaped_rewards: bool,
+    use_opponent_pool: bool,
+    seed: int,
+) -> None:
+    """Worker process for parallel game generation.
+
+    Each worker creates its own network and game generator, then continuously
+    generates game batches and puts them in the output queue.
+
+    Args:
+        worker_id: Unique identifier for this worker.
+        output_queue: Queue to put generated game batches.
+        stop_event: Event to signal worker shutdown.
+        network_state_dict: State dict to initialize network.
+        network_config_dict: Network configuration as dict.
+        opponent_config_dict: Opponent pool configuration as dict.
+        games_per_batch: Number of games to generate per batch.
+        temperature: Temperature for action sampling.
+        shaped_rewards: Whether to use shaped rewards.
+        use_opponent_pool: Whether to use opponent pool for diversity.
+        seed: Base seed for this worker.
+    """
+    import torch
+
+    from _02_agents.neural.network import BeastyBarNetwork
+    from _02_agents.neural.utils import NetworkConfig
+    from _03_training.game_generator import GameGenerator
+    from _03_training.opponent_pool import OpponentConfig, OpponentPool
+
+    # Set worker-specific seed
+    worker_seed = seed + worker_id * 10000
+    np.random.seed(worker_seed)
+    torch.manual_seed(worker_seed)
+
+    # Determine device - workers use CPU to avoid GPU memory contention
+    # GPU is reserved for training in main process
+    device = torch.device("cpu")
+
+    # Create network from state dict
+    network_config = NetworkConfig.from_dict(network_config_dict)
+    network = BeastyBarNetwork(network_config).to(device)
+    network.load_state_dict(network_state_dict)
+    network.eval()
+
+    # Create opponent pool if enabled
+    opponent_pool = None
+    if use_opponent_pool:
+        opponent_config = OpponentConfig.from_dict(opponent_config_dict)
+        opponent_pool = OpponentPool(config=opponent_config, seed=worker_seed)
+
+    # Create game generator
+    game_generator = GameGenerator(
+        network=network,
+        device=device,
+        opponent_pool=opponent_pool,
+        network_config=network_config,
+        temperature=temperature,
+        num_workers=1,
+    )
+
+    logger.info(f"Game generation worker {worker_id} started (device={device})")
+
+    batch_count = 0
+    while not stop_event.is_set():
+        try:
+            # Generate games
+            transitions, trajectory_list, opponent_name, win_rate = game_generator.generate_games(
+                num_games=games_per_batch,
+                shaped_rewards=shaped_rewards,
+            )
+
+            # Put in output queue (blocks if full)
+            try:
+                output_queue.put(
+                    (transitions, trajectory_list, opponent_name, win_rate),
+                    timeout=1.0,
+                )
+                batch_count += 1
+            except queue.Full:
+                continue  # Check stop flag and retry
+
+        except Exception as e:
+            logger.error(f"Worker {worker_id} error: {e}")
+            if stop_event.is_set():
+                break
+            time.sleep(0.1)
+
+    logger.info(f"Game generation worker {worker_id} stopped after {batch_count} batches")
+
+
+# ============================================================================
 # Training Configuration
 # ============================================================================
 
@@ -123,12 +227,13 @@ class TrainingConfig:
     ppo_config: PPOConfig = field(default_factory=PPOConfig)
 
     # Self-play settings
-    games_per_iteration: int = 4096  # Games to generate per iteration
+    games_per_iteration: int = 131072  # Games to generate per iteration (tuned for H200)
     self_play_temperature: float = 1.0
     num_workers: int = 1  # Number of parallel workers for game generation
     shaped_rewards: bool = False  # Use score-margin shaped rewards for better credit assignment
     async_game_generation: bool = True  # Generate next batch while training (hides latency)
-    async_prefetch_batches: int = 2  # Number of batches to keep pre-generated in queue
+    async_prefetch_batches: int = 32  # Number of batches to keep pre-generated in queue
+    async_num_workers: int = 16  # Number of parallel worker processes for game generation
 
     # Opponent diversity settings (prevents self-play collapse)
     use_opponent_pool: bool = True  # Enable opponent diversity training
@@ -148,6 +253,7 @@ class TrainingConfig:
     eval_opponents: list[str] = field(
         default_factory=lambda: ["random", "heuristic"]
     )  # Opponents to evaluate against
+    keep_last_n_checkpoints: int = 1  # Only keep N latest checkpoints (saves disk space)
 
     # Learning rate schedule
     lr_warmup_iterations: int = 10
@@ -160,7 +266,7 @@ class TrainingConfig:
     checkpoint_dir: str = "checkpoints"
 
     # Buffer settings
-    buffer_size: int = 100_000
+    buffer_size: int = 1_000_000  # Large buffer for H200
     min_buffer_size: int = 1000
 
     # Gradient accumulation
@@ -506,14 +612,17 @@ class Trainer:
             num_workers=config.num_workers,
         )
 
-        # Async game generation queue (generates next batches while training)
-        self._game_queue: queue.Queue | None = None
-        self._game_worker_thread: threading.Thread | None = None
-        self._game_worker_stop = threading.Event()
+        # Async game generation with multiprocessing (generates next batches while training)
+        self._game_queue: mp.Queue | None = None
+        self._game_workers: list[mp.Process] = []
+        self._game_worker_stop: mp.Event | None = None
         if config.async_game_generation:
-            self._game_queue = queue.Queue(maxsize=config.async_prefetch_batches)
+            # Use multiprocessing queue for true parallelism (bypasses GIL)
+            self._game_queue = mp.Queue(maxsize=config.async_prefetch_batches)
+            self._game_worker_stop = mp.Event()
             logger.info(
-                f"Async game generation enabled: {config.async_prefetch_batches} batches prefetch"
+                f"Async game generation enabled: {config.async_num_workers} workers, "
+                f"{config.async_prefetch_batches} batches prefetch"
             )
 
         # Create CheckpointManager for checkpoint management
@@ -521,6 +630,21 @@ class Trainer:
             checkpoint_dir=self._checkpoint_dir,
             tracker=self.tracker,
         )
+
+        # Check and log Cython availability for vectorized game generation
+        try:
+            from _03_training.vectorized_env_cython import is_cython_available
+            cython_available = is_cython_available()
+        except ImportError:
+            cython_available = False
+
+        if cython_available:
+            logger.info("Cython acceleration: ENABLED (10-20x faster game simulation)")
+        else:
+            logger.warning(
+                "Cython acceleration: DISABLED - Run 'python setup.py build_ext --inplace' "
+                "to enable 10-20x faster game simulation"
+            )
 
         logger.info(f"Trainer initialized with {self.network.count_parameters():,} parameters")
 
@@ -564,54 +688,81 @@ class Trainer:
         self._total_games_played += self.config.games_per_iteration
         return transitions, trajectory_list, opponent_name, win_rate
 
-    def _game_generation_worker(self) -> None:
-        """Background worker that continuously generates game batches.
+    def _start_game_workers(self) -> None:
+        """Start background game generation worker processes.
 
-        Runs in a separate thread and fills the game queue with pre-generated
-        batches. Training pulls from this queue, hiding game generation latency.
+        Spawns multiple worker processes that run in parallel, each with their
+        own copy of the network. Workers continuously generate game batches
+        and put them in the shared queue.
         """
-        logger.info("Game generation worker started")
-        while not self._game_worker_stop.is_set():
-            try:
-                # Generate a batch of games
-                batch = self._generate_self_play_games()
-                # Put in queue (blocks if queue is full, which is fine)
-                # Use timeout to periodically check stop flag
-                try:
-                    self._game_queue.put(batch, timeout=1.0)
-                except queue.Full:
-                    continue  # Check stop flag and retry
-            except Exception as e:
-                logger.error(f"Game generation worker error: {e}")
-                if self._game_worker_stop.is_set():
-                    break
-                time.sleep(0.1)  # Brief pause on error
-        logger.info("Game generation worker stopped")
+        if self._game_queue is None or len(self._game_workers) > 0:
+            return
 
-    def _start_game_worker(self) -> None:
-        """Start the background game generation worker thread."""
-        if self._game_queue is not None and self._game_worker_thread is None:
-            self._game_worker_stop.clear()
-            self._game_worker_thread = threading.Thread(
-                target=self._game_generation_worker,
+        self._game_worker_stop.clear()
+
+        # Prepare data for workers (must be picklable)
+        network_state_dict = {k: v.cpu() for k, v in self.network.state_dict().items()}
+        network_config_dict = self.config.network_config.to_dict()
+        opponent_config_dict = self.config.opponent_config.to_dict()
+
+        # Calculate games per worker (distribute evenly)
+        games_per_worker = self.config.games_per_iteration // self.config.async_num_workers
+
+        # Use spawn context for cross-platform compatibility
+        ctx = mp.get_context("spawn")
+
+        for worker_id in range(self.config.async_num_workers):
+            process = ctx.Process(
+                target=_game_generation_worker_process,
+                args=(
+                    worker_id,
+                    self._game_queue,
+                    self._game_worker_stop,
+                    network_state_dict,
+                    network_config_dict,
+                    opponent_config_dict,
+                    games_per_worker,
+                    self.config.self_play_temperature,
+                    self.config.shaped_rewards,
+                    self.config.use_opponent_pool,
+                    self.config.seed,
+                ),
                 daemon=True,
-                name="GameGenWorker",
+                name=f"GameGenWorker-{worker_id}",
             )
-            self._game_worker_thread.start()
+            process.start()
+            self._game_workers.append(process)
 
-    def _stop_game_worker(self) -> None:
-        """Stop the background game generation worker thread."""
-        if self._game_worker_thread is not None:
+        logger.info(f"Started {len(self._game_workers)} game generation worker processes")
+
+    def _stop_game_workers(self) -> None:
+        """Stop all background game generation worker processes."""
+        if not self._game_workers:
+            return
+
+        # Signal workers to stop
+        if self._game_worker_stop is not None:
             self._game_worker_stop.set()
-            self._game_worker_thread.join(timeout=5.0)
-            self._game_worker_thread = None
-            # Drain the queue
-            if self._game_queue is not None:
-                while not self._game_queue.empty():
-                    try:
-                        self._game_queue.get_nowait()
-                    except queue.Empty:
-                        break
+
+        # Wait for workers to finish
+        for worker in self._game_workers:
+            worker.join(timeout=5.0)
+            if worker.is_alive():
+                logger.warning(f"Worker {worker.name} did not stop gracefully, terminating")
+                worker.terminate()
+                worker.join(timeout=1.0)
+
+        self._game_workers.clear()
+
+        # Drain the queue
+        if self._game_queue is not None:
+            try:
+                while True:
+                    self._game_queue.get_nowait()
+            except Exception:
+                pass
+
+        logger.info("All game generation workers stopped")
 
     def _get_games_from_queue_or_generate(
         self,
@@ -623,11 +774,11 @@ class Trainer:
         """
         if self._game_queue is not None:
             try:
-                # Try to get from queue with small timeout
-                return self._game_queue.get(timeout=0.1)
-            except queue.Empty:
-                # Queue empty - generate synchronously (shouldn't happen after warmup)
-                logger.debug("Game queue empty, generating synchronously")
+                # Try to get from queue - use longer timeout since workers are async
+                return self._game_queue.get(timeout=5.0)
+            except Exception:
+                # Queue empty - generate synchronously (shouldn't happen with workers)
+                logger.warning("Game queue empty, generating synchronously (workers may be slow)")
                 return self._generate_self_play_games()
         else:
             # Async disabled - always generate synchronously
@@ -940,19 +1091,27 @@ class Trainer:
         # Log hyperparameters
         self.tracker.log_hyperparameters(self.config.to_dict())
 
-        # Start async game generation worker if enabled
+        # Start async game generation workers if enabled
         if self.config.async_game_generation and self._game_queue is not None:
-            # Pre-fill the queue before starting training loop
-            logger.info("Pre-filling game queue...")
+            # Start worker processes - they will fill the queue in parallel
+            logger.info(
+                f"Starting {self.config.async_num_workers} game generation workers..."
+            )
+            self._start_game_workers()
+
+            # Wait for queue to have some batches before starting training
+            logger.info("Waiting for initial game batches from workers...")
             prefill_start = time.time()
-            for i in range(self.config.async_prefetch_batches):
-                batch = self._generate_self_play_games()
-                self._game_queue.put(batch)
-                logger.info(f"Pre-filled batch {i + 1}/{self.config.async_prefetch_batches}")
+            min_batches = min(2, self.config.async_prefetch_batches)
+            while self._game_queue.qsize() < min_batches:
+                time.sleep(0.5)
+                if time.time() - prefill_start > 120:  # 2 minute timeout
+                    logger.warning("Timeout waiting for workers, proceeding anyway")
+                    break
             prefill_time = time.time() - prefill_start
-            logger.info(f"Game queue pre-filled in {prefill_time:.1f}s")
-            # Now start the worker to keep queue filled
-            self._start_game_worker()
+            logger.info(
+                f"Workers produced {self._game_queue.qsize()} batches in {prefill_time:.1f}s"
+            )
 
         try:
             while self._iteration < self.config.total_iterations:
@@ -988,11 +1147,23 @@ class Trainer:
         except KeyboardInterrupt:
             logger.info("Training interrupted by user")
         finally:
-            # Stop async game generation worker
-            self._stop_game_worker()
+            # Stop async game generation workers
+            self._stop_game_workers()
 
-            # Final checkpoint
+            # Final checkpoint (full, for resuming training)
             self._save_checkpoint(is_final=True)
+
+            # Also save inference-only checkpoint (~5 MB vs ~500 MB)
+            inference_path = self.checkpoint_manager.save_for_inference(
+                path="model_inference.pt",
+                network=self.network,
+                config=self.config.network_config.to_dict(),
+            )
+            logger.info(
+                f"Inference checkpoint saved: {inference_path} "
+                "(use this for deployment/HuggingFace)"
+            )
+
             self.tracker.finish()
 
             total_time = time.time() - self._training_start_time
@@ -1004,6 +1175,7 @@ class Trainer:
         """Save training checkpoint.
 
         Delegates to CheckpointManager for checkpoint persistence.
+        Automatically cleans up old checkpoints based on keep_last_n_checkpoints config.
 
         Args:
             is_final: Whether this is the final checkpoint.
@@ -1027,7 +1199,35 @@ class Trainer:
         )
 
         logger.info(f"Saved checkpoint: {checkpoint_path}")
+
+        # Clean up old intermediate checkpoints (not final.pt)
+        if not is_final and self.config.keep_last_n_checkpoints > 0:
+            self._cleanup_old_checkpoints()
+
         return checkpoint_path
+
+    def _cleanup_old_checkpoints(self) -> None:
+        """Remove old intermediate checkpoints, keeping only the latest N.
+
+        Only removes iter_*.pt files, never final.pt or model_inference.pt.
+        """
+        # Get all intermediate checkpoints (iter_*.pt)
+        checkpoints = self.checkpoint_manager.list_checkpoints(pattern="iter_*.pt")
+
+        # Keep only the latest N
+        n_to_keep = self.config.keep_last_n_checkpoints
+        if len(checkpoints) > n_to_keep:
+            old_checkpoints = checkpoints[:-n_to_keep]  # All except latest N
+            for old_cp in old_checkpoints:
+                try:
+                    old_cp.unlink()
+                    # Also remove associated JSON config if exists
+                    json_path = old_cp.with_suffix(".json")
+                    if json_path.exists():
+                        json_path.unlink()
+                    logger.debug(f"Cleaned up old checkpoint: {old_cp}")
+                except OSError as e:
+                    logger.warning(f"Failed to delete old checkpoint {old_cp}: {e}")
 
     def _run_evaluation(self) -> dict[str, float]:
         """Run evaluation against baseline opponents.

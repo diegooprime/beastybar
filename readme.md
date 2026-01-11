@@ -13,16 +13,40 @@ uvicorn _04_ui.app:create_app --reload
 
 ## Model
 
-Best model: `v4/final.pt` (521MB)
+| File | Size | Purpose |
+|------|------|---------|
+| `model_inference.pt` | ~5 MB | **Use this** - weights only, for inference/deployment |
+| `final.pt` | ~500 MB | Full training checkpoint (resume training) |
 
 | Metric | Value |
 |--------|-------|
 | Win rate vs heuristics | 79% |
 | Win rate vs random | 93% |
-| Training | 600 iterations, 5M+ games |
+| Training | 600 iterations, 5,027,840 games |
 | Time | 109 min on H200 |
 
 Hugging Face: https://huggingface.co/shiptoday101/beastybar-ppo
+
+### Loading for Inference
+
+```python
+from _03_training.checkpoint_manager import load_for_inference
+from _02_agents.neural.network import BeastyBarNetwork
+from _02_agents.neural.utils import NetworkConfig
+
+state_dict, config = load_for_inference("model_inference.pt")
+network = BeastyBarNetwork(NetworkConfig.from_dict(config))
+network.load_state_dict(state_dict)
+```
+
+### Converting Existing Checkpoints
+
+```python
+from _03_training.checkpoint_manager import export_for_inference
+
+# Convert 500MB training checkpoint to 5MB inference checkpoint
+export_for_inference("checkpoints/final.pt", "model_inference.pt")
+```
 
 ## Training
 

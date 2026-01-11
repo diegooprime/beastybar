@@ -71,7 +71,7 @@ class PPOConfig:
     entropy_coef: float = 0.01
     max_grad_norm: float = 0.5
     ppo_epochs: int = 4
-    minibatch_size: int = 2048  # Larger batches for GPU efficiency
+    minibatch_size: int = 32768  # Tuned for H200 SXM (141GB)
     clip_value: bool = True
     normalize_advantages: bool = True
     target_kl: float | None = None

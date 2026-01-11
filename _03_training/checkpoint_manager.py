@@ -335,5 +335,183 @@ class CheckpointManager:
         checkpoints = self.list_checkpoints(pattern)
         return checkpoints[-1] if checkpoints else None
 
+    def save_for_inference(
+        self,
+        path: str | Path,
+        network: BeastyBarNetwork,
+        config: dict[str, Any] | None = None,
+    ) -> Path:
+        """Save model weights only for inference/deployment (~5 MB).
 
-__all__ = ["CheckpointManager"]
+        This saves ONLY what's needed for inference:
+        - Model weights (state_dict)
+        - Network config (to reconstruct architecture)
+
+        Does NOT include (saving ~500 MB):
+        - Optimizer state
+        - Opponent pool checkpoints
+        - Training metrics
+        - RNG state
+
+        Use this for deploying to production or uploading to HuggingFace.
+
+        Args:
+            path: Output filename or full path.
+            network: Neural network to save.
+            config: Optional network config dict. If None, tries to get from network.
+
+        Returns:
+            Path to saved inference checkpoint.
+
+        Example:
+            manager.save_for_inference("model.pt", network)
+            # Creates ~5 MB file with just weights
+        """
+        # Determine full path
+        inference_path = Path(path)
+        if not inference_path.is_absolute():
+            inference_path = self.checkpoint_dir / inference_path
+
+        inference_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Get config from network if not provided
+        if config is None and hasattr(network, "config"):
+            config = network.config.to_dict()
+
+        # Build minimal inference checkpoint
+        inference_checkpoint: dict[str, Any] = {
+            "model_state_dict": network.state_dict(),
+            "checkpoint_type": "inference",  # Mark as inference-only
+        }
+
+        if config is not None:
+            inference_checkpoint["network_config"] = config
+
+        # Save with compression
+        torch.save(inference_checkpoint, inference_path, pickle_protocol=4)
+
+        # Log size for user awareness
+        size_mb = inference_path.stat().st_size / (1024 * 1024)
+        logger.info(f"Saved inference checkpoint to {inference_path} ({size_mb:.1f} MB)")
+
+        return inference_path
+
+
+# ============================================================================
+# Standalone Functions for Inference Export
+# ============================================================================
+
+
+def export_for_inference(
+    source: str | Path,
+    output: str | Path,
+    device: str = "cpu",
+) -> Path:
+    """Extract model weights from a training checkpoint for inference.
+
+    Converts a full training checkpoint (~500 MB) to an inference-only
+    checkpoint (~5 MB) by removing:
+    - Optimizer state
+    - Opponent pool (past checkpoints)
+    - Training metrics and history
+    - RNG state
+
+    Args:
+        source: Path to full training checkpoint.
+        output: Path for inference checkpoint output.
+        device: Device for loading checkpoint.
+
+    Returns:
+        Path to saved inference checkpoint.
+
+    Example:
+        # Convert existing training checkpoint
+        export_for_inference("checkpoints/final.pt", "model.pt")
+
+        # Upload model.pt to HuggingFace (~5 MB instead of ~500 MB)
+    """
+    _ensure_torch()
+
+    source_path = Path(source)
+    output_path = Path(output)
+
+    if not source_path.exists():
+        raise FileNotFoundError(f"Source checkpoint not found: {source_path}")
+
+    # Load full checkpoint
+    checkpoint = torch.load(source_path, map_location=device, weights_only=False)
+
+    # Extract only what's needed for inference
+    inference_checkpoint: dict[str, Any] = {
+        "model_state_dict": checkpoint["model_state_dict"],
+        "checkpoint_type": "inference",
+    }
+
+    # Preserve network config if available
+    if "config" in checkpoint and "network_config" in checkpoint["config"]:
+        inference_checkpoint["network_config"] = checkpoint["config"]["network_config"]
+    elif "network_config" in checkpoint:
+        inference_checkpoint["network_config"] = checkpoint["network_config"]
+
+    # Save minimal checkpoint
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(inference_checkpoint, output_path, pickle_protocol=4)
+
+    # Log sizes for comparison
+    source_mb = source_path.stat().st_size / (1024 * 1024)
+    output_mb = output_path.stat().st_size / (1024 * 1024)
+    logger.info(
+        f"Exported inference checkpoint: {source_mb:.1f} MB -> {output_mb:.1f} MB "
+        f"(saved {source_mb - output_mb:.1f} MB)"
+    )
+
+    return output_path
+
+
+def load_for_inference(
+    path: str | Path,
+    device: str | torch.device = "cpu",
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Load model weights for inference.
+
+    Works with both inference checkpoints and full training checkpoints.
+    Returns only what's needed to reconstruct the network.
+
+    Args:
+        path: Path to checkpoint (inference or training).
+        device: Device to load weights to.
+
+    Returns:
+        Tuple of (state_dict, network_config) where network_config may be None.
+
+    Example:
+        state_dict, config = load_for_inference("model.pt")
+        network = BeastyBarNetwork(NetworkConfig.from_dict(config))
+        network.load_state_dict(state_dict)
+    """
+    _ensure_torch()
+
+    checkpoint_path = Path(path)
+    if not checkpoint_path.exists():
+        raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+
+    # Extract state dict
+    state_dict = checkpoint.get("model_state_dict", checkpoint)
+
+    # Try to find network config
+    network_config = None
+    if "network_config" in checkpoint:
+        network_config = checkpoint["network_config"]
+    elif "config" in checkpoint and isinstance(checkpoint["config"], dict):
+        network_config = checkpoint["config"].get("network_config")
+
+    return state_dict, network_config
+
+
+__all__ = [
+    "CheckpointManager",
+    "export_for_inference",
+    "load_for_inference",
+]

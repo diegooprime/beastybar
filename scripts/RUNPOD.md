@@ -60,9 +60,33 @@ ssh -p $RUNPOD_PORT -i $SSH_KEY root@$RUNPOD_IP 'ps aux | grep train'
 
 ## Download Results
 
+Training produces two checkpoint types:
+
+| File | Size | Purpose |
+|------|------|---------|
+| `model_inference.pt` | ~5 MB | **Download this** - for deployment/HuggingFace |
+| `final.pt` | ~500 MB | Full checkpoint - only if you need to resume training |
+
 ```bash
+# Download inference model only (recommended, ~5 MB)
 scp -P $RUNPOD_PORT -i $SSH_KEY \
-  root@$RUNPOD_IP:/workspace/beastybar/checkpoints/*.pt ./checkpoints/
+  root@$RUNPOD_IP:/workspace/beastybar/checkpoints/*/model_inference.pt ./
+
+# Download full checkpoint (only if resuming training, ~500 MB)
+scp -P $RUNPOD_PORT -i $SSH_KEY \
+  root@$RUNPOD_IP:/workspace/beastybar/checkpoints/*/final.pt ./checkpoints/
+```
+
+## Storage on RunPod
+
+With 20GB volume, you only need to keep:
+- Latest `final.pt` (~500 MB) - for resuming if interrupted
+- `model_inference.pt` (~5 MB) - the actual model
+
+Delete intermediate checkpoints to save space:
+```bash
+ssh -p $RUNPOD_PORT -i $SSH_KEY root@$RUNPOD_IP \
+  'find /workspace/beastybar/checkpoints -name "iter_*.pt" -delete'
 ```
 
 ## SSH Types
