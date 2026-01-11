@@ -1,12 +1,11 @@
-# RunPod H200 Configuration - Benchmarked on H200 SXM (150GB VRAM)
+# RunPod A100 Configuration - For A100 SXM 80GB
 #
-# Benchmark Results (2025-01-11):
-# - minibatch_size=32768 achieves 146,769 samples/sec (best throughput)
-# - minibatch_size=65536 uses 45.9GB VRAM but lower throughput
-# - Inference: 750k samples/sec at batch 524288
+# A100 80GB settings:
+# - minibatch_size=16384 (fits in 80GB VRAM with headroom)
+# - ~100k samples/sec training throughput
 #
 # Key features:
-# - 32768 minibatch size (optimal GPU throughput)
+# - 16384 minibatch size (optimal for A100 80GB)
 # - 8192 games/iteration for more data per iteration
 # - Entropy/temperature scheduling enabled
 # - Adaptive opponent weighting for curriculum learning
@@ -26,7 +25,7 @@ ppo_config:
   gamma: 0.99
   gae_lambda: 0.95
   ppo_epochs: 4
-  minibatch_size: 32768  # Optimal for H200 (146k samples/sec, 23GB VRAM)
+  minibatch_size: 16384  # Optimal for A100 80GB SXM
   max_grad_norm: 0.5
   normalize_advantages: true
   clip_value: true
