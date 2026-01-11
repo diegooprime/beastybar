@@ -50,7 +50,8 @@ def _get_visualizing_agent(agent, agent_name: str):
     return _viz_capture_agents.get(agent_name)
 
 from _01_simulator import actions, engine, simulate, state
-from _02_agents import HeuristicAgent, RandomAgent
+from _02_agents import HeuristicAgent, HeuristicConfig, RandomAgent
+from _02_agents.heuristic import OnlineStrategies
 
 # Import neural MCTS agent (requires network initialization)
 try:
@@ -97,6 +98,12 @@ class RateLimiter:
 AI_AGENTS = {
     "random": RandomAgent(seed=None),
     "heuristic": HeuristicAgent(seed=None),
+    "aggressive": HeuristicAgent(config=HeuristicConfig(bar_weight=3.0, aggression=0.8)),
+    "defensive": HeuristicAgent(config=HeuristicConfig(bar_weight=1.0, aggression=0.2)),
+    "queue_control": HeuristicAgent(config=HeuristicConfig(queue_front_weight=2.0)),
+    "skunk_specialist": HeuristicAgent(config=HeuristicConfig(species_weights={"skunk": 2.0})),
+    "noisy": HeuristicAgent(config=HeuristicConfig(noise_epsilon=0.15)),
+    "online": OnlineStrategies(),
 }
 
 # Add Neural agent if checkpoint exists
@@ -135,11 +142,12 @@ def _load_neural_agent(ckpt_path: str | Path | None = None) -> tuple:
             logger.info(f"Loaded neural agent from {checkpoint_path} (iter {iteration})")
             return NeuralAgent(network, mode="greedy"), f"ppo_iter{iteration}", iteration
 
-        # Try to find latest checkpoint - prioritize h200_maxperf
+        # Try to find latest checkpoint - prioritize v4 (best model)
         checkpoint_dirs = [
-            Path("checkpoints/ppo_h200_maxperf"),
-            Path("checkpoints/ppo_h200_v1"),
-            Path("checkpoints/beastybar_neural"),
+            Path("checkpoints/v4"),
+            Path("checkpoints/v3"),
+            Path("checkpoints/v2"),
+            Path("checkpoints/v1"),
         ]
         for ckpt_dir in checkpoint_dirs:
             if ckpt_dir.exists():
@@ -398,36 +406,45 @@ def create_app() -> FastAPI:
     @app.get("/api/ai-agents")
     def api_ai_agents() -> list[dict]:
         """List available AI agents."""
-        agents = [
-            {"id": "random", "name": "Random", "description": "Plays random legal moves"},
-            {"id": "heuristic", "name": "Heuristic", "description": "Strong strategic AI"},
-        ]
+        agents = []
         if _neural_name and _neural_name in AI_AGENTS:
             agents.append({
-                "id": _neural_name,
-                "name": f"PPO iter{_neural_iter}",
-                "description": f"Neural network trained for {_neural_iter} iterations - 97% vs random, 79% vs heuristic"
+                "id": "neural",
+                "name": f"PPO iter {_neural_iter}",
+                "description": f"Neural network trained for {_neural_iter} iterations"
             })
         agents.extend([
-            {"id": "mcts", "name": "MCTS", "description": "Monte Carlo Tree Search AI"},
-            {"id": "claude", "name": "Claude Opus 4.5", "description": "Play against Claude via Anthropic API"},
+            {"id": "heuristic", "name": "Heuristic (Default)", "description": "Balanced strategic AI"},
+            {"id": "aggressive", "name": "Heuristic (Aggressive)", "description": "High aggression, bar-focused"},
+            {"id": "defensive", "name": "Heuristic (Defensive)", "description": "Conservative, low aggression"},
+            {"id": "queue_control", "name": "Heuristic (Queue Control)", "description": "Prioritizes queue front positioning"},
+            {"id": "skunk_specialist", "name": "Heuristic (Skunk Specialist)", "description": "Values skunk plays higher"},
+            {"id": "noisy", "name": "Heuristic (Noisy)", "description": "Human-like with random noise"},
+            {"id": "online", "name": "Online Strategies", "description": "Reactive counter-play"},
+            {"id": "random", "name": "Random", "description": "Plays random legal moves"},
         ])
         return agents
 
     @app.get("/api/ai-agents/battle")
     def api_ai_agents_for_battle() -> list[dict]:
-        """List AI agents available for AI vs AI battles (excludes Claude)."""
-        agents = [
-            {"id": "random", "name": "Random", "description": "Plays random legal moves"},
-            {"id": "heuristic", "name": "Heuristic", "description": "Strong strategic AI"},
-        ]
+        """List AI agents available for AI vs AI battles."""
+        agents = []
         if _neural_name and _neural_name in AI_AGENTS:
             agents.append({
-                "id": _neural_name,
-                "name": f"PPO iter{_neural_iter}",
+                "id": "neural",
+                "name": f"PPO iter {_neural_iter}",
                 "description": f"Neural network trained for {_neural_iter} iterations"
             })
-        # Note: Claude excluded from battles due to API cost/latency
+        agents.extend([
+            {"id": "heuristic", "name": "Heuristic (Default)", "description": "Balanced strategic AI"},
+            {"id": "aggressive", "name": "Heuristic (Aggressive)", "description": "High aggression, bar-focused"},
+            {"id": "defensive", "name": "Heuristic (Defensive)", "description": "Conservative, low aggression"},
+            {"id": "queue_control", "name": "Heuristic (Queue Control)", "description": "Prioritizes queue front positioning"},
+            {"id": "skunk_specialist", "name": "Heuristic (Skunk Specialist)", "description": "Values skunk plays higher"},
+            {"id": "noisy", "name": "Heuristic (Noisy)", "description": "Human-like with random noise"},
+            {"id": "online", "name": "Online Strategies", "description": "Reactive counter-play"},
+            {"id": "random", "name": "Random", "description": "Plays random legal moves"},
+        ])
         return agents
 
     @app.post("/api/ai-battle/start")

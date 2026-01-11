@@ -1531,11 +1531,15 @@
       <div class="modal-field">
         <label class="modal-label">Opponent</label>
         <select class="modal-select" id="ai-select">
-          <option value="ppo_iter434">PPO iter434 (Strongest)</option>
-          <option value="heuristic">Heuristic AI</option>
-          <option value="mcts">MCTS AI</option>
-          <option value="random">Random AI</option>
-          <option value="claude">Claude Opus 4.5 (API)</option>
+          <option value="neural">PPO iter 600 (Strongest)</option>
+          <option value="heuristic">Heuristic (Default)</option>
+          <option value="aggressive">Heuristic (Aggressive)</option>
+          <option value="defensive">Heuristic (Defensive)</option>
+          <option value="queue_control">Heuristic (Queue Control)</option>
+          <option value="skunk_specialist">Heuristic (Skunk Specialist)</option>
+          <option value="noisy">Heuristic (Noisy)</option>
+          <option value="online">Online Strategies</option>
+          <option value="random">Random</option>
         </select>
       </div>
 
@@ -2412,7 +2416,8 @@
         });
 
         if (!res.ok) {
-          throw new Error('Battle request failed');
+          const errBody = await res.text();
+          throw new Error(`Server returned ${res.status}: ${errBody}`);
         }
 
         battleData = await res.json();
@@ -2454,7 +2459,7 @@
       } catch (err) {
         console.error('Battle failed:', err);
         hideBattleLoading();
-        alert('Failed to start battle. Please try again.');
+        alert('Failed to start battle: ' + (err.message || String(err)));
         exitBattleMode();
       }
     }
