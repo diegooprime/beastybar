@@ -72,9 +72,13 @@ def create_opponent(name: str) -> Agent:
     Supported names:
     - "random": RandomAgent with default seed
     - "heuristic": HeuristicAgent with default settings
-    - "mcts-100": MCTSAgent with 100 iterations
-    - "mcts-500": MCTSAgent with 500 iterations
-    - "mcts-1000": MCTSAgent with 1000 iterations
+    - "aggressive": Aggressive heuristic (high bar weight, aggression=0.8)
+    - "defensive": Defensive heuristic (low aggression=0.2)
+    - "queue": Queue controller heuristic (prioritizes queue front)
+    - "skunk": Skunk specialist heuristic
+    - "noisy": Noisy/human-like heuristic (bounded rationality)
+    - "online": Reactive counter-play agent (OnlineStrategies)
+    - "mcts-N": MCTSAgent with N iterations (e.g., mcts-100, mcts-500)
 
     Args:
         name: The opponent name identifier.
@@ -85,7 +89,7 @@ def create_opponent(name: str) -> Agent:
     Raises:
         ValueError: If the opponent name is not recognized.
     """
-    from _02_agents.heuristic import HeuristicAgent
+    from _02_agents.heuristic import HeuristicAgent, HeuristicConfig, OnlineStrategies
     from _02_agents.mcts import MCTSAgent
     from _02_agents.random_agent import RandomAgent
 
@@ -95,6 +99,23 @@ def create_opponent(name: str) -> Agent:
         return RandomAgent(seed=None)
     elif name_lower == "heuristic":
         return HeuristicAgent(seed=None)
+    elif name_lower in ("aggressive", "heuristic-aggressive"):
+        config = HeuristicConfig(bar_weight=3.0, aggression=0.8)
+        return HeuristicAgent(config=config, seed=None)
+    elif name_lower in ("defensive", "heuristic-defensive"):
+        config = HeuristicConfig(bar_weight=1.0, aggression=0.2)
+        return HeuristicAgent(config=config, seed=None)
+    elif name_lower in ("queue", "heuristic-queue"):
+        config = HeuristicConfig(queue_front_weight=2.0)
+        return HeuristicAgent(config=config, seed=None)
+    elif name_lower in ("skunk", "heuristic-skunk"):
+        config = HeuristicConfig(species_weights={"skunk": 2.0})
+        return HeuristicAgent(config=config, seed=None)
+    elif name_lower in ("noisy", "heuristic-noisy"):
+        config = HeuristicConfig(noise_epsilon=0.15)
+        return HeuristicAgent(config=config, seed=None)
+    elif name_lower in ("online", "online-strategies"):
+        return OnlineStrategies(seed=None)
     elif name_lower.startswith("mcts-"):
         from _02_agents.neural.utils import get_device, load_network_from_checkpoint
 
@@ -104,10 +125,9 @@ def create_opponent(name: str) -> Agent:
             raise ValueError(f"Invalid MCTS specification: {name}. Use 'mcts-N' where N is simulations.") from e
 
         # Load network from PPO checkpoint for meaningful MCTS search
-        # Use the latest PPO v2 checkpoint
         from pathlib import Path
 
-        ppo_checkpoint = Path("checkpoints/ppo_h200_v2/iter_000199.pt")
+        ppo_checkpoint = Path("checkpoints/v2/iter_000199.pt")
         if ppo_checkpoint.exists():
             network, _config, _step = load_network_from_checkpoint(ppo_checkpoint, device=get_device())
         else:
@@ -128,12 +148,13 @@ def create_opponent(name: str) -> Agent:
         # Self-play: load the same PPO model as opponent
         from _02_agents.neural.agent import load_neural_agent
 
-        checkpoint = "checkpoints/ppo_h200_v2/iter_000199.pt"
+        checkpoint = "checkpoints/v2/iter_000199.pt"
         return load_neural_agent(checkpoint, mode="greedy", device="mps")
     else:
         raise ValueError(
             f"Unknown opponent: {name}. "
-            f"Available: random, heuristic, mcts-100, mcts-500, mcts-1000, self"
+            f"Available: random, heuristic, aggressive, defensive, queue, skunk, noisy, online, "
+            f"mcts-100, mcts-500, mcts-1000, self"
         )
 
 

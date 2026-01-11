@@ -35,7 +35,7 @@ opponent_config:
   max_checkpoints: 10
 
 # WARMSTART FROM PPO CHECKPOINT
-warmstart_checkpoint: "checkpoints/ppo_h200_v1/iter_000074.pt"
+warmstart_checkpoint: "checkpoints/v1/iter_000074.pt"
 warmstart_reset_optimizer: true
 warmstart_reset_iteration: true
 
