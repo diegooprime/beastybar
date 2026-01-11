@@ -145,6 +145,9 @@ class TrainingConfig:
     total_iterations: int = 1000
     checkpoint_frequency: int = 50
     eval_frequency: int = 10
+    eval_opponents: list[str] = field(
+        default_factory=lambda: ["random", "heuristic"]
+    )  # Opponents to evaluate against
 
     # Learning rate schedule
     lr_warmup_iterations: int = 10
@@ -1047,7 +1050,7 @@ class Trainer:
                 tracker=self.tracker,
                 step=self._iteration,
                 games_per_opponent=50,
-                opponents=["random", "heuristic"],
+                opponents=self._config.eval_opponents,
                 play_both_sides=True,
                 mode="greedy",
             )
