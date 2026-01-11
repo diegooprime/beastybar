@@ -1,84 +1,59 @@
 # Beasty Bar AI
 
-Train AI agents to play [Beasty Bar](https://tesera.ru/images/items/1525203/BeastyBar_EN-online.pdf), a 2-player card game where animals jostle to enter a bar.
+Neural network that plays [Beasty Bar](https://tesera.ru/images/items/1525203/BeastyBar_EN-online.pdf).
 
-**Current best model: 79% win rate** against heuristic opponents.
+I wanted to see if I could train an AI to beat me at my favorite card game. Current model hits 79% win rate against heuristic opponents.
 
-## Quick Start
+## Demo
 
 ```bash
-# Install
-uv sync
-
-# Run tests
-pytest _05_other/tests -ra
-
-# Start web UI
 uvicorn _04_ui.app:create_app --reload
-# Visit http://localhost:8000
+# http://localhost:8000
 ```
+
+## Model
+
+| Metric | Value |
+|--------|-------|
+| Win rate vs heuristics | 79% |
+| Win rate vs random | 93% |
+| Training time | 109 min on H200 |
+| Games trained | 5M+ |
+
+Checkpoint: `checkpoints/v4/final.pt`
+Hugging Face: https://huggingface.co/shiptoday101/beastybar-ppo
 
 ## Training
 
+PPO with opponent pool diversity. Pure self-play causes collapse—mixing in random/heuristic opponents fixes it.
+
 ```bash
-# PPO (fast, good for experimentation)
+uv sync
 uv run scripts/train.py --config configs/default.yaml
-
-# MCTS/AlphaZero (slower, stronger results)
-uv run scripts/train_mcts.py --config configs/h100_mcts.yaml
 ```
 
-## Evaluation
+## Stack
 
-```bash
-uv run scripts/evaluate.py \
-  --model checkpoints/model.pt \
-  --opponents random,heuristic \
-  --games 100
-```
+- Transformer policy-value network (988-dim observation → 124 actions)
+- PPO with GAE
+- Optional Cython acceleration (200x speedup)
+- FastAPI web UI
 
-## Project Structure
+## Structure
 
 ```
-_01_simulator/     # Game engine (deterministic, immutable state)
-_02_agents/        # AI players (random, heuristic, MCTS, neural)
-_03_training/      # Training infrastructure (PPO, MCTS)
-_04_ui/            # Web interface
-_05_other/         # Tests and game rules
-scripts/           # CLI tools
-configs/           # Training configurations
+_01_simulator/   # Game engine
+_02_agents/      # AI players
+_03_training/    # PPO training
+_04_ui/          # Web interface
 ```
 
-## Documentation
+## Links
 
-| Doc | Description |
-|-----|-------------|
-| [Technical Reference](docs/TECHNICAL.md) | Architecture, API, configuration |
-| [Game Rules](_05_other/rules.md) | Official Beasty Bar rules |
-| [MCTS Guide](_02_agents/mcts/README.md) | Monte Carlo Tree Search |
-| [Training Guide](_03_training/MCTS_TRAINING.md) | AlphaZero-style training |
-| [CLI Reference](scripts/README.md) | Script usage |
+- [Game rules](_05_other/rules.md)
+- [Technical docs](docs/TECHNICAL.md)
+- [Beasty Bar PDF](https://tesera.ru/images/items/1525203/BeastyBar_EN-online.pdf)
 
-## The Game
+## License
 
-Each player has 12 animals with unique abilities. Play cards to the queue, trigger effects, and score points when animals enter the bar.
-
-**Turn:** Play card → Execute effect → Process recurring effects → 5-card check (front 2 enter bar, last 1 bounced) → Draw
-
-**Animals:** Lion (12), Hippo (11), Crocodile (10), Snake (9), Giraffe (8), Zebra (7), Seal (6), Chameleon (5), Monkey (4), Kangaroo (3), Parrot (2), Skunk (1)
-
-See [full rules](_05_other/rules.md) for details.
-
-## Development
-
-```bash
-uv run ruff check .
-uv run mypy _01_simulator _02_agents _03_training
-uv run pytest _05_other/tests -ra
-```
-
-## References
-
-- [Beasty Bar Rules (PDF)](https://tesera.ru/images/items/1525203/BeastyBar_EN-online.pdf)
-- [AlphaZero Paper](https://arxiv.org/abs/1712.01815)
-- [PPO Paper](https://arxiv.org/abs/1707.06347)
+MIT
