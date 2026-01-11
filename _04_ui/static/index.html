@@ -1488,6 +1488,13 @@
                value="50" min="1" max="200" placeholder="50">
       </div>
 
+      <div class="modal-field" style="display: flex; align-items: center; gap: 8px;">
+        <input type="checkbox" id="battle-viz-mode" style="width: 18px; height: 18px;">
+        <label for="battle-viz-mode" class="modal-label" style="margin: 0; cursor: pointer;">
+          Also open Neural Visualizer (second window with network activations)
+        </label>
+      </div>
+
       <div class="modal-actions">
         <button class="btn btn-secondary" id="battle-cancel">Cancel</button>
         <button class="btn btn-primary" id="battle-start">Start Battle</button>
@@ -2375,10 +2382,15 @@
       const p1Name = battleP1Select.options[battleP1Select.selectedIndex].text;
       const p2Name = battleP2Select.options[battleP2Select.selectedIndex].text;
       const numGames = Math.min(200, Math.max(1, parseInt(battleGamesInput.value) || 50));
+      const useVizMode = document.getElementById('battle-viz-mode').checked;
 
       hideBattleModal();
       enterBattleMode();
       battleState = 'loading';
+
+      // Clear old viz data
+      localStorage.removeItem('battleData');
+      localStorage.removeItem('battleSync');
 
       // Show loading overlay with ETA (pass agent IDs for estimation, names for display)
       showBattleLoading(numGames, p1Agent, p2Agent, p1Name, p2Name);
@@ -2411,6 +2423,19 @@
 
         // Hide loading overlay
         hideBattleLoading();
+
+        // If visualizer mode, store data and open visualizer in new window
+        if (useVizMode) {
+          localStorage.setItem('battleData', JSON.stringify(battleData));
+          localStorage.setItem('battleSync', JSON.stringify({
+            gameIndex: 0, turnIndex: 0, wins: [0, 0], speed: battleSpeed
+          }));
+          // Small delay to ensure localStorage write completes before popup reads
+          setTimeout(() => {
+            window.vizWindow = window.open('/battle-visualizer?sync=true', 'neural-viz',
+              'width=900,height=700,menubar=no,toolbar=no,location=no,status=no');
+          }, 100);
+        }
 
         // Update UI with agent names
         battleP0Name.textContent = p1Name;
@@ -2517,7 +2542,21 @@
 
       updateBattleUI();
       renderBattleState();
+      syncBattleToViz();
       scheduleBattleStep();
+    }
+
+    // Sync battle state to visualizer window via sessionStorage
+    function syncBattleToViz() {
+      if (window.vizWindow && !window.vizWindow.closed) {
+        localStorage.setItem('battleSync', JSON.stringify({
+          gameIndex: battleGameIndex,
+          turnIndex: battleTurnIndex,
+          wins: battleWins,
+          speed: battleSpeed,
+          state: battleState
+        }));
+      }
     }
 
     function updateBattleUI() {

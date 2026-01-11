@@ -446,6 +446,20 @@ def create_app() -> FastAPI:
         p2_agent = AI_AGENTS[p2_agent_id]
         agents = [p1_agent, p2_agent]
 
+        # Create visualizing wrappers for neural agents
+        viz_wrappers: list = [None, None]
+        is_neural = [False, False]
+        try:
+            from _02_agents.neural import NeuralAgent
+            from _04_ui.visualization.activation_capture import VisualizingNeuralAgent
+
+            for i, (agent, agent_id) in enumerate(zip(agents, [p1_agent_id, p2_agent_id])):
+                if isinstance(agent, NeuralAgent):
+                    viz_wrappers[i] = VisualizingNeuralAgent(agent, websocket_manager=None)
+                    is_neural[i] = True
+        except ImportError:
+            pass
+
         games: list[dict] = []
         wins = [0, 0]
 
@@ -462,17 +476,33 @@ def create_app() -> FastAPI:
                 "action": None,
                 "state": _serialize_battle_state(game_state),
                 "events": [],
+                "activations": None,
             })
 
             # Play game to completion
             while not simulate.is_terminal(game_state):
                 player = game_state.active_player
                 agent = agents[player]
+                viz_wrapper = viz_wrappers[player]
                 legal = simulate.legal_actions(game_state, player)
 
-                # Get agent's move
+                # Build game context for visualization
+                game_context = {
+                    "queue_cards": [c.species for c in game_state.zones.queue],
+                    "bar_cards": [c.species for c in game_state.zones.beasty_bar],
+                    "hand_cards": [c.species for c in game_state.players[player].hand],
+                }
+
+                # Get agent's move with optional activation capture
                 masked_state = state.mask_state_for_player(game_state, player)
-                action = agent(masked_state, legal)
+                activation_snapshot = None
+
+                if viz_wrapper is not None:
+                    action, activation_snapshot = viz_wrapper.select_action_with_capture_sync(
+                        masked_state, legal, game_state.turn, player, game_context
+                    )
+                else:
+                    action = agent(masked_state, legal)
 
                 # Apply action and get trace for events
                 new_state, steps = engine.step_with_trace(game_state, action)
@@ -497,6 +527,7 @@ def create_app() -> FastAPI:
                     },
                     "state": _serialize_battle_state(new_state),
                     "events": events,
+                    "activations": activation_snapshot,
                 })
 
                 game_state = new_state
@@ -515,12 +546,18 @@ def create_app() -> FastAPI:
                 "turns": turns,
             })
 
+        # Cleanup viz wrappers
+        for wrapper in viz_wrappers:
+            if wrapper is not None:
+                wrapper.cleanup()
+
         return {
             "player1Agent": p1_agent_id,
             "player2Agent": p2_agent_id,
             "numGames": request.num_games,
             "wins": wins,
             "games": games,
+            "isNeural": is_neural,
         }
 
     @app.get("/api/claude-state")
@@ -741,6 +778,11 @@ Reply with JUST the action number (e.g., "1" or "3").""",
     def visualizer_page() -> FileResponse:
         """Serve the neural network visualizer dashboard."""
         return FileResponse(static_dir / "visualizer.html")
+
+    @app.get("/battle-visualizer")
+    def battle_visualizer_page() -> FileResponse:
+        """Serve the AI battle visualizer with dual network graphs."""
+        return FileResponse(static_dir / "battle_visualizer.html")
 
     @app.websocket("/ws/visualizer")
     async def websocket_visualizer(websocket: WebSocket):

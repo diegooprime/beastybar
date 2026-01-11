@@ -1,0 +1,1148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neural Network Visualizer</title>
+    <style>
+        :root {
+            --bg: #0c0c0f;
+            --bg-panel: #111115;
+            --bg-card: #18181c;
+            --border: #2a2a32;
+            --text: #e4e4e7;
+            --text-dim: #71717a;
+            --accent: #3b82f6;
+            --accent-dim: rgba(59, 130, 246, 0.15);
+            --positive: #22c55e;
+            --negative: #ef4444;
+            --p0-color: #f59e0b;
+            --p1-color: #8b5cf6;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 20px;
+            background: var(--bg-panel);
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .header h1 {
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .sync-badge {
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .sync-badge.synced { background: rgba(34, 197, 94, 0.15); color: var(--positive); }
+        .sync-badge.standalone { background: rgba(59, 130, 246, 0.15); color: var(--accent); }
+
+        .header-stats {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+
+        .stat {
+            display: flex;
+            align-items: baseline;
+            gap: 5px;
+        }
+
+        .stat-label {
+            font-size: 10px;
+            color: var(--text-dim);
+        }
+
+        .stat-value {
+            font-size: 13px;
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .score-display { display: flex; gap: 6px; align-items: center; }
+        .score-p0 { color: var(--p0-color); }
+        .score-p1 { color: var(--p1-color); }
+        .score-sep { color: var(--text-dim); font-size: 11px; }
+
+        .main {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        .networks {
+            flex: 1;
+            display: flex;
+            gap: 1px;
+            background: var(--border);
+        }
+
+        .network-panel {
+            flex: 1;
+            background: var(--bg);
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        .network-panel.inactive { opacity: 0.35; }
+
+        .network-header {
+            padding: 8px 12px;
+            background: var(--bg-panel);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .network-title {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .network-title.p0 { color: var(--p0-color); }
+        .network-title.p1 { color: var(--p1-color); }
+
+        .network-status {
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 3px;
+            background: var(--bg-card);
+            color: var(--text-dim);
+        }
+        .network-status.active { background: var(--accent-dim); color: var(--accent); }
+        .network-status.neural { background: rgba(34, 197, 94, 0.15); color: var(--positive); }
+
+        .network-canvas {
+            flex: 1;
+            width: 100%;
+        }
+
+        /* Policy overlay in corner */
+        .policy-overlay {
+            position: absolute;
+            bottom: 12px;
+            left: 12px;
+            background: rgba(17, 17, 21, 0.9);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px;
+            max-width: 200px;
+        }
+
+        .policy-title {
+            font-size: 9px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+        }
+
+        .policy-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 0;
+        }
+        .policy-item.selected { color: var(--accent); }
+        .policy-emoji { font-size: 14px; }
+        .policy-name { flex: 1; font-size: 11px; font-weight: 500; }
+        .policy-prob { font-size: 11px; font-weight: 600; color: var(--accent); }
+
+        .sidebar {
+            width: 220px;
+            background: var(--bg-panel);
+            border-left: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .sidebar-section {
+            padding: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .sidebar-title {
+            font-size: 10px;
+            font-weight: 600;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .winrate-bar {
+            height: 6px;
+            border-radius: 3px;
+            overflow: hidden;
+            display: flex;
+            background: var(--bg-card);
+            margin-bottom: 4px;
+        }
+        .winrate-p0 { background: var(--p0-color); transition: width 0.3s; }
+        .winrate-p1 { background: var(--p1-color); transition: width 0.3s; }
+
+        .winrate-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 10px;
+            font-weight: 600;
+        }
+        .winrate-labels .p0 { color: var(--p0-color); }
+        .winrate-labels .p1 { color: var(--p1-color); }
+
+        .value-compare {
+            display: flex;
+            gap: 8px;
+        }
+
+        .value-box {
+            flex: 1;
+            padding: 8px;
+            background: var(--bg-card);
+            border-radius: 6px;
+            text-align: center;
+        }
+        .value-box.p0 { border-left: 2px solid var(--p0-color); }
+        .value-box.p1 { border-left: 2px solid var(--p1-color); }
+
+        .value-label {
+            font-size: 9px;
+            color: var(--text-dim);
+            margin-bottom: 2px;
+        }
+
+        .value-num {
+            font-size: 16px;
+            font-weight: 700;
+        }
+        .value-num.positive { color: var(--positive); }
+        .value-num.negative { color: var(--negative); }
+        .value-num.neutral { color: var(--text-dim); }
+
+        .controls {
+            padding: 12px;
+            background: var(--bg);
+            border-top: 1px solid var(--border);
+            margin-top: auto;
+        }
+
+        .controls-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 8px;
+        }
+
+        .btn {
+            padding: 6px 10px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text);
+            font-size: 11px;
+            cursor: pointer;
+        }
+        .btn:hover { border-color: var(--accent); }
+        .btn:disabled { opacity: 0.4; cursor: default; }
+        .btn.active { background: var(--accent); border-color: var(--accent); }
+
+        .btn-play {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .speed-control { flex: 1; }
+        .speed-label {
+            font-size: 9px;
+            color: var(--text-dim);
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 3px;
+        }
+        .speed-slider {
+            width: 100%;
+            height: 4px;
+            -webkit-appearance: none;
+            background: var(--bg-card);
+            border-radius: 2px;
+        }
+        .speed-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--accent);
+            cursor: pointer;
+        }
+
+        .progress-text {
+            font-size: 10px;
+            color: var(--text-dim);
+            text-align: center;
+        }
+
+        .loading-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s;
+        }
+        .loading-overlay.visible { opacity: 1; pointer-events: all; }
+
+        .loading-content { text-align: center; }
+        .loading-spinner {
+            width: 36px;
+            height: 36px;
+            border: 3px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 12px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading-text { font-size: 13px; }
+
+        .tooltip {
+            position: fixed;
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 10px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.15s;
+            z-index: 1000;
+            max-width: 180px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        .tooltip.visible { opacity: 1; }
+        .tooltip h3 { font-size: 11px; font-weight: 600; margin-bottom: 6px; color: var(--accent); }
+        .tooltip-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; }
+        .tooltip-stat {
+            display: flex;
+            justify-content: space-between;
+            padding: 2px 5px;
+            background: var(--bg);
+            border-radius: 3px;
+            font-size: 9px;
+        }
+        .tooltip-stat label { color: var(--text-dim); }
+        .tooltip-stat span { font-weight: 600; }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="header-left">
+            <h1>Neural Network Visualizer</h1>
+            <span class="sync-badge" id="sync-badge">Standalone</span>
+        </div>
+        <div class="header-stats">
+            <div class="stat">
+                <span class="stat-label">Game</span>
+                <span class="stat-value" id="game-num">—</span>
+            </div>
+            <div class="stat">
+                <span class="stat-label">Turn</span>
+                <span class="stat-value" id="turn-num">—</span>
+            </div>
+            <div class="stat">
+                <span class="stat-label">Score</span>
+                <div class="score-display">
+                    <span class="stat-value score-p0" id="wins-p0">0</span>
+                    <span class="score-sep">-</span>
+                    <span class="stat-value score-p1" id="wins-p1">0</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div class="main">
+        <div class="networks">
+            <div class="network-panel" id="network-panel-0">
+                <div class="network-header">
+                    <span class="network-title p0" id="network-title-0">Player 0</span>
+                    <span class="network-status" id="network-status-0">—</span>
+                </div>
+                <canvas class="network-canvas" id="canvas-0"></canvas>
+                <div class="policy-overlay" id="policy-0"></div>
+            </div>
+            <div class="network-panel" id="network-panel-1">
+                <div class="network-header">
+                    <span class="network-title p1" id="network-title-1">Player 1</span>
+                    <span class="network-status" id="network-status-1">—</span>
+                </div>
+                <canvas class="network-canvas" id="canvas-1"></canvas>
+                <div class="policy-overlay" id="policy-1"></div>
+            </div>
+        </div>
+
+        <div class="sidebar">
+            <div class="sidebar-section">
+                <div class="sidebar-title">Win Rate</div>
+                <div class="winrate-bar">
+                    <div class="winrate-p0" id="winrate-p0" style="width: 50%"></div>
+                    <div class="winrate-p1" id="winrate-p1" style="width: 50%"></div>
+                </div>
+                <div class="winrate-labels">
+                    <span class="p0" id="winrate-pct-0">—</span>
+                    <span class="p1" id="winrate-pct-1">—</span>
+                </div>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="sidebar-title">Value Estimates</div>
+                <div class="value-compare">
+                    <div class="value-box p0">
+                        <div class="value-label">P0</div>
+                        <div class="value-num" id="value-0">—</div>
+                    </div>
+                    <div class="value-box p1">
+                        <div class="value-label">P1</div>
+                        <div class="value-num" id="value-1">—</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="controls" id="controls">
+                <div class="controls-row">
+                    <button class="btn btn-play" id="btn-play">▶</button>
+                    <div class="speed-control">
+                        <div class="speed-label">
+                            <span>Speed</span>
+                            <span id="speed-value">200ms</span>
+                        </div>
+                        <input type="range" class="speed-slider" id="speed-slider" min="50" max="1000" value="200" step="50">
+                    </div>
+                </div>
+                <div class="controls-row">
+                    <button class="btn" id="btn-prev">◀ Prev</button>
+                    <button class="btn" id="btn-next">Next ▶</button>
+                    <button class="btn" id="btn-skip">Skip Game ▶▶</button>
+                </div>
+                <div class="progress-text" id="progress-text">—</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="loading-overlay" id="loading">
+        <div class="loading-content">
+            <div class="loading-spinner"></div>
+            <div class="loading-text" id="loading-text">Loading...</div>
+        </div>
+    </div>
+
+    <div id="tooltip" class="tooltip"></div>
+
+    <script>
+        const App = {
+            battleData: null,
+            gameIndex: 0,
+            turnIndex: 0,
+            wins: [0, 0],
+            isPlaying: false,
+            isSynced: false,
+            playTimer: null,
+            syncTimer: null,
+            speed: 200,
+            time: 0,
+            particles: [[], []],
+            canvasCtx: [null, null],
+            canvasSize: [{ w: 0, h: 0 }, { w: 0, h: 0 }],
+
+            animals: {
+                lion: '🦁', hippo: '🦛', crocodile: '🐊', snake: '🐍',
+                zebra: '🦓', seal: '🦭', parrot: '🦜', monkey: '🐒',
+                kangaroo: '🦘', chameleon: '🦎', skunk: '🦨', giraffe: '🦒',
+            },
+
+            nodes: [
+                { id: 'queue', label: 'Queue', x: 0.12, y: 0.10, r: 26 },
+                { id: 'bar', label: 'Bar', x: 0.12, y: 0.26, r: 24 },
+                { id: 'thats_it', label: "That's It", x: 0.12, y: 0.42, r: 20 },
+                { id: 'hand', label: 'Hand', x: 0.12, y: 0.58, r: 26 },
+                { id: 'opponent', label: 'Opponent', x: 0.12, y: 0.74, r: 22 },
+                { id: 'fusion1', label: 'Fuse', x: 0.40, y: 0.26, r: 24 },
+                { id: 'fusion2', label: 'Integrate', x: 0.52, y: 0.42, r: 28 },
+                { id: 'fusion3', label: 'Decide', x: 0.64, y: 0.58, r: 24 },
+                { id: 'policy', label: 'Policy', x: 0.88, y: 0.32, r: 34 },
+                { id: 'value', label: 'Value', x: 0.88, y: 0.68, r: 28 },
+            ],
+
+            edges: [
+                { from: 'queue', to: 'fusion1' },
+                { from: 'bar', to: 'fusion1' },
+                { from: 'thats_it', to: 'fusion1' },
+                { from: 'hand', to: 'fusion1' },
+                { from: 'opponent', to: 'fusion1' },
+                { from: 'fusion1', to: 'fusion2' },
+                { from: 'fusion2', to: 'fusion3' },
+                { from: 'fusion3', to: 'policy' },
+                { from: 'fusion3', to: 'value' },
+            ],
+
+            el: {},
+
+            init() {
+                this.cacheElements();
+                this.setupCanvases();
+                this.setupEvents();
+                this.loadBattle();
+                this.animate();
+            },
+
+            cacheElements() {
+                this.el = {
+                    syncBadge: document.getElementById('sync-badge'),
+                    gameNum: document.getElementById('game-num'),
+                    turnNum: document.getElementById('turn-num'),
+                    winsP0: document.getElementById('wins-p0'),
+                    winsP1: document.getElementById('wins-p1'),
+                    networkPanel0: document.getElementById('network-panel-0'),
+                    networkPanel1: document.getElementById('network-panel-1'),
+                    networkTitle0: document.getElementById('network-title-0'),
+                    networkTitle1: document.getElementById('network-title-1'),
+                    networkStatus0: document.getElementById('network-status-0'),
+                    networkStatus1: document.getElementById('network-status-1'),
+                    canvas0: document.getElementById('canvas-0'),
+                    canvas1: document.getElementById('canvas-1'),
+                    policy0: document.getElementById('policy-0'),
+                    policy1: document.getElementById('policy-1'),
+                    winrateP0: document.getElementById('winrate-p0'),
+                    winrateP1: document.getElementById('winrate-p1'),
+                    winratePct0: document.getElementById('winrate-pct-0'),
+                    winratePct1: document.getElementById('winrate-pct-1'),
+                    value0: document.getElementById('value-0'),
+                    value1: document.getElementById('value-1'),
+                    controls: document.getElementById('controls'),
+                    btnPlay: document.getElementById('btn-play'),
+                    btnPrev: document.getElementById('btn-prev'),
+                    btnNext: document.getElementById('btn-next'),
+                    btnSkip: document.getElementById('btn-skip'),
+                    speedSlider: document.getElementById('speed-slider'),
+                    speedValue: document.getElementById('speed-value'),
+                    progressText: document.getElementById('progress-text'),
+                    loading: document.getElementById('loading'),
+                    loadingText: document.getElementById('loading-text'),
+                    tooltip: document.getElementById('tooltip'),
+                };
+            },
+
+            setupCanvases() {
+                const resize = () => {
+                    [0, 1].forEach(i => {
+                        const canvas = this.el[`canvas${i}`];
+                        const panel = canvas.parentElement;
+                        const header = panel.querySelector('.network-header');
+                        const policy = panel.querySelector('.policy-overlay');
+                        canvas.width = panel.offsetWidth;
+                        canvas.height = panel.offsetHeight - (header?.offsetHeight || 0);
+                        this.canvasSize[i] = { w: canvas.width, h: canvas.height };
+                        this.canvasCtx[i] = canvas.getContext('2d');
+                    });
+                };
+                resize();
+                window.addEventListener('resize', resize);
+            },
+
+            setupEvents() {
+                this.el.btnPlay.onclick = () => this.togglePlay();
+                this.el.btnPrev.onclick = () => this.stepTurn(-1);
+                this.el.btnNext.onclick = () => this.stepTurn(1);
+                this.el.btnSkip.onclick = () => this.skipGame();
+                this.el.speedSlider.oninput = () => {
+                    this.speed = parseInt(this.el.speedSlider.value);
+                    this.el.speedValue.textContent = `${this.speed}ms`;
+                };
+
+                [0, 1].forEach(i => {
+                    this.el[`canvas${i}`].onmousemove = e => this.onHover(e, i);
+                    this.el[`canvas${i}`].onmouseleave = () => this.hideTooltip();
+                });
+            },
+
+            async loadBattle() {
+                const params = new URLSearchParams(location.search);
+                const syncMode = params.get('sync') === 'true';
+
+                if (syncMode) {
+                    // Synced mode - read from sessionStorage
+                    this.isSynced = true;
+                    this.el.syncBadge.textContent = 'Synced';
+                    this.el.syncBadge.className = 'sync-badge synced';
+                    this.el.controls.style.display = 'none'; // Hide controls in sync mode
+
+                    const stored = localStorage.getItem('battleData');
+                    if (stored) {
+                        this.battleData = JSON.parse(stored);
+                        this.initBattle();
+                        this.startSyncPolling();
+                    } else {
+                        this.el.loadingText.textContent = 'Waiting for battle data...';
+                        this.el.loading.classList.add('visible');
+                        this.waitForData();
+                    }
+                } else {
+                    // Standalone mode - fetch battle
+                    this.el.syncBadge.textContent = 'Standalone';
+                    this.el.syncBadge.className = 'sync-badge standalone';
+
+                    const p1 = params.get('p1') || 'neural';
+                    const p2 = params.get('p2') || 'heuristic';
+                    const numGames = parseInt(params.get('games')) || 50;
+
+                    this.el.loadingText.textContent = `Computing ${numGames} games...`;
+                    this.el.loading.classList.add('visible');
+
+                    try {
+                        const res = await fetch('/api/ai-battle/start', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ player1Agent: p1, player2Agent: p2, numGames }),
+                        });
+                        if (!res.ok) throw new Error('Failed');
+                        this.battleData = await res.json();
+                        this.el.loading.classList.remove('visible');
+                        this.initBattle();
+                    } catch (e) {
+                        this.el.loadingText.textContent = 'Failed to load. Refresh to retry.';
+                    }
+                }
+            },
+
+            waitForData() {
+                // Check immediately first
+                const stored = localStorage.getItem('battleData');
+                if (stored) {
+                    this.battleData = JSON.parse(stored);
+                    this.el.loading.classList.remove('visible');
+                    this.initBattle();
+                    this.startSyncPolling();
+                    return;
+                }
+
+                // Listen for storage events from other windows
+                const handler = (e) => {
+                    if (e.key === 'battleData' && e.newValue) {
+                        window.removeEventListener('storage', handler);
+                        this.battleData = JSON.parse(e.newValue);
+                        this.el.loading.classList.remove('visible');
+                        this.initBattle();
+                        this.startSyncPolling();
+                    }
+                };
+                window.addEventListener('storage', handler);
+
+                // Also poll as fallback (in case event doesn't fire)
+                const poll = () => {
+                    const data = localStorage.getItem('battleData');
+                    if (data) {
+                        window.removeEventListener('storage', handler);
+                        this.battleData = JSON.parse(data);
+                        this.el.loading.classList.remove('visible');
+                        this.initBattle();
+                        this.startSyncPolling();
+                    } else {
+                        setTimeout(poll, 200);
+                    }
+                };
+                setTimeout(poll, 200);
+            },
+
+            startSyncPolling() {
+                this.syncTimer = setInterval(() => {
+                    const sync = localStorage.getItem('battleSync');
+                    if (sync) {
+                        const { gameIndex, turnIndex, wins, speed, state } = JSON.parse(sync);
+                        if (gameIndex !== this.gameIndex || turnIndex !== this.turnIndex) {
+                            this.gameIndex = gameIndex;
+                            this.turnIndex = turnIndex;
+                            this.wins = wins || [0, 0];
+                            this.updateDisplay();
+                        }
+                    }
+                }, 50);
+            },
+
+            initBattle() {
+                if (!this.battleData) return;
+                const { player1Agent, player2Agent, isNeural } = this.battleData;
+
+                this.el.networkTitle0.textContent = this.formatName(player1Agent);
+                this.el.networkTitle1.textContent = this.formatName(player2Agent);
+
+                this.el.networkStatus0.textContent = isNeural?.[0] ? 'Neural' : '—';
+                this.el.networkStatus0.classList.toggle('neural', isNeural?.[0]);
+                this.el.networkStatus1.textContent = isNeural?.[1] ? 'Neural' : '—';
+                this.el.networkStatus1.classList.toggle('neural', isNeural?.[1]);
+
+                this.el.networkPanel0.classList.toggle('inactive', !isNeural?.[0]);
+                this.el.networkPanel1.classList.toggle('inactive', !isNeural?.[1]);
+
+                // Hide policy overlay for non-neural
+                this.el.policy0.style.display = isNeural?.[0] ? 'block' : 'none';
+                this.el.policy1.style.display = isNeural?.[1] ? 'block' : 'none';
+
+                this.gameIndex = 0;
+                this.turnIndex = 0;
+                this.wins = [0, 0];
+                this.updateDisplay();
+            },
+
+            formatName(id) {
+                if (id.startsWith('ppo_')) return id.replace('ppo_', 'PPO ');
+                return id.charAt(0).toUpperCase() + id.slice(1);
+            },
+
+            togglePlay() {
+                if (this.isSynced) return;
+                this.isPlaying = !this.isPlaying;
+                this.el.btnPlay.textContent = this.isPlaying ? '⏸' : '▶';
+                if (this.isPlaying) this.scheduleNext();
+                else clearTimeout(this.playTimer);
+            },
+
+            scheduleNext() {
+                if (!this.isPlaying) return;
+                this.playTimer = setTimeout(() => {
+                    this.advance();
+                    this.scheduleNext();
+                }, this.speed);
+            },
+
+            advance() {
+                if (!this.battleData) return;
+                const games = this.battleData.games;
+                if (this.gameIndex >= games.length) {
+                    this.isPlaying = false;
+                    this.el.btnPlay.textContent = '↻';
+                    return;
+                }
+
+                const game = games[this.gameIndex];
+                this.turnIndex++;
+
+                if (this.turnIndex >= game.turns.length) {
+                    if (game.winner >= 0) this.wins[game.winner]++;
+                    this.gameIndex++;
+                    this.turnIndex = 0;
+                    if (this.gameIndex >= games.length) {
+                        this.isPlaying = false;
+                        this.el.btnPlay.textContent = '↻';
+                    }
+                }
+                this.updateDisplay();
+            },
+
+            stepTurn(dir) {
+                if (this.isSynced || !this.battleData) return;
+                const game = this.battleData.games[this.gameIndex];
+                if (!game) return;
+                const newIdx = this.turnIndex + dir;
+                if (newIdx >= 0 && newIdx < game.turns.length) {
+                    this.turnIndex = newIdx;
+                    this.updateDisplay();
+                }
+            },
+
+            skipGame() {
+                if (this.isSynced || !this.battleData) return;
+                if (this.gameIndex < this.battleData.games.length - 1) {
+                    const game = this.battleData.games[this.gameIndex];
+                    if (game.winner >= 0) this.wins[game.winner]++;
+                    this.gameIndex++;
+                    this.turnIndex = 0;
+                    this.updateDisplay();
+                }
+            },
+
+            updateDisplay() {
+                if (!this.battleData) return;
+                const games = this.battleData.games;
+                const game = games[this.gameIndex];
+                if (!game) return;
+                const turn = game.turns[this.turnIndex];
+                if (!turn) return;
+
+                // Header
+                this.el.gameNum.textContent = `${this.gameIndex + 1}/${games.length}`;
+                this.el.turnNum.textContent = turn.turnNumber;
+                this.el.winsP0.textContent = this.wins[0];
+                this.el.winsP1.textContent = this.wins[1];
+
+                // Winrate
+                const total = this.wins[0] + this.wins[1];
+                if (total > 0) {
+                    const p0Pct = Math.round((this.wins[0] / total) * 100);
+                    this.el.winrateP0.style.width = `${p0Pct}%`;
+                    this.el.winrateP1.style.width = `${100 - p0Pct}%`;
+                    this.el.winratePct0.textContent = `${p0Pct}%`;
+                    this.el.winratePct1.textContent = `${100 - p0Pct}%`;
+                }
+
+                // Active status
+                const active = turn.activePlayer;
+                this.el.networkStatus0.textContent = active === 0 ? 'Thinking...' : (this.battleData.isNeural?.[0] ? 'Neural' : '—');
+                this.el.networkStatus1.textContent = active === 1 ? 'Thinking...' : (this.battleData.isNeural?.[1] ? 'Neural' : '—');
+                this.el.networkStatus0.classList.toggle('active', active === 0);
+                this.el.networkStatus1.classList.toggle('active', active === 1);
+
+                // Values
+                [0, 1].forEach(i => this.updateValueDisplay(i));
+
+                // Policy overlays
+                [0, 1].forEach(i => this.updatePolicyOverlay(i));
+
+                // Progress
+                const totalTurns = games.reduce((s, g) => s + g.turns.length, 0);
+                let curr = 0;
+                for (let i = 0; i < this.gameIndex; i++) curr += games[i].turns.length;
+                curr += this.turnIndex;
+                this.el.progressText.textContent = `Game ${this.gameIndex + 1}/${games.length} • Turn ${turn.turnNumber}`;
+            },
+
+            updateValueDisplay(player) {
+                const act = this.getActivations(player);
+                const valEl = this.el[`value${player}`];
+                if (act.value?.mean !== undefined) {
+                    const v = act.value.mean;
+                    valEl.textContent = (v >= 0 ? '+' : '') + v.toFixed(2);
+                    valEl.className = 'value-num ' + (v > 0.05 ? 'positive' : v < -0.05 ? 'negative' : 'neutral');
+                } else {
+                    valEl.textContent = '—';
+                    valEl.className = 'value-num neutral';
+                }
+            },
+
+            updatePolicyOverlay(player) {
+                const el = this.el[`policy${player}`];
+                if (!this.battleData?.isNeural?.[player]) {
+                    el.innerHTML = '';
+                    return;
+                }
+
+                // Find most recent activation for this player
+                const game = this.battleData.games[this.gameIndex];
+                let activations = null;
+                for (let i = this.turnIndex; i >= 0; i--) {
+                    const t = game.turns[i];
+                    if (t.activePlayer === player && t.activations?.policy?.top_5) {
+                        activations = t.activations;
+                        break;
+                    }
+                }
+
+                if (!activations?.policy?.top_5) {
+                    el.innerHTML = '<div class="policy-title">Top Actions</div><div style="color:var(--text-dim);font-size:10px;">—</div>';
+                    return;
+                }
+
+                let html = '<div class="policy-title">Top Actions</div>';
+                for (const a of activations.policy.top_5.slice(0, 3)) {
+                    const emoji = this.animals[a.species?.toLowerCase()] || '🎴';
+                    const sel = a.is_selected ? 'selected' : '';
+                    html += `<div class="policy-item ${sel}">
+                        <span class="policy-emoji">${emoji}</span>
+                        <span class="policy-name">${a.species || '?'}</span>
+                        <span class="policy-prob">${(a.prob * 100).toFixed(0)}%</span>
+                    </div>`;
+                }
+                el.innerHTML = html;
+            },
+
+            getActivations(panelIdx) {
+                const map = {};
+                if (!this.battleData) return map;
+                const game = this.battleData.games[this.gameIndex];
+                if (!game) return map;
+
+                let activations = null;
+                for (let i = this.turnIndex; i >= 0; i--) {
+                    const t = game.turns[i];
+                    if (t.activePlayer === panelIdx && t.activations) {
+                        activations = t.activations;
+                        break;
+                    }
+                }
+                if (!activations) return map;
+
+                if (activations.zones) Object.entries(activations.zones).forEach(([k, v]) => { if (v) map[k] = v; });
+                if (activations.fusion) Object.entries(activations.fusion).forEach(([k, v]) => { if (v) map[k] = v; });
+                if (activations.policy) map.policy = { l2_norm: (activations.policy.confidence || 0.5) * 12 };
+                if (activations.value) map.value = { l2_norm: Math.abs(activations.value.estimate || 0) * 8, mean: activations.value.estimate };
+                return map;
+            },
+
+            // Rendering
+            animate() {
+                this.time += 0.016;
+                this.render(0);
+                this.render(1);
+                requestAnimationFrame(() => this.animate());
+            },
+
+            render(idx) {
+                const ctx = this.canvasCtx[idx];
+                const { w, h } = this.canvasSize[idx];
+                if (!ctx || !w || !h) return;
+
+                ctx.fillStyle = '#0c0c0f';
+                ctx.fillRect(0, 0, w, h);
+
+                if (!this.battleData?.isNeural?.[idx]) {
+                    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+                    ctx.font = '13px -apple-system, sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText('Non-neural agent', w / 2, h / 2);
+                    return;
+                }
+
+                const pos = this.getPositions(w, h);
+                const act = this.getActivations(idx);
+                const isActive = this.isActivePanel(idx);
+
+                this.drawEdges(ctx, pos, act, idx, isActive);
+                this.updateParticles(idx);
+                this.drawParticles(ctx, idx);
+                this.drawNodes(ctx, pos, act, idx, isActive);
+            },
+
+            getPositions(w, h) {
+                const pos = {};
+                for (const n of this.nodes) {
+                    pos[n.id] = { ...n, px: n.x * w, py: n.y * h };
+                }
+                return pos;
+            },
+
+            isActivePanel(idx) {
+                if (!this.battleData) return false;
+                const game = this.battleData.games[this.gameIndex];
+                return game?.turns[this.turnIndex]?.activePlayer === idx;
+            },
+
+            drawEdges(ctx, pos, act, idx, isActive) {
+                const alpha = isActive ? 1 : 0.4;
+                for (const edge of this.edges) {
+                    const from = pos[edge.from], to = pos[edge.to];
+                    if (!from || !to) continue;
+                    const a = act[edge.from];
+                    const intensity = a ? Math.min(1, (a.l2_norm || 0) / 12) : 0.15;
+
+                    ctx.strokeStyle = `rgba(59,130,246,${(0.08 + intensity * 0.25) * alpha})`;
+                    ctx.lineWidth = 1 + intensity * 2;
+                    ctx.beginPath();
+                    ctx.moveTo(from.px, from.py);
+                    ctx.lineTo(to.px, to.py);
+                    ctx.stroke();
+
+                    if (isActive && Math.random() < intensity * 0.25) {
+                        this.particles[idx].push({
+                            x: from.px, y: from.py, tx: to.px, ty: to.py,
+                            p: 0, speed: 0.01 + Math.random() * 0.015, size: 1.5 + intensity * 2,
+                        });
+                    }
+                }
+            },
+
+            updateParticles(idx) {
+                this.particles[idx] = this.particles[idx].filter(p => { p.p += p.speed; return p.p < 1; });
+                if (this.particles[idx].length > 120) this.particles[idx] = this.particles[idx].slice(-80);
+            },
+
+            drawParticles(ctx, idx) {
+                for (const p of this.particles[idx]) {
+                    const x = p.x + (p.tx - p.x) * p.p;
+                    const y = p.y + (p.ty - p.y) * p.p;
+                    ctx.beginPath();
+                    ctx.arc(x, y, p.size, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgba(59,130,246,${0.6 * (1 - p.p)})`;
+                    ctx.fill();
+                }
+            },
+
+            drawNodes(ctx, pos, act, idx, isActive) {
+                const alpha = isActive ? 1 : 0.4;
+                for (const node of this.nodes) {
+                    const p = pos[node.id];
+                    const a = act[node.id];
+                    const intensity = a ? Math.min(1, (a.l2_norm || 0) / 12) : 0.1;
+                    const x = p.px, y = p.py, r = p.r + intensity * 5;
+
+                    // Glow
+                    const grad = ctx.createRadialGradient(x, y, r * 0.5, x, y, r * 1.8);
+                    grad.addColorStop(0, `rgba(59,130,246,${(0.1 + intensity * 0.2) * alpha})`);
+                    grad.addColorStop(1, 'rgba(59,130,246,0)');
+                    ctx.fillStyle = grad;
+                    ctx.beginPath();
+                    ctx.arc(x, y, r * 1.8, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // Circle
+                    ctx.fillStyle = '#18181c';
+                    ctx.beginPath();
+                    ctx.arc(x, y, r, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.strokeStyle = `rgba(59,130,246,${(0.3 + intensity * 0.5) * alpha})`;
+                    ctx.lineWidth = 1.5;
+                    ctx.stroke();
+
+                    // Content
+                    if (node.id === 'policy') {
+                        this.drawPolicyNode(ctx, x, y, r, idx, alpha);
+                    } else if (node.id === 'value') {
+                        this.drawValueNode(ctx, x, y, r, idx, alpha);
+                    } else {
+                        ctx.fillStyle = `rgba(255,255,255,${(0.5 + intensity * 0.4) * alpha})`;
+                        ctx.font = `600 ${Math.max(9, r * 0.4)}px -apple-system, sans-serif`;
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText(a ? a.l2_norm.toFixed(1) : '—', x, y);
+                    }
+
+                    // Label
+                    ctx.fillStyle = `rgba(255,255,255,${0.55 * alpha})`;
+                    ctx.font = '500 8px -apple-system, sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'top';
+                    ctx.fillText(node.label, x, y + r + 3);
+                }
+            },
+
+            drawPolicyNode(ctx, x, y, r, idx, alpha) {
+                const game = this.battleData?.games[this.gameIndex];
+                const turn = game?.turns[this.turnIndex];
+                if (turn?.activations?.policy?.top_5?.[0] && turn.activePlayer === idx) {
+                    const top = turn.activations.policy.top_5[0];
+                    const emoji = this.animals[top.species?.toLowerCase()] || '🎴';
+                    ctx.font = `${r * 0.65}px -apple-system`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(emoji, x, y);
+
+                    ctx.strokeStyle = `rgba(59,130,246,${0.8 * alpha})`;
+                    ctx.lineWidth = 2.5;
+                    ctx.lineCap = 'round';
+                    ctx.beginPath();
+                    ctx.arc(x, y, r - 3, -Math.PI / 2, -Math.PI / 2 + (top.prob || 0) * Math.PI * 2);
+                    ctx.stroke();
+                } else {
+                    ctx.fillStyle = `rgba(255,255,255,${0.4 * alpha})`;
+                    ctx.font = `${r * 0.45}px -apple-system`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText('—', x, y);
+                }
+            },
+
+            drawValueNode(ctx, x, y, r, idx, alpha) {
+                const act = this.getActivations(idx);
+                const val = act.value?.mean ?? 0;
+                const color = val > 0.05 ? '34,197,94' : val < -0.05 ? '239,68,68' : '148,163,184';
+
+                ctx.strokeStyle = `rgba(255,255,255,${0.1 * alpha})`;
+                ctx.lineWidth = 3;
+                ctx.lineCap = 'round';
+                ctx.beginPath();
+                ctx.arc(x, y, r * 0.6, Math.PI * 0.75, Math.PI * 2.25);
+                ctx.stroke();
+
+                ctx.strokeStyle = `rgba(${color},${0.9 * alpha})`;
+                ctx.beginPath();
+                ctx.arc(x, y, r * 0.6, Math.PI * 0.75, Math.PI * 0.75 + ((val + 1) / 2) * Math.PI * 1.5);
+                ctx.stroke();
+
+                ctx.fillStyle = `rgba(${color},${alpha})`;
+                ctx.font = `600 ${r * 0.32}px -apple-system`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText((val >= 0 ? '+' : '') + val.toFixed(2), x, y + 2);
+            },
+
+            onHover(e, idx) {
+                const rect = this.el[`canvas${idx}`].getBoundingClientRect();
+                const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+                const pos = this.getPositions(this.canvasSize[idx].w, this.canvasSize[idx].h);
+
+                let found = null;
+                for (const node of this.nodes) {
+                    const p = pos[node.id];
+                    if (Math.hypot(mx - p.px, my - p.py) < p.r + 6) { found = node; break; }
+                }
+
+                if (found) this.showTooltip(found, e, idx);
+                else this.hideTooltip();
+            },
+
+            showTooltip(node, e, idx) {
+                const act = this.getActivations(idx)[node.id];
+                let html = `<h3>${node.label}</h3>`;
+                if (act) {
+                    html += '<div class="tooltip-grid">';
+                    html += `<div class="tooltip-stat"><label>L2</label><span>${act.l2_norm?.toFixed(2) ?? '—'}</span></div>`;
+                    html += `<div class="tooltip-stat"><label>Mean</label><span>${act.mean?.toFixed(3) ?? '—'}</span></div>`;
+                    html += `<div class="tooltip-stat"><label>Std</label><span>${act.std?.toFixed(3) ?? '—'}</span></div>`;
+                    html += `<div class="tooltip-stat"><label>Sparse</label><span>${act.sparsity !== undefined ? (act.sparsity * 100).toFixed(0) + '%' : '—'}</span></div>`;
+                    html += '</div>';
+                } else {
+                    html += '<div style="color:var(--text-dim);font-size:10px;">No data</div>';
+                }
+                this.el.tooltip.innerHTML = html;
+                this.el.tooltip.style.left = (e.clientX + 10) + 'px';
+                this.el.tooltip.style.top = (e.clientY + 10) + 'px';
+                this.el.tooltip.classList.add('visible');
+            },
+
+            hideTooltip() {
+                this.el.tooltip.classList.remove('visible');
+            },
+        };
+
+        document.addEventListener('DOMContentLoaded', () => App.init());
+    </script>
+</body>
+</html>

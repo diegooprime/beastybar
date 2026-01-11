@@ -309,6 +309,63 @@ class VisualizingNeuralAgent:
 
         return action, snapshot
 
+    def select_action_with_capture_sync(
+        self,
+        game_state: Any,  # state.State
+        legal_actions: list[Any],  # list[Action]
+        turn: int,
+        player: int,
+        game_context: dict[str, Any] | None = None,
+    ) -> tuple[Any, dict[str, Any] | None]:  # (Action, snapshot_dict)
+        """Synchronous version for batch processing (e.g., AI battles).
+
+        Returns snapshot as dict instead of ActivationSnapshot object,
+        and doesn't broadcast via WebSocket.
+        """
+        from _01_simulator.action_space import action_index, legal_action_mask_tensor
+        from _01_simulator.observations import state_to_tensor
+        from _04_ui.visualization.data_compression import snapshot_to_dict
+
+        snapshot_dict = None
+
+        if self._capture_wrapper is not None:
+            # Prepare tensors
+            obs = torch.from_numpy(state_to_tensor(game_state, player)).float()
+            mask = torch.from_numpy(
+                legal_action_mask_tensor(game_state, player)
+            ).float()
+
+            if self._device is not None:
+                obs = obs.to(self._device)
+                mask = mask.to(self._device)
+
+            action_labels = self._build_action_labels(game_state, legal_actions, player)
+
+            _policy_logits, _value, snapshot = self._capture_wrapper.forward_with_capture(
+                obs.unsqueeze(0),
+                mask.unsqueeze(0),
+                turn,
+                player,
+                game_context,
+            )
+
+            snapshot.action_labels = action_labels
+
+            # Select action
+            action = self.agent.select_action(game_state, legal_actions)
+
+            # Record action taken
+            action_idx = action_index(action)
+            action_label = self._get_action_label(action, game_state, player)
+            self._capture_wrapper.set_action_taken(snapshot, action_idx, action_label)
+
+            # Convert to dict for JSON serialization
+            snapshot_dict = snapshot_to_dict(snapshot)
+        else:
+            action = self.agent.select_action(game_state, legal_actions)
+
+        return action, snapshot_dict
+
     def _build_action_labels(
         self, game_state: Any, legal_actions: list[Any], player: int
     ) -> dict[int, dict[str, Any]]:
