@@ -693,3 +693,180 @@ def get_single_scores(GameStateArray states, int index):
 
     score_nogil(&states.states[index], scores)
     return (scores[0], scores[1])
+
+
+# =============================================================================
+# Random action selection (GIL-free for opponent pool)
+# =============================================================================
+
+cdef int select_random_action_nogil(GameState* state, int player, uint32_t* rng) noexcept nogil:
+    """Select random legal action in pure C for opponent pool.
+
+    Args:
+        state: Pointer to the game state
+        player: Player index (0 or 1)
+        rng: Pointer to RNG state (will be mutated)
+
+    Returns:
+        Action index (0-123), or -1 if no legal actions available
+    """
+    cdef Action legal_actions[ACTION_DIM]
+    cdef int count, selected_idx, action_idx
+
+    # Get all legal actions for the player
+    count = legal_actions_nogil(state, player, legal_actions)
+
+    if count == 0:
+        return -1
+
+    # Select a random action using the provided RNG
+    selected_idx = _rng_next(rng) % count
+
+    # Convert the selected Action to an index
+    action_idx = action_to_index(&legal_actions[selected_idx])
+
+    return action_idx
+
+
+def select_random_action(GameStateArray states, int index, unsigned int seed):
+    """Python wrapper to select a random legal action.
+
+    Args:
+        states: GameStateArray containing the game state
+        index: Index of the state in the array
+        seed: Random seed for action selection
+
+    Returns:
+        Action index (0-123), or -1 if no legal actions available
+    """
+    cdef uint32_t rng_state = seed
+    cdef int player
+    cdef int action_idx
+
+    if index < 0 or index >= states.length:
+        raise IndexError(f"Index {index} out of range")
+
+    player = states.states[index].active_player
+
+    with nogil:
+        action_idx = select_random_action_nogil(&states.states[index], player, &rng_state)
+
+    return action_idx
+
+
+# =============================================================================
+# C GameState to Python State conversion
+# =============================================================================
+
+# Species ID to name mapping (reverse of species_map in python_state_to_c)
+cdef list _SPECIES_ID_TO_NAME = [
+    'chameleon',   # 0 = SPECIES_CHAMELEON
+    'crocodile',   # 1 = SPECIES_CROCODILE
+    'giraffe',     # 2 = SPECIES_GIRAFFE
+    'hippo',       # 3 = SPECIES_HIPPO
+    'kangaroo',    # 4 = SPECIES_KANGAROO
+    'lion',        # 5 = SPECIES_LION
+    'monkey',      # 6 = SPECIES_MONKEY
+    'parrot',      # 7 = SPECIES_PARROT
+    'seal',        # 8 = SPECIES_SEAL
+    'skunk',       # 9 = SPECIES_SKUNK
+    'snake',       # 10 = SPECIES_SNAKE
+    'unknown',     # 11 = SPECIES_UNKNOWN
+    'zebra',       # 12 = SPECIES_ZEBRA
+]
+
+
+def c_state_to_python(GameStateArray arr, int index):
+    """Convert C GameState at index to Python State for heuristic agents.
+
+    Args:
+        arr: GameStateArray containing the C state
+        index: Index of the state in the array
+
+    Returns:
+        Python State object with all fields populated
+    """
+    from _01_simulator import state as state_module
+
+    cdef GameState* gs
+    cdef int i, owner
+    cdef Card c_card
+
+    if index < 0 or index >= arr.length:
+        raise IndexError(f"Index {index} out of range")
+
+    gs = &arr.states[index]
+
+    # Convert queue cards
+    queue_cards = []
+    for i in range(gs.queue.length):
+        c_card = gs.queue.cards[i]
+        queue_cards.append(state_module.Card(
+            owner=c_card.owner,
+            species=_SPECIES_ID_TO_NAME[c_card.species_id],
+            entered_turn=c_card.entered_turn
+        ))
+
+    # Convert beasty_bar cards
+    beasty_bar_cards = []
+    for i in range(gs.beasty_bar.length):
+        c_card = gs.beasty_bar.cards[i]
+        beasty_bar_cards.append(state_module.Card(
+            owner=c_card.owner,
+            species=_SPECIES_ID_TO_NAME[c_card.species_id],
+            entered_turn=c_card.entered_turn
+        ))
+
+    # Convert thats_it cards
+    thats_it_cards = []
+    for i in range(gs.thats_it.length):
+        c_card = gs.thats_it.cards[i]
+        thats_it_cards.append(state_module.Card(
+            owner=c_card.owner,
+            species=_SPECIES_ID_TO_NAME[c_card.species_id],
+            entered_turn=c_card.entered_turn
+        ))
+
+    # Create zones
+    zones = state_module.Zones(
+        queue=tuple(queue_cards),
+        beasty_bar=tuple(beasty_bar_cards),
+        thats_it=tuple(thats_it_cards)
+    )
+
+    # Convert player states
+    player_states = []
+    for owner in range(PLAYER_COUNT):
+        # Convert hand cards
+        hand_cards = []
+        for i in range(gs.players[owner].hand_length):
+            c_card = gs.players[owner].hand[i]
+            hand_cards.append(state_module.Card(
+                owner=c_card.owner,
+                species=_SPECIES_ID_TO_NAME[c_card.species_id],
+                entered_turn=c_card.entered_turn
+            ))
+
+        # Convert deck cards
+        deck_cards = []
+        for i in range(gs.players[owner].deck_length):
+            c_card = gs.players[owner].deck[i]
+            deck_cards.append(state_module.Card(
+                owner=c_card.owner,
+                species=_SPECIES_ID_TO_NAME[c_card.species_id],
+                entered_turn=c_card.entered_turn
+            ))
+
+        player_states.append(state_module.PlayerState(
+            deck=tuple(deck_cards),
+            hand=tuple(hand_cards)
+        ))
+
+    # Create and return the State object
+    return state_module.State(
+        seed=gs.seed,
+        turn=gs.turn,
+        active_player=gs.active_player,
+        players=tuple(player_states),
+        zones=zones
+    )

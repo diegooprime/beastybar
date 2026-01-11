@@ -35,8 +35,8 @@ games_per_iteration: 4096
 checkpoint_frequency: 25
 eval_frequency: 10
 
-# Async game generation (NEW - hides generation latency)
-async_game_generation: true
+# Async game generation - DISABLED due to multiprocessing issues
+async_game_generation: false
 async_prefetch_batches: 2
 
 # Self-play settings

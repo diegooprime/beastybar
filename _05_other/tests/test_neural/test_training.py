@@ -41,6 +41,7 @@ def small_training_config():
         log_frequency=1,
         seed=42,
         device="cpu",
+        async_game_generation=False,  # Disable async for tests to avoid multiprocessing issues
     )
 
 

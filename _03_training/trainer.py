@@ -57,6 +57,7 @@ from _03_training.checkpoint_manager import CheckpointManager
 from _03_training.exploit_patch_cycle import CycleConfig, ExploitPatchManager
 from _03_training.game_generator import GameGenerator
 from _03_training.opponent_pool import (
+    AdaptiveOpponentPool,
     OpponentConfig,
     OpponentPool,
     OpponentType,
@@ -96,6 +97,7 @@ def _game_generation_worker_process(
     shaped_rewards: bool,
     use_opponent_pool: bool,
     seed: int,
+    pythonpath: list[str] | None = None,
 ) -> None:
     """Worker process for parallel game generation.
 
@@ -114,7 +116,16 @@ def _game_generation_worker_process(
         shaped_rewards: Whether to use shaped rewards.
         use_opponent_pool: Whether to use opponent pool for diversity.
         seed: Base seed for this worker.
+        pythonpath: Python path entries to add before imports (for spawn context).
     """
+    # CRITICAL: Set sys.path BEFORE any project imports
+    # This is required because 'spawn' context doesn't inherit sys.path
+    import sys
+    if pythonpath:
+        for path in pythonpath:
+            if path not in sys.path:
+                sys.path.insert(0, path)
+
     import torch
 
     from _02_agents.neural.network import BeastyBarNetwork
@@ -245,19 +256,45 @@ class TrainingConfig:
     use_heuristic_variants: bool = True  # Enable heuristic agent variants
     use_exploit_patch: bool = False  # Enable automatic exploit-patch cycles
     exploit_patch_interval: int = 200  # Iterations between exploit cycles
+    use_adaptive_weights: bool = False  # Use win-rate-based adaptive opponent weighting
+    min_opponent_weight: float = 0.05  # Minimum weight for any opponent (prevents forgetting)
+
+    # Cython enforcement
+    force_cython: bool = False  # Require Cython acceleration (fail if not available)
 
     # Training schedule
     total_iterations: int = 1000
     checkpoint_frequency: int = 50
     eval_frequency: int = 10
     eval_opponents: list[str] = field(
-        default_factory=lambda: ["random", "heuristic"]
+        default_factory=lambda: [
+            "random",
+            "heuristic",
+            "aggressive",
+            "defensive",
+            "queue",
+            "skunk",
+            "noisy",
+            "online",
+            "outcome_heuristic",
+            "distilled_outcome",
+        ]
     )  # Opponents to evaluate against
     keep_last_n_checkpoints: int = 1  # Only keep N latest checkpoints (saves disk space)
 
     # Learning rate schedule
     lr_warmup_iterations: int = 10
     lr_decay: str = "linear"  # "linear", "cosine", "none"
+
+    # Entropy coefficient schedule (exploration decay)
+    entropy_schedule: str = "linear"  # "linear", "cosine", "none"
+    entropy_start: float = 0.04  # High initial exploration
+    entropy_end: float = 0.01  # Low final entropy for exploitation
+
+    # Temperature schedule (self-play stochasticity)
+    temperature_schedule: str = "linear"  # "linear", "cosine", "none"
+    temperature_start: float = 1.0  # Standard softmax at start
+    temperature_end: float = 0.5  # Sharper distribution at end
 
     # Misc settings
     seed: int = 42
@@ -433,6 +470,100 @@ def set_learning_rate(optimizer: torch.optim.Optimizer, lr: float) -> None:
 
 
 # ============================================================================
+# Entropy and Temperature Scheduling
+# ============================================================================
+
+
+def get_entropy_coef(
+    iteration: int,
+    total_iterations: int,
+    start_coef: float = 0.04,
+    end_coef: float = 0.01,
+    decay_type: str = "linear",
+) -> float:
+    """Compute entropy coefficient for a given iteration.
+
+    Entropy coefficient controls exploration vs exploitation tradeoff.
+    Higher values encourage more exploration (diverse actions).
+    Lower values encourage exploitation (greedy, focused behavior).
+
+    Typical schedule: Start high (0.04) for exploration, decay to low (0.01)
+    as training converges for more deterministic policy.
+
+    Args:
+        iteration: Current training iteration (0-indexed).
+        total_iterations: Total number of training iterations.
+        start_coef: Starting entropy coefficient.
+        end_coef: Final entropy coefficient.
+        decay_type: Type of decay ("linear", "cosine", "none").
+
+    Returns:
+        Entropy coefficient for the given iteration.
+
+    Raises:
+        ValueError: If decay_type is not recognized.
+    """
+    if decay_type == "none":
+        return start_coef
+
+    # Calculate progress through training
+    progress = min(iteration / max(total_iterations, 1), 1.0)
+
+    if decay_type == "linear":
+        return start_coef + (end_coef - start_coef) * progress
+    elif decay_type == "cosine":
+        # Cosine annealing: smooth S-curve decay
+        cosine_factor = 0.5 * (1.0 + math.cos(math.pi * progress))
+        return end_coef + (start_coef - end_coef) * cosine_factor
+    else:
+        raise ValueError(f"Unknown decay_type: {decay_type}")
+
+
+def get_temperature(
+    iteration: int,
+    total_iterations: int,
+    start_temp: float = 1.0,
+    end_temp: float = 0.5,
+    decay_type: str = "linear",
+) -> float:
+    """Compute self-play temperature for a given iteration.
+
+    Temperature controls action sampling stochasticity during self-play.
+    Higher values (>1) increase randomness, lower values (<1) are more greedy.
+
+    Typical schedule: Start at 1.0 (standard softmax), decay to 0.5
+    for sharper, more exploitative self-play as training progresses.
+
+    Args:
+        iteration: Current training iteration (0-indexed).
+        total_iterations: Total number of training iterations.
+        start_temp: Starting temperature.
+        end_temp: Final temperature.
+        decay_type: Type of decay ("linear", "cosine", "none").
+
+    Returns:
+        Temperature for the given iteration.
+
+    Raises:
+        ValueError: If decay_type is not recognized.
+    """
+    if decay_type == "none":
+        return start_temp
+
+    # Calculate progress through training
+    progress = min(iteration / max(total_iterations, 1), 1.0)
+
+    if decay_type == "linear":
+        return start_temp + (end_temp - start_temp) * progress
+    elif decay_type == "cosine":
+        # Cosine annealing: smooth S-curve decay
+        cosine_factor = 0.5 * (1.0 + math.cos(math.pi * progress))
+        return end_temp + (start_temp - end_temp) * cosine_factor
+    else:
+        raise ValueError(f"Unknown decay_type: {decay_type}")
+
+
+# ============================================================================
 # Trainer Class
 # ============================================================================
 
@@ -559,17 +690,33 @@ class Trainer:
 
         # Create opponent pool for training diversity (prevents self-play collapse)
         if config.use_opponent_pool:
-            self.opponent_pool: OpponentPool | None = OpponentPool(
-                config=config.opponent_config,
-                seed=config.seed,
-            )
-            logger.info(
-                f"Opponent pool enabled: "
-                f"current={config.opponent_config.current_weight:.0%}, "
-                f"checkpoint={config.opponent_config.checkpoint_weight:.0%}, "
-                f"random={config.opponent_config.random_weight:.0%}, "
-                f"heuristic={config.opponent_config.heuristic_weight:.0%}"
-            )
+            # Use AdaptiveOpponentPool if adaptive weights enabled
+            if config.use_adaptive_weights:
+                self.opponent_pool: OpponentPool | None = AdaptiveOpponentPool(
+                    config=config.opponent_config,
+                    seed=config.seed,
+                )
+                # Set minimum weight floor
+                self.opponent_pool.MIN_WEIGHT = config.min_opponent_weight
+                logger.info(
+                    f"Adaptive opponent pool enabled (min_weight={config.min_opponent_weight:.0%}): "
+                    f"current={config.opponent_config.current_weight:.0%}, "
+                    f"checkpoint={config.opponent_config.checkpoint_weight:.0%}, "
+                    f"random={config.opponent_config.random_weight:.0%}, "
+                    f"heuristic={config.opponent_config.heuristic_weight:.0%}"
+                )
+            else:
+                self.opponent_pool = OpponentPool(
+                    config=config.opponent_config,
+                    seed=config.seed,
+                )
+                logger.info(
+                    f"Opponent pool enabled: "
+                    f"current={config.opponent_config.current_weight:.0%}, "
+                    f"checkpoint={config.opponent_config.checkpoint_weight:.0%}, "
+                    f"random={config.opponent_config.random_weight:.0%}, "
+                    f"heuristic={config.opponent_config.heuristic_weight:.0%}"
+                )
 
             # Set up MCTS opponents if enabled
             if config.use_mcts_opponents:
@@ -643,6 +790,11 @@ class Trainer:
         if cython_available:
             logger.info("Cython acceleration: ENABLED (10-20x faster game simulation)")
         else:
+            if config.force_cython:
+                raise RuntimeError(
+                    "force_cython=True but Cython is not available. "
+                    "Run 'python setup.py build_ext --inplace' to build Cython extensions."
+                )
             logger.warning(
                 "Cython acceleration: DISABLED - Run 'python setup.py build_ext --inplace' "
                 "to enable 10-20x faster game simulation"
@@ -670,6 +822,26 @@ class Trainer:
             decay_type=self.config.lr_decay,
         )
 
+    def _get_current_entropy_coef(self) -> float:
+        """Get entropy coefficient for current iteration."""
+        return get_entropy_coef(
+            iteration=self._iteration,
+            total_iterations=self.config.total_iterations,
+            start_coef=self.config.entropy_start,
+            end_coef=self.config.entropy_end,
+            decay_type=self.config.entropy_schedule,
+        )
+
+    def _get_current_temperature(self) -> float:
+        """Get self-play temperature for current iteration."""
+        return get_temperature(
+            iteration=self._iteration,
+            total_iterations=self.config.total_iterations,
+            start_temp=self.config.temperature_start,
+            end_temp=self.config.temperature_end,
+            decay_type=self.config.temperature_schedule,
+        )
+
     def _generate_self_play_games(self) -> tuple[list[Transition], list[list[Transition]], str, float]:
         """Generate self-play games and return transitions with trajectory info.
 
@@ -683,6 +855,9 @@ class Trainer:
             - opponent_name: Name of sampled opponent for logging
             - win_rate: Win rate against the opponent (0.5 for self-play)
         """
+        # Update temperature based on current iteration (scheduled decay)
+        self.game_generator.temperature = self._get_current_temperature()
+
         transitions, trajectory_list, opponent_name, win_rate = self.game_generator.generate_games(
             num_games=self.config.games_per_iteration,
             shaped_rewards=self.config.shaped_rewards,
@@ -697,6 +872,8 @@ class Trainer:
         own copy of the network. Workers continuously generate game batches
         and put them in the shared queue.
         """
+        import sys
+
         if self._game_queue is None or len(self._game_workers) > 0:
             return
 
@@ -707,10 +884,15 @@ class Trainer:
         network_config_dict = self.config.network_config.to_dict()
         opponent_config_dict = self.config.opponent_config.to_dict()
 
-        # Calculate games per worker (distribute evenly)
-        games_per_worker = self.config.games_per_iteration // self.config.async_num_workers
+        # Pass sys.path to workers (spawn context doesn't inherit it)
+        pythonpath = list(sys.path)
 
-        for worker_id in range(self.config.async_num_workers):
+        # Calculate games per worker (distribute evenly, ensure at least 1)
+        # Limit workers to games_per_iteration to avoid workers with 0 games
+        num_workers = min(self.config.async_num_workers, self.config.games_per_iteration)
+        games_per_worker = max(1, self.config.games_per_iteration // num_workers)
+
+        for worker_id in range(num_workers):
             process = self._mp_ctx.Process(
                 target=_game_generation_worker_process,
                 args=(
@@ -725,6 +907,7 @@ class Trainer:
                     self.config.shaped_rewards,
                     self.config.use_opponent_pool,
                     self.config.seed,
+                    pythonpath,
                 ),
                 daemon=True,
                 name=f"GameGenWorker-{worker_id}",
@@ -732,7 +915,10 @@ class Trainer:
             process.start()
             self._game_workers.append(process)
 
-        logger.info(f"Started {len(self._game_workers)} game generation worker processes")
+        logger.info(
+            f"Started {len(self._game_workers)} game generation workers "
+            f"({games_per_worker} games/worker)"
+        )
 
     def _stop_game_workers(self) -> None:
         """Stop all background game generation worker processes."""
@@ -897,8 +1083,11 @@ class Trainer:
             "total_loss": 0.0,
             "approx_kl": 0.0,
             "clip_fraction": 0.0,
+            "train/grad_norm_pre_clip": 0.0,
+            "train/grad_norm_post_clip": 0.0,
         }
         num_updates = 0
+        num_grad_updates = 0  # Track gradient updates separately for averaging
 
         # Update learning rate
         current_lr = self._get_current_lr()
@@ -952,11 +1141,12 @@ class Trainer:
                     action_masks=minibatch.action_masks,
                 )
 
-                # Combined loss
+                # Combined loss (use dynamic entropy coefficient)
+                current_entropy_coef = self._get_current_entropy_coef()
                 total_loss = (
                     p_loss
                     + self.config.ppo_config.value_coef * v_loss
-                    - self.config.ppo_config.entropy_coef * ent_bonus
+                    - current_entropy_coef * ent_bonus
                 )
 
                 # Scale loss for gradient accumulation
@@ -976,34 +1166,72 @@ class Trainer:
 
                 # Apply gradients after accumulation steps
                 if accumulated_steps >= self.config.gradient_accumulation_steps:
-                    # Gradient clipping
+                    # Gradient clipping with norm logging
                     if self.config.ppo_config.max_grad_norm > 0:
-                        torch.nn.utils.clip_grad_norm_(
+                        # Measure gradient norm before clipping (inf max = just measure, no clip)
+                        grad_norm_pre = torch.nn.utils.clip_grad_norm_(
+                            self.network.parameters(), float('inf')
+                        )
+                        metrics_accum["train/grad_norm_pre_clip"] += grad_norm_pre.item()
+
+                        # Actual gradient clipping
+                        grad_norm_post = torch.nn.utils.clip_grad_norm_(
                             self.network.parameters(),
                             self.config.ppo_config.max_grad_norm,
                         )
+                        metrics_accum["train/grad_norm_post_clip"] += grad_norm_post.item()
+                    else:
+                        # No clipping - just measure gradient norm
+                        grad_norm = torch.nn.utils.clip_grad_norm_(
+                            self.network.parameters(), float('inf')
+                        )
+                        metrics_accum["train/grad_norm_pre_clip"] += grad_norm.item()
+                        metrics_accum["train/grad_norm_post_clip"] += grad_norm.item()
 
+                    num_grad_updates += 1
                     self.optimizer.step()
                     self.optimizer.zero_grad()
                     accumulated_steps = 0
 
             # Handle remaining accumulated gradients
             if accumulated_steps > 0:
+                # Gradient clipping with norm logging
                 if self.config.ppo_config.max_grad_norm > 0:
-                    torch.nn.utils.clip_grad_norm_(
+                    # Measure gradient norm before clipping (inf max = just measure, no clip)
+                    grad_norm_pre = torch.nn.utils.clip_grad_norm_(
+                        self.network.parameters(), float('inf')
+                    )
+                    metrics_accum["train/grad_norm_pre_clip"] += grad_norm_pre.item()
+
+                    # Actual gradient clipping
+                    grad_norm_post = torch.nn.utils.clip_grad_norm_(
                         self.network.parameters(),
                         self.config.ppo_config.max_grad_norm,
                     )
+                    metrics_accum["train/grad_norm_post_clip"] += grad_norm_post.item()
+                else:
+                    # No clipping - just measure gradient norm
+                    grad_norm = torch.nn.utils.clip_grad_norm_(
+                        self.network.parameters(), float('inf')
+                    )
+                    metrics_accum["train/grad_norm_pre_clip"] += grad_norm.item()
+                    metrics_accum["train/grad_norm_post_clip"] += grad_norm.item()
+
+                num_grad_updates += 1
                 self.optimizer.step()
                 self.optimizer.zero_grad()
 
-        # Average metrics
+        # Average metrics (loss metrics by num_updates, grad norms by num_grad_updates)
         if num_updates > 0:
-            for key in metrics_accum:
+            for key in ["policy_loss", "value_loss", "entropy", "total_loss", "approx_kl", "clip_fraction"]:
                 metrics_accum[key] /= num_updates
+        if num_grad_updates > 0:
+            metrics_accum["train/grad_norm_pre_clip"] /= num_grad_updates
+            metrics_accum["train/grad_norm_post_clip"] /= num_grad_updates
 
         # Add additional metrics
         metrics_accum["learning_rate"] = current_lr
+        metrics_accum["entropy_coef"] = self._get_current_entropy_coef()
         metrics_accum["num_updates"] = float(num_updates)
         metrics_accum["buffer_size"] = float(len(self.replay_buffer))
 
@@ -1069,6 +1297,7 @@ class Trainer:
         metrics["iteration_time"] = iteration_time
         metrics["self_play/opponent"] = hash(opponent_name) % 1000  # Numeric for logging
         metrics["self_play/win_rate"] = win_rate
+        metrics["self_play/temperature"] = self._get_current_temperature()
 
         # Store in history
         self._metrics_history.append(metrics)
@@ -1102,15 +1331,33 @@ class Trainer:
             logger.info("Waiting for initial game batches from workers...")
             prefill_start = time.time()
             min_batches = min(2, self.config.async_prefetch_batches)
-            while self._game_queue.qsize() < min_batches:
-                time.sleep(0.5)
-                if time.time() - prefill_start > 120:  # 2 minute timeout
-                    logger.warning("Timeout waiting for workers, proceeding anyway")
-                    break
+
+            # Note: qsize() is not supported on macOS, so we use try/except
+            def _get_queue_size() -> int:
+                try:
+                    return self._game_queue.qsize()
+                except NotImplementedError:
+                    return -1  # Unknown size on macOS
+
+            queue_size = _get_queue_size()
+            if queue_size >= 0:
+                # Platform supports qsize - wait for batches
+                while queue_size < min_batches:
+                    time.sleep(0.5)
+                    if time.time() - prefill_start > 120:  # 2 minute timeout
+                        logger.warning("Timeout waiting for workers, proceeding anyway")
+                        break
+                    queue_size = _get_queue_size()
+            else:
+                # macOS: just wait a fixed time for workers to produce batches
+                time.sleep(2.0)
+
             prefill_time = time.time() - prefill_start
-            logger.info(
-                f"Workers produced {self._game_queue.qsize()} batches in {prefill_time:.1f}s"
-            )
+            queue_size = _get_queue_size()
+            if queue_size >= 0:
+                logger.info(f"Workers produced {queue_size} batches in {prefill_time:.1f}s")
+            else:
+                logger.info(f"Waited {prefill_time:.1f}s for workers (qsize not supported)")
 
         try:
             while self._iteration < self.config.total_iterations:
@@ -1249,7 +1496,7 @@ class Trainer:
                 tracker=self.tracker,
                 step=self._iteration,
                 games_per_opponent=50,
-                opponents=self._config.eval_opponents,
+                opponents=self.config.eval_opponents,
                 play_both_sides=True,
                 mode="greedy",
             )
@@ -1262,6 +1509,28 @@ class Trainer:
         # Check if exploit cycle should start
         if self.exploit_patch_manager is not None and self.exploit_patch_manager.should_start_cycle(self._iteration):
             self._run_exploit_cycle()
+
+        # Update adaptive opponent weights based on evaluation results
+        if (
+            self.config.use_adaptive_weights
+            and self.opponent_pool is not None
+            and isinstance(self.opponent_pool, AdaptiveOpponentPool)
+        ):
+            # Extract win rates from metrics (format: eval/{opponent}/win_rate)
+            win_rates = {}
+            for key, value in metrics.items():
+                if key.endswith("/win_rate"):
+                    # Extract opponent name: "eval/random/win_rate" -> "random"
+                    parts = key.split("/")
+                    if len(parts) >= 2:
+                        opponent_name = parts[1]
+                        win_rates[opponent_name] = value
+
+            if win_rates:
+                self.opponent_pool.update_weights_from_win_rates(win_rates)
+                logger.info(
+                    f"Updated adaptive weights: {self.opponent_pool.get_adaptive_weights()}"
+                )
 
         # Log summary to console
         logger.info(
@@ -1552,7 +1821,9 @@ __all__ = [
     "TrainingConfig",
     "create_heuristic_variants",
     "create_trainer_from_checkpoint",
+    "get_entropy_coef",
     "get_learning_rate",
+    "get_temperature",
     "load_training_checkpoint",
     "save_training_checkpoint",
     "set_learning_rate",

@@ -230,6 +230,7 @@ class TestShortTrainingLoop:
                 games_per_iteration=4,
                 checkpoint_dir=tmpdir,
                 checkpoint_frequency=10,  # Don't checkpoint during short test
+                async_game_generation=False,  # Disable async for tests
             )
 
             trainer = Trainer(config)
@@ -257,6 +258,7 @@ class TestShortTrainingLoop:
                 games_per_iteration=4,
                 checkpoint_dir=tmpdir,
                 opponent_config=opponent_config,
+                async_game_generation=False,  # Disable async for tests
             )
 
             trainer = Trainer(config)

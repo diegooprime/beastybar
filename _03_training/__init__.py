@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .checkpoint_manager import CheckpointManager
 from .curriculum import (
     CURRICULUM_LEVELS,
     MIN_SPECIES_FOR_GAME,
@@ -35,6 +36,13 @@ from .evaluation import (
     log_evaluation_results,
     wilson_confidence_interval,
 )
+from .exploit_patch_cycle import (
+    CycleConfig,
+    CycleRecord,
+    ExploiterInfo,
+    ExploitPatchManager,
+)
+from .game_generator import GameGenerator
 from .model_selection import (
     EarlyStopping,
     ModelRecord,
@@ -101,14 +109,6 @@ from .self_play import (
     trajectories_to_transitions,
     trajectory_to_player_transitions,
 )
-from .trajectory import (
-    MCTSPendingStep,
-    MCTSStep,
-    PendingStep,
-    PPOPendingStep,
-    PPOStep,
-    TrajectoryStep,
-)
 from .tournament import MatchResult, Tournament, TournamentConfig
 from .tracking import (
     ConsoleTracker,
@@ -119,9 +119,6 @@ from .tracking import (
     log_self_play_stats,
     log_training_step,
 )
-from .utils import inference_mode, training_mode
-from .checkpoint_manager import CheckpointManager
-from .game_generator import GameGenerator
 from .trainer import (
     Trainer,
     TrainingConfig,
@@ -131,18 +128,21 @@ from .trainer import (
     save_training_checkpoint,
     set_learning_rate,
 )
+from .trajectory import (
+    MCTSPendingStep,
+    MCTSStep,
+    PendingStep,
+    PPOPendingStep,
+    PPOStep,
+    TrajectoryStep,
+)
+from .utils import inference_mode, training_mode
 from .value_diagnostics import (
     ValueCalibrationTracker,
     check_cold_start_failure,
     diagnose_value_network,
     extract_values_from_trajectories,
     log_value_diagnostics,
-)
-from .exploit_patch_cycle import (
-    CycleConfig,
-    CycleRecord,
-    ExploiterInfo,
-    ExploitPatchManager,
 )
 
 __all__ = [

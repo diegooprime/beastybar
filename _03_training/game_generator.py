@@ -20,26 +20,25 @@ Example:
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
+
+import torch
 
 from _02_agents.neural.network import BeastyBarNetwork
 from _02_agents.neural.utils import NetworkConfig
 from _03_training.opponent_pool import (
     OpponentPool,
     OpponentType,
+    SampledOpponent,
     create_opponent_network,
 )
 from _03_training.opponent_statistics import OpponentStatsTracker
+from _03_training.replay_buffer import Transition
 from _03_training.self_play import (
     GameTrajectory,
     generate_games,
     trajectory_to_player_transitions,
 )
-
-if TYPE_CHECKING:
-    import torch
-
-    from _03_training.replay_buffer import Transition
 
 logger = logging.getLogger(__name__)
 
@@ -300,4 +299,158 @@ class GameGenerator:
         )
 
 
-__all__ = ["GameGenerator", "OpponentStatsTracker"]
+def generate_games_batched_by_opponent(
+    network: BeastyBarNetwork,
+    num_games: int,
+    opponent_pool: OpponentPool,
+    device: torch.device,
+    network_config: NetworkConfig | None = None,
+    temperature: float = 1.0,
+    num_workers: int = 1,
+    shaped_rewards: bool = False,
+) -> list[Transition]:
+    """Generate games, batching by opponent type for efficiency.
+
+    Instead of sampling opponent per-game, pre-compute how many games
+    to play against each opponent type based on weights, then generate
+    all games for each opponent in a batch.
+
+    This is more efficient than per-game opponent sampling because:
+    1. Reduces opponent setup overhead (network loading, agent creation)
+    2. Allows better batching of games with same opponent type
+    3. Deterministic opponent distribution (exact weights vs stochastic)
+
+    Args:
+        network: Neural network for policy/value estimation.
+        num_games: Total number of games to generate.
+        opponent_pool: Pool of diverse opponents with configured weights.
+        device: Device for network inference.
+        network_config: Network configuration for creating opponent networks.
+        temperature: Temperature for action sampling.
+        num_workers: Number of parallel workers for game generation.
+        shaped_rewards: If True, use score-margin shaped rewards.
+
+    Returns:
+        List of all transitions collected from games against all opponents.
+        Only P0 (learning agent) transitions are collected when playing
+        against non-self opponents.
+    """
+    if network_config is None:
+        network_config = NetworkConfig()
+
+    # Get opponent weights from pool config
+    config = opponent_pool.config
+    weights = {
+        OpponentType.CURRENT: config.current_weight,
+        OpponentType.CHECKPOINT: config.checkpoint_weight if opponent_pool.checkpoints else 0.0,
+        OpponentType.RANDOM: config.random_weight,
+        OpponentType.HEURISTIC: config.heuristic_weight,
+        OpponentType.MCTS: config.mcts_weight if config.mcts_configs else 0.0,
+    }
+
+    # Redistribute unavailable weights to CURRENT
+    unavailable = 0.0
+    if not opponent_pool.checkpoints:
+        unavailable += config.checkpoint_weight
+    if not config.mcts_configs:
+        unavailable += config.mcts_weight
+    weights[OpponentType.CURRENT] += unavailable
+
+    # Compute games per opponent type
+    # Use floor division first, then distribute remainder
+    games_per_opponent: dict[OpponentType, int] = {}
+    remaining_games = num_games
+
+    # Sort by weight descending for stable allocation
+    sorted_types = sorted(weights.keys(), key=lambda t: weights[t], reverse=True)
+
+    for opp_type in sorted_types:
+        weight = weights[opp_type]
+        if weight <= 0:
+            games_per_opponent[opp_type] = 0
+            continue
+
+        # Compute games for this opponent
+        games = int(weight * num_games)
+
+        # Ensure at least 1 game for active opponents (weight > 0)
+        if games == 0 and weight > 0:
+            games = 1
+
+        # Don't exceed remaining games
+        games = min(games, remaining_games)
+        games_per_opponent[opp_type] = games
+        remaining_games -= games
+
+    # Distribute any remaining games to CURRENT (highest priority)
+    if remaining_games > 0:
+        games_per_opponent[OpponentType.CURRENT] += remaining_games
+
+    # Generate games for each opponent type
+    all_transitions: list[Transition] = []
+
+    for opp_type, n_games in games_per_opponent.items():
+        if n_games <= 0:
+            continue
+
+        # Setup opponent for this batch
+        opponent_agent = None
+        opponent_network = None
+        collect_both_players = opp_type == OpponentType.CURRENT
+
+        if opp_type == OpponentType.CURRENT:
+            # Standard self-play
+            pass
+        elif opp_type == OpponentType.CHECKPOINT:
+            # Sample a checkpoint and use it for all games in this batch
+            cp = opponent_pool.checkpoints[
+                opponent_pool._rng.randrange(len(opponent_pool.checkpoints))
+            ]
+            sampled = SampledOpponent(
+                OpponentType.CHECKPOINT,
+                network_state=cp.state_dict,
+                iteration=cp.iteration,
+            )
+            opponent_network = create_opponent_network(
+                sampled=sampled,
+                network_class=BeastyBarNetwork,
+                network_config=network_config,
+                device=device,
+            )
+        elif opp_type == OpponentType.RANDOM:
+            opponent_agent = opponent_pool.random_agent
+        elif opp_type == OpponentType.HEURISTIC:
+            opponent_agent = opponent_pool.heuristic_agent
+        elif opp_type == OpponentType.MCTS:
+            agents = opponent_pool.mcts_agents
+            config_name = opponent_pool._rng.choice(list(agents.keys()))
+            opponent_agent = agents[config_name]
+
+        # Generate games for this opponent batch
+        trajectories = generate_games(
+            network=network,
+            num_games=n_games,
+            temperature=temperature,
+            device=device,
+            num_workers=num_workers,
+            shaped_rewards=shaped_rewards,
+            opponent=opponent_agent,
+            opponent_network=opponent_network,
+        )
+
+        # Convert trajectories to transitions
+        for trajectory in trajectories:
+            players_to_collect = [0, 1] if collect_both_players else [0]
+            for player in players_to_collect:
+                player_transitions = trajectory_to_player_transitions(trajectory, player)
+                all_transitions.extend(player_transitions)
+
+        logger.debug(
+            f"Generated {n_games} games vs {opp_type.name.lower()}, "
+            f"collected {len(all_transitions)} transitions total"
+        )
+
+    return all_transitions
+
+
+__all__ = ["GameGenerator", "OpponentStatsTracker", "generate_games_batched_by_opponent"]

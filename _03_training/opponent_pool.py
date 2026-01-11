@@ -328,7 +328,165 @@ def create_default_mcts_configs() -> list[MCTSOpponentConfig]:
     ]
 
 
+class AdaptiveOpponentPool(OpponentPool):
+    """Opponent pool with win-rate-based adaptive weighting.
+
+    Adjusts opponent sampling weights based on evaluation win rates:
+    opponents we lose to get higher weight, opponents we beat consistently
+    get lower weight. This focuses training on weaknesses.
+    """
+
+    MIN_WEIGHT = 0.05  # Never drop below 5%
+
+    def __init__(self, config: OpponentConfig | None = None, seed: int | None = None) -> None:
+        super().__init__(config, seed)
+        # Adaptive weights for each opponent type (normalized, sum to 1.0)
+        # Initialize from config weights
+        self._adaptive_weights: dict[OpponentType, float] = {
+            OpponentType.CURRENT: self.config.current_weight,
+            OpponentType.CHECKPOINT: self.config.checkpoint_weight,
+            OpponentType.RANDOM: self.config.random_weight,
+            OpponentType.HEURISTIC: self.config.heuristic_weight,
+            OpponentType.MCTS: self.config.mcts_weight,
+        }
+        logger.info("AdaptiveOpponentPool initialized with win-rate-based weighting")
+
+    def update_weights_from_win_rates(self, win_rates: dict[str, float]) -> None:
+        """Recompute opponent weights based on recent evaluation win rates.
+
+        The weighting formula inverts win rates: opponents we lose to get
+        higher weight, opponents we beat consistently get lower weight.
+        A minimum weight floor ensures no opponent is ever completely dropped.
+
+        Args:
+            win_rates: Map of opponent name to win rate (0.0 to 1.0).
+                       Keys should match OpponentType names (lowercase) or
+                       specific opponent names like "checkpoint_100".
+        """
+        if not win_rates:
+            logger.warning("Empty win_rates dict, weights unchanged")
+            return
+
+        # Map opponent names to OpponentType
+        name_to_type: dict[str, OpponentType] = {
+            "current": OpponentType.CURRENT,
+            "random": OpponentType.RANDOM,
+            "heuristic": OpponentType.HEURISTIC,
+        }
+        # Checkpoint entries get aggregated
+        # MCTS entries get aggregated
+
+        # Calculate raw weights: invert win rates (lose more = higher weight)
+        raw_weights: dict[OpponentType, float] = {}
+        checkpoint_win_rates: list[float] = []
+        mcts_win_rates: list[float] = []
+
+        for opponent_name, win_rate in win_rates.items():
+            opponent_lower = opponent_name.lower()
+
+            if opponent_lower in name_to_type:
+                opponent_type = name_to_type[opponent_lower]
+                raw_weights[opponent_type] = max(1.0 - win_rate, self.MIN_WEIGHT)
+            elif opponent_lower.startswith("checkpoint"):
+                checkpoint_win_rates.append(win_rate)
+            elif opponent_lower.startswith("mcts"):
+                mcts_win_rates.append(win_rate)
+            else:
+                logger.debug(f"Unknown opponent name: {opponent_name}, skipping")
+
+        # Aggregate checkpoint win rates (average)
+        if checkpoint_win_rates:
+            avg_checkpoint_wr = sum(checkpoint_win_rates) / len(checkpoint_win_rates)
+            raw_weights[OpponentType.CHECKPOINT] = max(1.0 - avg_checkpoint_wr, self.MIN_WEIGHT)
+        elif self.config.checkpoint_weight > 0:
+            # Keep original weight if no checkpoint data
+            raw_weights[OpponentType.CHECKPOINT] = self.config.checkpoint_weight
+
+        # Aggregate MCTS win rates (average)
+        if mcts_win_rates:
+            avg_mcts_wr = sum(mcts_win_rates) / len(mcts_win_rates)
+            raw_weights[OpponentType.MCTS] = max(1.0 - avg_mcts_wr, self.MIN_WEIGHT)
+        elif self.config.mcts_weight > 0:
+            # Keep original weight if no MCTS data
+            raw_weights[OpponentType.MCTS] = self.config.mcts_weight
+
+        # Fill in any missing opponent types with minimum weight
+        for opponent_type in OpponentType:
+            if opponent_type not in raw_weights:
+                # Use config weight if available, otherwise minimum
+                config_weight = getattr(
+                    self.config,
+                    f"{opponent_type.name.lower()}_weight",
+                    self.MIN_WEIGHT
+                )
+                raw_weights[opponent_type] = max(config_weight, self.MIN_WEIGHT)
+
+        # Normalize to sum to 1.0
+        total = sum(raw_weights.values())
+        if total > 0:
+            normalized = {k: v / total for k, v in raw_weights.items()}
+            self._adaptive_weights = normalized
+
+            # Log the update
+            weight_str = ", ".join(
+                f"{t.name.lower()}={w:.1%}"
+                for t, w in sorted(normalized.items(), key=lambda x: x[0].name)
+            )
+            logger.info(f"AdaptiveOpponentPool weights updated: {weight_str}")
+        else:
+            logger.warning("Total raw weights is 0, keeping previous weights")
+
+    def sample_opponent(self) -> SampledOpponent:
+        """Sample an opponent according to adaptive distribution."""
+        # Redistribute unavailable weights to current
+        checkpoint_weight = self._adaptive_weights[OpponentType.CHECKPOINT]
+        mcts_weight = self._adaptive_weights[OpponentType.MCTS]
+
+        checkpoint_redistrib = checkpoint_weight if not self.checkpoints else 0
+        mcts_redistrib = mcts_weight if not self.config.mcts_configs else 0
+
+        weights = [
+            self._adaptive_weights[OpponentType.CURRENT] + checkpoint_redistrib + mcts_redistrib,
+            checkpoint_weight if self.checkpoints else 0,
+            self._adaptive_weights[OpponentType.RANDOM],
+            self._adaptive_weights[OpponentType.HEURISTIC],
+            mcts_weight if self.config.mcts_configs else 0,
+        ]
+        opponent_type = self._rng.choices(list(OpponentType), weights=weights)[0]
+        self._sample_counts[opponent_type] += 1
+
+        match opponent_type:
+            case OpponentType.CURRENT:
+                return SampledOpponent(OpponentType.CURRENT)
+            case OpponentType.CHECKPOINT:
+                cp = self._rng.choice(self.checkpoints)
+                return SampledOpponent(OpponentType.CHECKPOINT, network_state=cp.state_dict, iteration=cp.iteration)
+            case OpponentType.RANDOM:
+                return SampledOpponent(OpponentType.RANDOM, agent=self.random_agent)
+            case OpponentType.HEURISTIC:
+                return SampledOpponent(OpponentType.HEURISTIC, agent=self.heuristic_agent)
+            case OpponentType.MCTS:
+                agents = self.mcts_agents
+                config_name = self._rng.choice(list(agents.keys()))
+                return SampledOpponent(
+                    OpponentType.MCTS,
+                    agent=agents[config_name],
+                    mcts_config_name=config_name,
+                )
+
+    def get_adaptive_weights(self) -> dict[str, float]:
+        """Get current adaptive weights for logging/debugging."""
+        return {t.name.lower(): w for t, w in self._adaptive_weights.items()}
+
+    def get_statistics(self) -> dict[str, Any]:
+        """Get sampling statistics including adaptive weights."""
+        stats = super().get_statistics()
+        stats["adaptive_weights"] = self.get_adaptive_weights()
+        return stats
+
+
 __all__ = [
+    "AdaptiveOpponentPool",
     "CheckpointEntry",
     "MCTSOpponentConfig",
     "OpponentConfig",

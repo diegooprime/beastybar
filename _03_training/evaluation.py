@@ -78,6 +78,8 @@ def create_opponent(name: str) -> Agent:
     - "skunk": Skunk specialist heuristic
     - "noisy": Noisy/human-like heuristic (bounded rationality)
     - "online": Reactive counter-play agent (OnlineStrategies)
+    - "outcome_heuristic": Forward simulation with hand-tuned weights
+    - "distilled_outcome": Forward simulation with PPO-extracted weights
     - "mcts-N": MCTSAgent with N iterations (e.g., mcts-100, mcts-500)
 
     Args:
@@ -116,6 +118,14 @@ def create_opponent(name: str) -> Agent:
         return HeuristicAgent(config=config, seed=None)
     elif name_lower in ("online", "online-strategies"):
         return OnlineStrategies(seed=None)
+    elif name_lower in ("outcome_heuristic", "outcome-heuristic"):
+        from _02_agents.outcome_heuristic import OutcomeHeuristic
+
+        return OutcomeHeuristic()
+    elif name_lower in ("distilled_outcome", "distilled-outcome"):
+        from _02_agents.outcome_heuristic import DistilledOutcomeHeuristic
+
+        return DistilledOutcomeHeuristic()
     elif name_lower.startswith("mcts-"):
         from _02_agents.neural.utils import get_device, load_network_from_checkpoint
 
@@ -154,7 +164,7 @@ def create_opponent(name: str) -> Agent:
         raise ValueError(
             f"Unknown opponent: {name}. "
             f"Available: random, heuristic, aggressive, defensive, queue, skunk, noisy, online, "
-            f"mcts-100, mcts-500, mcts-1000, self"
+            f"outcome_heuristic, distilled_outcome, mcts-100, mcts-500, mcts-1000, self"
         )
 
 

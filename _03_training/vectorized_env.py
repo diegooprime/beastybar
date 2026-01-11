@@ -640,7 +640,7 @@ class VectorizedGameEnvWithOpponents:
     def step_player1_agent(
         self,
         env_indices: list[int],
-        agent: "Agent",
+        agent: Agent,
     ) -> int:
         """Apply agent-selected actions for player 1 games.
 
@@ -811,7 +811,7 @@ class VectorizedGameEnvWithOpponents:
 
 def generate_games_vectorized_with_opponent(
     network: nn.Module,
-    opponent: "Agent | None" = None,
+    opponent: Agent | None = None,
     opponent_network: nn.Module | None = None,
     num_games: int = 256,
     temperature: float = 1.0,
@@ -1016,6 +1016,6 @@ __all__ = [
     "VectorizedGameEnvWithOpponents",
     "generate_games_vectorized",
     "generate_games_vectorized_with_opponent",
-    "sample_actions_batch",
     "is_using_cython",
+    "sample_actions_batch",
 ]

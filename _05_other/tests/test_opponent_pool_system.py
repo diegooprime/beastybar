@@ -457,19 +457,21 @@ class TestHeuristicAgent:
 class TestCreateHeuristicVariants:
     """Test create_heuristic_variants function."""
 
-    def test_returns_6_agents_with_distinct_names(self):
-        """create_heuristic_variants() returns 6 agents with distinct names."""
+    def test_returns_8_agents_with_distinct_names(self):
+        """create_heuristic_variants() returns 8 agents with distinct names."""
         from _02_agents.heuristic import create_heuristic_variants
 
         variants = create_heuristic_variants()
-        assert len(variants) == 6
+        assert len(variants) == 8
 
         # Check names are distinct
         names = [v.name for v in variants]
         assert len(names) == len(set(names))
 
-        # Verify OnlineStrategies is included
+        # Verify key variants are included
         assert "OnlineStrategies" in names
+        assert "OutcomeHeuristic" in names
+        assert "DistilledOutcomeHeuristic" in names
 
 
 # ============================================================================

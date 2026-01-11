@@ -1,0 +1,76 @@
+# configs/iter600_to_1000.yaml
+# Resume from iter600, run 400 more iterations
+# ALL-IN ON CYTHON - no Python fallback
+
+network_config:
+  hidden_dim: 256
+  num_heads: 8
+  num_layers: 4
+  dropout: 0.1
+  species_embedding_dim: 64
+
+ppo_config:
+  learning_rate: 0.0001
+  clip_epsilon: 0.2
+  value_coef: 0.5
+  entropy_coef: 0.04        # Starting value (will be scheduled)
+  gamma: 0.99
+  gae_lambda: 0.95
+  ppo_epochs: 4
+  minibatch_size: 2048
+  max_grad_norm: 0.5
+  normalize_advantages: true
+  clip_value: true
+  target_kl: 0.02
+
+total_iterations: 1000      # 600 existing + 400 new
+games_per_iteration: 8192
+checkpoint_frequency: 50
+eval_frequency: 25
+
+# Schedules (iterations 600-1000)
+entropy_schedule: "linear"
+entropy_start: 0.04
+entropy_end: 0.01
+temperature_schedule: "linear"
+temperature_start: 1.0
+temperature_end: 0.5
+
+# Opponent pool with ADAPTIVE weighting
+use_opponent_pool: true
+use_adaptive_weights: true  # NEW: win-rate-based weighting
+min_opponent_weight: 0.05   # Never drop below 5%
+
+opponent_config:
+  current_weight: 0.5
+  checkpoint_weight: 0.1
+  random_weight: 0.1
+  heuristic_weight: 0.3
+  max_checkpoints: 10
+
+use_heuristic_variants: true
+use_exploit_patch: true
+exploit_patch_interval: 100
+
+# CYTHON ONLY - no Python fallback
+force_cython: true
+async_game_generation: true
+async_num_workers: 32
+
+buffer_size: 800000
+seed: 42
+device: "cuda"
+experiment_name: "iter600_to_1000"
+
+# ALL 10 OPPONENTS
+eval_opponents:
+  - random
+  - heuristic
+  - aggressive
+  - defensive
+  - queue
+  - skunk
+  - noisy
+  - online
+  - outcome_heuristic
+  - distilled_outcome

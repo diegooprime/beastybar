@@ -446,7 +446,7 @@ def _is_neural_network(obj: object) -> bool:
 
 def generate_games_vectorized_cython_with_opponent(
     network: nn.Module,
-    opponent: "Agent | nn.Module | None" = None,
+    opponent: Agent | nn.Module | None = None,
     opponent_network: nn.Module | None = None,
     num_games: int = 256,
     temperature: float = 1.0,
