@@ -1,8 +1,8 @@
 # Beasty Bar AI
 
-Neural network that plays [Beasty Bar](https://tesera.ru/images/items/1525203/BeastyBar_EN-online.pdf).
+**Goal: Create the best Beasty Bar player ever, for any opponent, all the time.**
 
-I wanted to see if I could train an AI to beat me at my favorite card game. Current model hits 79% win rate against heuristic opponents.
+I searched online for Beasty Bar AI projects and found nothing. So I built one.
 
 ## Demo
 
@@ -13,14 +13,15 @@ uvicorn _04_ui.app:create_app --reload
 
 ## Model
 
+Best model: `v4/final.pt` (521MB)
+
 | Metric | Value |
 |--------|-------|
 | Win rate vs heuristics | 79% |
 | Win rate vs random | 93% |
-| Training time | 109 min on H200 |
-| Games trained | 5M+ |
+| Training | 600 iterations, 5M+ games |
+| Time | 109 min on H200 |
 
-Checkpoint: `checkpoints/v4/final.pt`
 Hugging Face: https://huggingface.co/shiptoday101/beastybar-ppo
 
 ## Training
@@ -34,9 +35,9 @@ uv run scripts/train.py --config configs/default.yaml
 
 ## Stack
 
-- Transformer policy-value network (988-dim observation → 124 actions)
+- Transformer policy-value network (988-dim input → 124 actions)
 - PPO with GAE
-- Optional Cython acceleration (200x speedup)
+- Cython acceleration (200x speedup)
 - FastAPI web UI
 
 ## Structure

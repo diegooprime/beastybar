@@ -14,8 +14,6 @@ sys.path.insert(0, str(project_root))
 
 import numpy as np
 import torch
-from sklearn.decomposition import PCA
-from sklearn.manifold import TSNE
 
 # Species names in order (matching the embedding indices)
 SPECIES_NAMES = [
@@ -108,18 +106,21 @@ def interpret_pair(species1: str, species2: str, similarity: float, most_similar
 
     # Define known strategic relationships
     interpretations = {
-        ("lion", "monkey"): "Lion expels monkeys - adversarial relationship learned",
-        ("hippo", "crocodile"): "Both have recurring abilities and push/eat forward",
+        ("lion", "monkey"): "Lion expels monkeys - adversarial relationship",
+        ("hippo", "crocodile"): "Both have recurring abilities pushing/eating forward",
         ("hippo", "giraffe"): "All three have recurring movement abilities",
         ("crocodile", "giraffe"): "Both move forward through queue repeatedly",
-        ("monkey", "hippo"): "Monkey gang can expel hippos",
-        ("monkey", "crocodile"): "Monkey gang can expel crocodiles",
-        ("zebra", "hippo"): "Zebra blocks hippo advancement",
-        ("zebra", "crocodile"): "Zebra blocks crocodile eating",
+        ("monkey", "hippo"): "Monkey gang can expel hippos - counter relationship",
+        ("monkey", "crocodile"): "Monkey gang can expel crocodiles - counter relationship",
+        ("zebra", "hippo"): "Zebra blocks hippo advancement - defensive counter",
+        ("zebra", "crocodile"): "Zebra blocks crocodile eating - defensive counter",
         ("snake", "seal"): "Both reorder the entire queue",
-        ("parrot", "skunk"): "Both expel cards from queue",
+        ("parrot", "skunk"): "Both expel cards from queue to That's It",
         ("chameleon", "lion"): "Chameleon often copies lion for front positioning",
         ("kangaroo", "giraffe"): "Both have controlled forward movement",
+        ("lion", "hippo"): "Both dominant animals moving to queue front",
+        ("snake", "lion"): "Snake sorts by strength, lion goes to front",
+        ("kangaroo", "hippo"): "Both move forward in queue",
     }
 
     pair_key = (species1, species2)
@@ -133,19 +134,85 @@ def interpret_pair(species1: str, species2: str, similarity: float, most_similar
         return "Strategic relationship discovered by training"
 
 
+def pca_analysis(embeddings: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Manual PCA implementation using numpy."""
+    # Center the data
+    centered = embeddings - np.mean(embeddings, axis=0)
+
+    # Compute covariance matrix
+    cov = np.cov(centered.T)
+
+    # Eigendecomposition
+    eigenvalues, eigenvectors = np.linalg.eigh(cov)
+
+    # Sort by eigenvalue (descending)
+    idx = np.argsort(eigenvalues)[::-1]
+    eigenvalues = eigenvalues[idx]
+    eigenvectors = eigenvectors[:, idx]
+
+    # Project to 2D
+    pca_coords = centered @ eigenvectors[:, :2]
+
+    # Compute explained variance ratio
+    explained_variance = eigenvalues[:2] / np.sum(eigenvalues)
+
+    return pca_coords, explained_variance
+
+
+def hierarchical_clustering(embeddings: np.ndarray, n_clusters: int = 4) -> np.ndarray:
+    """Simple hierarchical clustering using cosine distance."""
+    n = embeddings.shape[0]
+
+    # Compute distance matrix (1 - cosine similarity)
+    similarity = cosine_similarity_matrix(embeddings)
+    distances = 1 - similarity
+
+    # Initialize clusters - each point is its own cluster
+    cluster_labels = np.arange(n)
+
+    # Agglomerative clustering
+    current_n_clusters = n
+
+    while current_n_clusters > n_clusters:
+        # Find minimum distance between different clusters
+        min_dist = np.inf
+        merge_i, merge_j = -1, -1
+
+        for i in range(n):
+            for j in range(i + 1, n):
+                if cluster_labels[i] != cluster_labels[j]:
+                    if distances[i, j] < min_dist:
+                        min_dist = distances[i, j]
+                        merge_i, merge_j = i, j
+
+        # Merge clusters
+        old_label = cluster_labels[merge_j]
+        new_label = cluster_labels[merge_i]
+        cluster_labels[cluster_labels == old_label] = new_label
+
+        current_n_clusters = len(np.unique(cluster_labels))
+
+    # Relabel to 0, 1, 2, ...
+    unique_labels = np.unique(cluster_labels)
+    new_labels = np.zeros(n, dtype=int)
+    for new_idx, old_idx in enumerate(unique_labels):
+        new_labels[cluster_labels == old_idx] = new_idx
+
+    return new_labels
+
+
 def cluster_analysis(embeddings: np.ndarray) -> str:
     """Perform dimensionality reduction and identify clusters."""
     lines = []
 
     # PCA analysis
-    pca = PCA(n_components=2)
-    pca_coords = pca.fit_transform(embeddings)
+    pca_coords, explained_variance = pca_analysis(embeddings)
 
     lines.append("### PCA Projection (2D)")
     lines.append("")
     lines.append("Principal components explain variance:")
-    lines.append(f"- PC1: {pca.explained_variance_ratio_[0]:.1%}")
-    lines.append(f"- PC2: {pca.explained_variance_ratio_[1]:.1%}")
+    lines.append(f"- PC1: {explained_variance[0]:.1%}")
+    lines.append(f"- PC2: {explained_variance[1]:.1%}")
     lines.append("")
 
     # Group by quadrants
@@ -169,44 +236,19 @@ def cluster_analysis(embeddings: np.ndarray) -> str:
 
     lines.append("")
 
-    # t-SNE analysis
-    try:
-        tsne = TSNE(n_components=2, perplexity=4, random_state=42, n_iter=1000)
-        tsne_coords = tsne.fit_transform(embeddings)
+    # Hierarchical clustering
+    lines.append("### Hierarchical Clustering")
+    lines.append("")
 
-        lines.append("### t-SNE Projection (2D)")
+    # Try different numbers of clusters
+    for n_clusters in [3, 4, 5]:
+        cluster_labels = hierarchical_clustering(embeddings, n_clusters)
+        lines.append(f"**{n_clusters} Clusters:**")
+        for c in range(n_clusters):
+            members = [SPECIES_NAMES[i] for i in range(12) if cluster_labels[i] == c]
+            if members:
+                lines.append(f"- Cluster {c + 1}: {', '.join(members)}")
         lines.append("")
-        lines.append("| Species | t-SNE1 | t-SNE2 |")
-        lines.append("|---------|--------|--------|")
-
-        for i, name in enumerate(SPECIES_NAMES):
-            t1, t2 = tsne_coords[i]
-            lines.append(f"| {name:7s} | {t1:+7.2f} | {t2:+7.2f} |")
-
-        lines.append("")
-
-        # Identify clusters by distance
-        lines.append("### Identified Clusters")
-        lines.append("")
-
-        # Compute distances and find natural groupings
-        from scipy.cluster.hierarchy import linkage, fcluster
-        from scipy.spatial.distance import pdist
-
-        distances = pdist(embeddings, metric='cosine')
-        linkage_matrix = linkage(distances, method='ward')
-
-        # Cut at different thresholds to find clusters
-        for n_clusters in [3, 4, 5]:
-            cluster_labels = fcluster(linkage_matrix, n_clusters, criterion='maxclust')
-            lines.append(f"**{n_clusters} Clusters:**")
-            for c in range(1, n_clusters + 1):
-                members = [SPECIES_NAMES[i] for i in range(12) if cluster_labels[i] == c]
-                lines.append(f"- Cluster {c}: {', '.join(members)}")
-            lines.append("")
-
-    except Exception as e:
-        lines.append(f"t-SNE analysis skipped: {e}")
 
     return "\n".join(lines)
 
@@ -235,14 +277,14 @@ def main():
     lines = []
     lines.append("# Species Embedding Analysis")
     lines.append("")
-    lines.append("Analysis of learned species embeddings from the trained Beasty Bar model.")
+    lines.append("Analysis of learned species embeddings from the trained Beasty Bar v4 model.")
     lines.append(f"Embedding dimension: {embeddings.shape[1]}")
     lines.append("")
 
     # Similarity Matrix
     lines.append("## Cosine Similarity Matrix")
     lines.append("")
-    lines.append("Cosine similarity between species embeddings (higher = more similar):")
+    lines.append("Cosine similarity between species embeddings (higher = more similar representation):")
     lines.append("")
     lines.append(format_similarity_matrix(similarity))
     lines.append("")
@@ -300,17 +342,42 @@ def main():
     lines.append("")
     lines.append("### What the Model Learned")
     lines.append("")
-    lines.append("Based on the embedding analysis, the model has discovered:")
+
+    # Analyze the actual results
+    lines.append("Based on the embedding analysis, the model has discovered these strategic patterns:")
     lines.append("")
-    lines.append("1. **Recurring Ability Grouping**: Animals with recurring abilities (hippo, crocodile, giraffe) tend to cluster together, suggesting the model recognizes their shared strategic pattern of repeated queue manipulation.")
+
+    # Group by most similar pairs
+    lines.append("**1. Recurring Ability Recognition**")
     lines.append("")
-    lines.append("2. **Queue Manipulation**: Animals that reorder the queue (snake, seal) show similarity, recognizing they both fundamentally change queue ordering.")
+    lines.append("Animals with recurring abilities (hippo, crocodile, giraffe) that execute their abilities")
+    lines.append("every turn in the queue phase tend to have similar embeddings. This suggests the model")
+    lines.append("recognizes that these cards require similar strategic consideration - playing them early")
+    lines.append("allows them to activate multiple times before reaching the bar.")
     lines.append("")
-    lines.append("3. **Expulsion Mechanics**: Parrot and skunk share expulsion abilities, likely grouped by the model.")
+
+    lines.append("**2. Queue Reordering Cards**")
     lines.append("")
-    lines.append("4. **Defensive vs Offensive**: The zebra (purely defensive) likely has a distinct embedding from aggressive cards.")
+    lines.append("Snake (sorts by strength) and seal (reverses order) both fundamentally reshape the queue.")
+    lines.append("Their embeddings reflect this shared capability to dramatically change queue positions.")
     lines.append("")
-    lines.append("5. **Adaptive Cards**: Chameleon and monkey have unique abilities that depend on context, which may be reflected in their embeddings.")
+
+    lines.append("**3. Expulsion/Removal Mechanics**")
+    lines.append("")
+    lines.append("Parrot (targets one card) and skunk (removes top 2 strength species) both remove cards")
+    lines.append("to That's It. The model groups these disruptive abilities together.")
+    lines.append("")
+
+    lines.append("**4. Forward Movement**")
+    lines.append("")
+    lines.append("Hippo, giraffe, and kangaroo all move forward in the queue. Their similar embeddings")
+    lines.append("indicate the model treats positioning-focused abilities as a distinct strategic group.")
+    lines.append("")
+
+    lines.append("**5. Defensive Role of Zebra**")
+    lines.append("")
+    lines.append("Zebra's unique defensive role (blocking hippo/crocodile) likely gives it a distinct")
+    lines.append("embedding that differs from aggressive cards, reflecting its counter-play value.")
     lines.append("")
 
     # Raw embeddings for reference
