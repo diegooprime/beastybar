@@ -54,6 +54,7 @@ from _01_simulator.action_space import ACTION_DIM
 from _01_simulator.observations import OBSERVATION_DIM
 from _02_agents.neural.compile import maybe_compile_network
 from _02_agents.neural.utils import NetworkConfig, get_device, seed_all
+from _02_agents.neural.network_v2 import NetworkConfigV2
 from _03_training.checkpoint_manager import CheckpointManager
 from _03_training.tracking import ExperimentTracker, create_tracker
 
@@ -156,7 +157,8 @@ class AlphaZeroConfig:
     """
 
     # Network configuration
-    network_config: NetworkConfig = field(default_factory=NetworkConfig)
+    network_config: NetworkConfig | NetworkConfigV2 = field(default_factory=NetworkConfig)
+    network_version: str = "v1"  # "v1" or "v2"
 
     # MCTS configuration
     num_simulations: int = 200
@@ -181,6 +183,7 @@ class AlphaZeroConfig:
     weight_decay: float = 1e-4
     max_grad_norm: float = 0.5
     value_loss_weight: float = 1.0
+    auxiliary_loss_weight: float = 0.1  # Weight for auxiliary losses (V2 only)
 
     # Checkpointing and evaluation
     checkpoint_frequency: int = 50
@@ -244,11 +247,20 @@ class AlphaZeroConfig:
         """Create configuration from dictionary."""
         data = data.copy()
 
+        # Determine network version
+        network_version = data.get("network_version", "v1")
+
         if "network_config" in data:
             if isinstance(data["network_config"], dict):
-                data["network_config"] = NetworkConfig.from_dict(data["network_config"])
+                if network_version == "v2":
+                    data["network_config"] = NetworkConfigV2.from_dict(data["network_config"])
+                else:
+                    data["network_config"] = NetworkConfig.from_dict(data["network_config"])
         else:
-            data["network_config"] = NetworkConfig()
+            if network_version == "v2":
+                data["network_config"] = NetworkConfigV2()
+            else:
+                data["network_config"] = NetworkConfig()
 
         # Filter to known fields
         import dataclasses
@@ -588,9 +600,14 @@ class AlphaZeroTrainer:
         if network is not None:
             self.network = network.to(self._device)
         else:
-            from _02_agents.neural.network import BeastyBarNetwork
+            if config.network_version == "v2":
+                from _02_agents.neural.network_v2 import BeastyBarNetworkV2
 
-            self.network = BeastyBarNetwork(config.network_config).to(self._device)
+                self.network = BeastyBarNetworkV2(config.network_config).to(self._device)
+            else:
+                from _02_agents.neural.network import BeastyBarNetwork
+
+                self.network = BeastyBarNetwork(config.network_config).to(self._device)
 
         # Apply torch.compile if enabled
         if config.torch_compile:

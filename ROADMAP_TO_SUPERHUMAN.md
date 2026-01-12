@@ -10,14 +10,30 @@
 
 | Phase | Status | Notes |
 |-------|--------|-------|
-| Phase 1: Foundation | **IN PROGRESS** | All code changes complete, training pending |
-| Phase 2: MCTS Integration | Not Started | - |
-| Phase 3: Architecture V2 | Not Started | - |
-| Phase 4: Population Training | Not Started | - |
+| Phase 1: Foundation | **COMPLETE** | Config created, training pending |
+| Phase 2: MCTS Integration | **IN PROGRESS** | Training running on runpod |
+| Phase 3: Architecture V2 | **COMPLETE** | NetworkV2 implemented (2026-01-12) |
+| Phase 4: Population Training | **COMPLETE** | PopulationTrainer + exploiters (2026-01-12) |
 | Phase 5: MuZero Enhancement | Not Started | - |
 | Phase 6: Polish & Deployment | Not Started | - |
 
 ### Changelog
+- **2026-01-12**: Phase 4 Population Training implementation complete
+  - Created `_03_training/population.py` with `PopulationTrainer`, `Exploiter`, `PopulationMember`
+  - Implemented exploit-patch cycle (60% threshold to join population)
+  - Round-robin tournaments with ELO rating updates
+  - Automatic culling of weak agents (<30% win rate)
+  - Created `configs/population.yaml` with full documentation
+  - Added 28 comprehensive tests (`test_population.py`)
+- **2026-01-12**: Phase 3 Architecture V2 implementation complete
+  - Created `_02_agents/neural/network_v2.py` with `BeastyBarNetworkV2`
+  - Implemented asymmetric encoders (6 queue layers, 2 bar/hand layers)
+  - Added dueling architecture (separate value and advantage streams)
+  - Added auxiliary prediction heads (queue position, score margin, cards to bar)
+  - Created `NetworkConfigV2` dataclass with ~12.8M params at full scale
+  - Updated `alphazero_trainer.py` to support V2 via `network_version: "v2"`
+  - Created `configs/alphazero_v2.yaml` for V2 training
+  - Added comprehensive test suite (24 tests in `test_network_v2.py`)
 - **2026-01-12**: Phase 1 implementation complete
   - Created `configs/superhuman_phase1.yaml` with all Phase 1 settings
   - Added `ResidualBlock` class to `network.py`, upgraded value head (4K → 330K params)
@@ -576,10 +592,16 @@ def update_opponent_weights(win_rates: dict[str, float]) -> dict[str, float]:
 ### Phase 3: Architecture V2 (Weeks 5-6)
 **Goal:** New architecture with improved value estimation
 
-- [ ] Implement BeastyBarNetworkV2 with asymmetric encoders
-- [ ] Add dueling architecture
-- [ ] Add auxiliary prediction heads
-- [ ] Train from scratch with new architecture
+- [x] Implement BeastyBarNetworkV2 with asymmetric encoders *(2026-01-12)*
+- [x] Add dueling architecture *(2026-01-12)*
+- [x] Add auxiliary prediction heads *(2026-01-12)*
+- [ ] **PENDING:** Train from scratch with new architecture
+
+**Implementation Details:**
+- `network_v2.py`: 12.8M params with asymmetric encoders (6/2/2 layers)
+- Dueling head: Separates state value V(s) from action advantage A(s,a)
+- Auxiliary heads: queue_position, score_margin, cards_to_bar
+- Config: `configs/alphazero_v2.yaml`
 
 **Success Criteria:**
 - 85%+ vs outcome_heuristic

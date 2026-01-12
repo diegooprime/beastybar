@@ -5,7 +5,8 @@ including model architecture, utilities, and trained agent implementations.
 
 Modules:
     utils: Network utilities (checkpointing, action sampling, configuration)
-    network: Neural network architecture
+    network: Neural network architecture (V1)
+    network_v2: Enhanced architecture with asymmetric encoders (V2)
     agent: NeuralAgent class for policy-based action selection
     compile: Torch compile utilities for inference speedup
 """
@@ -23,6 +24,11 @@ from _02_agents.neural.compile import (
     maybe_compile_network,
 )
 from _02_agents.neural.network import BeastyBarNetwork, create_network
+from _02_agents.neural.network_v2 import (
+    BeastyBarNetworkV2,
+    NetworkConfigV2,
+    create_network_v2,
+)
 from _02_agents.neural.utils import (
     ACTION_DIM,
     OBSERVATION_DIM,
@@ -45,11 +51,15 @@ from _02_agents.neural.utils import (
 )
 
 __all__ = [
-    # Network
+    # Network V1
     "ACTION_DIM",
     "OBSERVATION_DIM",
     "BeastyBarNetwork",
     "CheckpointData",
+    # Network V2
+    "BeastyBarNetworkV2",
+    "NetworkConfigV2",
+    "create_network_v2",
     # Agent
     "InferenceMode",
     "NetworkConfig",
