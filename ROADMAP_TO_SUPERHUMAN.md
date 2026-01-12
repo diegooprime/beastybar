@@ -815,5 +815,60 @@ eval_opponents:
 
 ---
 
+## Appendix C: Implementation Status (2026-01-12)
+
+### Phase 2: MCTS Integration - IMPLEMENTED
+
+| Component | File | Status |
+|-----------|------|--------|
+| AlphaZero Trainer | `_03_training/alphazero_trainer.py` | ✅ Complete |
+| MCTS-Enhanced PPO | `_03_training/mcts_ppo.py` | ✅ Complete |
+| Adaptive MCTS | `_02_agents/mcts/adaptive_search.py` | ✅ Complete |
+
+**Key Features:**
+- MCTS policy targets (visit count distribution)
+- Cross-entropy policy loss + MSE value loss
+- No entropy bonus (MCTS provides exploration)
+- Tablebase integration for endgame positions
+- Strength levels: FAST (100 sims) → SUPERHUMAN (6400 sims)
+
+### Critical Missing Pieces - IMPLEMENTED
+
+| Component | File | Status |
+|-----------|------|--------|
+| Endgame Tablebase | `_02_agents/tablebase/endgame.py` | ✅ 1M positions |
+| Opening Book | `_02_agents/openings/book.py` | ✅ Complete |
+| Perfect Info Solver | `_02_agents/solver/perfect_info.py` | ✅ Complete |
+
+**Tablebase Details:**
+- Forward minimax with alpha-beta pruning
+- 1,000,000 endgame positions (≤4 cards per player)
+- 19MB compressed file
+- 100% verified consistency
+- Integrated into AlphaZero training (ground truth values)
+
+### Current Training Run
+
+**Started:** 2026-01-12 20:05 UTC
+**Hardware:** NVIDIA H100 80GB HBM3 (RunPod)
+**Config:** `configs/alphazero_h100.yaml`
+**W&B:** https://wandb.ai/diegoships101-none/beastybar/runs/5he4zpcr
+
+```yaml
+# Key settings
+num_simulations: 200
+games_per_iteration: 256
+total_iterations: 2000
+batch_size: 2048
+tablebase_path: data/endgame_4card_final.tb
+use_tablebase_values: true
+use_tablebase_play: true
+torch_compile: true
+```
+
+**Network:** 17.3M parameters
+
+---
+
 *Document generated: 2026-01-12*
 *This roadmap is a living document. Update as results come in.*

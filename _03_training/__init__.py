@@ -119,6 +119,13 @@ from .tracking import (
     log_self_play_stats,
     log_training_step,
 )
+from .mcts_ppo import (
+    MCTSEnhancedPPO,
+    MCTSPPOConfig,
+    MCTSTrainingBuffer,
+    MCTSTrainingExample,
+    create_mcts_ppo_trainer,
+)
 from .trainer import (
     Trainer,
     TrainingConfig,
@@ -183,6 +190,11 @@ __all__ = [
     "MCTSPendingStep",
     "MCTSStep",
     "MatchResult",
+    # MCTS-enhanced PPO
+    "MCTSEnhancedPPO",
+    "MCTSPPOConfig",
+    "MCTSTrainingBuffer",
+    "MCTSTrainingExample",
     "ModelRecord",
     "ModelSelectionConfig",
     "ModelTracker",
@@ -231,6 +243,7 @@ __all__ = [
     "create_curriculum_game",
     "create_evaluation_report",
     "create_game_seeds",
+    "create_mcts_ppo_trainer",
     "create_model_selection",
     "create_opponent",
     "create_opponent_network",

@@ -13,6 +13,7 @@ from .outcome_heuristic import (
     extract_weights_from_ppo,
 )
 from .mcts import MCTSAgent, MCTSNode, SimpleMCTSNode
+from .openings import OpeningBook, OpeningBookAgent, OpeningBookGenerator, OpeningEntry
 from .random_agent import RandomAgent
 
 __all__ = [
@@ -25,6 +26,10 @@ __all__ = [
     "MaterialEvaluator",
     "MCTSAgent",
     "MCTSNode",
+    "OpeningBook",
+    "OpeningBookAgent",
+    "OpeningBookGenerator",
+    "OpeningEntry",
     "OutcomeHeuristic",
     "OutcomeHeuristicV2",
     "OutcomeWeights",

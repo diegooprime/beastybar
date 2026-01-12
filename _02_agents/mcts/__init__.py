@@ -67,15 +67,29 @@ Example (Simple MCTS):
 
 from __future__ import annotations
 
+from .adaptive_search import (
+    STRENGTH_CONFIGS,
+    AdaptiveMCTS,
+    AdaptiveMCTSAgent,
+    SearchStats,
+    StrengthConfig,
+    StrengthLevel,
+)
 from .agent import MCTSAgent
 from .batch_mcts import BatchMCTS
 from .search import MCTS, MCTSNode
 from .simple_node import SimpleMCTSNode
 
 __all__ = [
+    "AdaptiveMCTS",
+    "AdaptiveMCTSAgent",
     "BatchMCTS",
     "MCTS",
     "MCTSAgent",
     "MCTSNode",
+    "SearchStats",
     "SimpleMCTSNode",
+    "STRENGTH_CONFIGS",
+    "StrengthConfig",
+    "StrengthLevel",
 ]
