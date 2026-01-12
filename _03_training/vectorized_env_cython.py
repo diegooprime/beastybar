@@ -38,8 +38,6 @@ try:
         encode_observations_parallel,
         get_legal_masks_parallel,
         is_cython_available,
-        is_terminal_batch,
-        python_state_to_c,
         step_batch_parallel,
     )
 

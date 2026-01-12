@@ -43,6 +43,13 @@ from .exploit_patch_cycle import (
     ExploitPatchManager,
 )
 from .game_generator import GameGenerator
+from .mcts_ppo import (
+    MCTSEnhancedPPO,
+    MCTSPPOConfig,
+    MCTSTrainingBuffer,
+    MCTSTrainingExample,
+    create_mcts_ppo_trainer,
+)
 from .model_selection import (
     EarlyStopping,
     ModelRecord,
@@ -118,13 +125,6 @@ from .tracking import (
     log_evaluation,
     log_self_play_stats,
     log_training_step,
-)
-from .mcts_ppo import (
-    MCTSEnhancedPPO,
-    MCTSPPOConfig,
-    MCTSTrainingBuffer,
-    MCTSTrainingExample,
-    create_mcts_ppo_trainer,
 )
 from .trainer import (
     Trainer,
