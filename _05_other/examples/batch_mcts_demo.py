@@ -45,10 +45,10 @@ def main() -> None:
     num_simulations = 100
     batch_size = 8
 
-    print(f"\n3. Configuration:")
+    print("\n3. Configuration:")
     print(f"   Simulations per state: {num_simulations}")
     print(f"   Batch size: {batch_size}")
-    print(f"   Virtual loss: 3.0")
+    print("   Virtual loss: 3.0")
 
     # Batch MCTS
     print("\n4. Running Batched MCTS...")
@@ -98,7 +98,7 @@ def main() -> None:
 
     # Performance comparison
     speedup = sequential_time / batch_time
-    print(f"\n6. Performance Comparison:")
+    print("\n6. Performance Comparison:")
     print(f"   Batched MCTS:    {batch_time:.3f}s")
     print(f"   Sequential MCTS: {sequential_time:.3f}s")
     print(f"   Speedup:         {speedup:.2f}x")
@@ -111,7 +111,7 @@ def main() -> None:
         top_actions = sorted(dist.items(), key=lambda x: x[1], reverse=True)[:3]
         print(f"\n   State {i}:")
         print(f"     Total actions: {len(dist)}")
-        print(f"     Top 3 actions:")
+        print("     Top 3 actions:")
         for action_idx, prob in top_actions:
             print(f"       Action {action_idx:3d}: {prob:.4f}")
 

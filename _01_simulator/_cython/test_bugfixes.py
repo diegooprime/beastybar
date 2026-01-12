@@ -5,6 +5,7 @@ Bug 2: Thread-private variables in parallel step function
 """
 
 import sys
+
 sys.path.insert(0, '/Users/p/Desktop/v/experiments/beastybar')
 
 from _01_simulator import action_space, actions
@@ -80,8 +81,8 @@ def test_bug2_thread_safety():
         return True
 
     except ImportError as e:
-        print(f"⚠ WARNING: Cannot test - Cython module not built yet")
-        print(f"  Run: uv run python _01_simulator/_cython/setup.py build_ext --inplace")
+        print("⚠ WARNING: Cannot test - Cython module not built yet")
+        print("  Run: uv run python _01_simulator/_cython/setup.py build_ext --inplace")
         print(f"  Error: {e}")
         return None
 

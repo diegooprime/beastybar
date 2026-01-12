@@ -12,11 +12,9 @@ the model considers favorable vs unfavorable, analyzing:
 
 from __future__ import annotations
 
-import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 import torch
@@ -25,24 +23,23 @@ import torch
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from _01_simulator import rules, state
+from typing import TYPE_CHECKING
+
+from _01_simulator import rules
 from _01_simulator.observations import (
-    OBSERVATION_DIM,
-    _NUM_SPECIES,
     _CARD_FEATURE_DIM,
     _MASKED_CARD_FEATURE_DIM,
-    _SCALARS_DIM,
-    observation_to_tensor,
-    build_observation,
+    _NUM_SPECIES,
+    OBSERVATION_DIM,
     species_index,
-    species_name,
 )
-from _02_agents.neural.network import BeastyBarNetwork
-from _02_agents.neural.utils import NetworkConfig, load_network_from_checkpoint
+from _02_agents.neural.utils import load_network_from_checkpoint
 
+if TYPE_CHECKING:
+    from _02_agents.neural.network import BeastyBarNetwork
 
 # Species list (sorted alphabetically to match observation encoding)
-SPECIES_LIST = sorted([s for s in rules.SPECIES.keys() if s != "unknown"])
+SPECIES_LIST = sorted([s for s in rules.SPECIES if s != "unknown"])
 
 # Map adjusted index to species name
 def adjusted_index_to_species(adj_idx: int) -> str:
@@ -304,7 +301,7 @@ def analyze_queue_position(model: BeastyBarNetwork, device: torch.device,
         front_values.append(np.mean(our_values))
         back_values.append(np.mean(opp_values))
 
-    marginal = [f - b for f, b in zip(front_values, back_values)]
+    marginal = [f - b for f, b in zip(front_values, back_values, strict=False)]
 
     return front_values, back_values, marginal
 
@@ -473,7 +470,6 @@ def analyze_opponent_threats(model: BeastyBarNetwork, device: torch.device,
                 add_card_to_hand(tensor, slot, sp_adj_idx, sp_str, sp_pts)
 
             # Add random queue (fixed seed for this comparison)
-            num_queue = 2
             queue_species = ['lion', 'monkey']  # Fixed for fair comparison
             for q, sp in enumerate(queue_species):
                 sp_adj_idx, sp_str, sp_pts = get_species_info(sp)
@@ -577,7 +573,7 @@ def find_extreme_situations(model: BeastyBarNetwork, device: torch.device,
 def run_full_analysis(model_path: str) -> AnalysisResults:
     """Run complete value head analysis."""
     print(f"Loading model from {model_path}...")
-    model, config, step = load_network_from_checkpoint(model_path)
+    model, _config, step = load_network_from_checkpoint(model_path)
     device = next(model.parameters()).device
     print(f"Model loaded (step {step}), device: {device}")
     print(f"Model parameters: {model.count_parameters():,}")
@@ -784,7 +780,7 @@ def format_markdown_report(results: AnalysisResults) -> str:
     empty_val = results.opponent_card_threats['empty']
     diff = empty_val - full_val
     if diff > 0:
-        lines.append(f"**Key Insight**: When opponent has no cards vs full hand, our value ")
+        lines.append("**Key Insight**: When opponent has no cards vs full hand, our value ")
         lines.append(f"increases by {diff:+.4f}. The model correctly identifies depleted ")
         lines.append("opponent resources as favorable.")
     else:
@@ -826,10 +822,10 @@ def format_markdown_report(results: AnalysisResults) -> str:
     high_value_species = [sp for sp, val in sorted_species[:4]]
     low_value_species = [sp for sp, val in sorted_species[-4:]]
     lines.append(f"1. **Preferred Cards**: {', '.join(s.capitalize() for s in high_value_species)}")
-    lines.append(f"   - These provide the highest marginal value when in hand")
+    lines.append("   - These provide the highest marginal value when in hand")
     lines.append("")
     lines.append(f"2. **Less Valued Cards**: {', '.join(s.capitalize() for s in low_value_species)}")
-    lines.append(f"   - These provide lower or negative marginal value")
+    lines.append("   - These provide lower or negative marginal value")
     lines.append("")
 
     # Position strategy

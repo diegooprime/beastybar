@@ -81,15 +81,15 @@ from .search import MCTS, MCTSNode
 from .simple_node import SimpleMCTSNode
 
 __all__ = [
+    "MCTS",
+    "STRENGTH_CONFIGS",
     "AdaptiveMCTS",
     "AdaptiveMCTSAgent",
     "BatchMCTS",
-    "MCTS",
     "MCTSAgent",
     "MCTSNode",
     "SearchStats",
     "SimpleMCTSNode",
-    "STRENGTH_CONFIGS",
     "StrengthConfig",
     "StrengthLevel",
 ]

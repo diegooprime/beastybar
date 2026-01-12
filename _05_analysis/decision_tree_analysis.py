@@ -14,31 +14,24 @@ sys.path.insert(0, str(project_root))
 import random
 from collections import Counter
 from dataclasses import dataclass
-from typing import Any
 
 import numpy as np
-from sklearn.tree import DecisionTreeClassifier, export_text
-
 import torch
+from sklearn.tree import DecisionTreeClassifier, export_text
 
 from _01_simulator import engine, rules, state
 from _01_simulator.action_space import (
-    ACTION_DIM,
     index_to_action,
     legal_action_mask_tensor,
 )
 from _01_simulator.observations import (
-    OBSERVATION_DIM,
-    build_observation,
-    species_index,
     state_to_tensor,
 )
 from _02_agents.neural.agent import load_neural_agent
 from _02_agents.neural.utils import greedy_action
 
-
 # Species names (sorted alphabetically, matching observations.py)
-SPECIES_NAMES = sorted([s for s in rules.SPECIES.keys() if s != "unknown"])
+SPECIES_NAMES = sorted([s for s in rules.SPECIES if s != "unknown"])
 SPECIES_TO_IDX = {name: idx for idx, name in enumerate(SPECIES_NAMES)}
 
 
@@ -585,7 +578,7 @@ The neural network's greedy policy selected cards in the following proportions:
         pct = count / total * 100
         report += f"| {species} | {count:,} | {pct:.1f}% |\n"
 
-    report += f"""
+    report += """
 
 ---
 
@@ -601,7 +594,7 @@ which card the neural network will play:
     for i, (feat, imp) in enumerate(importance, 1):
         report += f"| {i} | `{feat}` | {imp:.3f} |\n"
 
-    report += f"""
+    report += """
 
 ---
 
@@ -666,7 +659,7 @@ card choice distinctive:
 """
 
     for species in ["lion", "hippo", "crocodile", "giraffe", "zebra", "monkey", "parrot", "skunk"]:
-        if species in species_patterns and species_patterns[species]:
+        if species_patterns.get(species):
             report += f"### {species.title()}\n"
             patterns = species_patterns[species]
             for feat_name, diff_val, direction in patterns[:3]:

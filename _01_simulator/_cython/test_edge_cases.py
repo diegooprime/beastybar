@@ -5,21 +5,23 @@ These tests exercise specific code paths that may not be covered by random game 
 """
 
 import sys
+
 import numpy as np
-from _01_simulator import simulate, engine, state, cards, rules, actions
-from _01_simulator.action_space import action_index, index_to_action, ACTION_DIM
-from _01_simulator.observations import state_to_tensor, OBSERVATION_DIM
+
+from _01_simulator import actions, engine, state
+from _01_simulator.action_space import action_index
+from _01_simulator.observations import state_to_tensor
 
 try:
     from _01_simulator._cython._cython_core import (
+        PY_ACTION_DIM,
+        PY_OBSERVATION_DIM,
         GameStateArray,
-        python_state_to_c,
         encode_single_observation,
         get_single_legal_mask,
-        step_single,
         get_single_scores,
-        PY_OBSERVATION_DIM,
-        PY_ACTION_DIM,
+        python_state_to_c,
+        step_single,
     )
     CYTHON_AVAILABLE = True
 except ImportError:
@@ -32,8 +34,8 @@ def create_test_state(
     queue_species: list[tuple[str, int]],  # (species, owner)
     hand0_species: list[str],
     hand1_species: list[str],
-    deck0_species: list[str] = None,
-    deck1_species: list[str] = None,
+    deck0_species: list[str] | None = None,
+    deck1_species: list[str] | None = None,
     active_player: int = 0,
     turn: int = 0,
 ):
@@ -112,7 +114,7 @@ def test_chameleon_copies_lion_into_multiple_lions():
 
     # Play chameleon copying the lion (target index 0)
     action = actions.Action(hand_index=0, params=(0,))
-    obs_ok, legal_ok, py_result, arr = compare_step(py_state, action)
+    obs_ok, legal_ok, _py_result, _arr = compare_step(py_state, action)
 
     # After chameleon copies lion with another lion present:
     # - Chameleon-as-lion counts as 2nd lion, should go to thats_it
@@ -139,7 +141,7 @@ def test_chameleon_copies_parrot():
     # Play chameleon copying parrot, targeting zebra at index 0
     # params = (1, 0) -> copy parrot at index 1, then use parrot to send card at index 0 to thats_it
     action = actions.Action(hand_index=0, params=(1, 0))
-    obs_ok, legal_ok, py_result, arr = compare_step(py_state, action)
+    obs_ok, legal_ok, _py_result, _arr = compare_step(py_state, action)
 
     if obs_ok and legal_ok:
         print("  PASS: Observations and legal actions match")
@@ -161,7 +163,7 @@ def test_chameleon_copies_kangaroo():
 
     # Play chameleon copying kangaroo with hop=1
     action = actions.Action(hand_index=0, params=(1, 1))
-    obs_ok, legal_ok, py_result, arr = compare_step(py_state, action)
+    obs_ok, legal_ok, _py_result, _arr = compare_step(py_state, action)
 
     if obs_ok and legal_ok:
         print("  PASS: Observations and legal actions match")
@@ -184,7 +186,7 @@ def test_chameleon_copies_monkey_triggers_ability():
     # Chameleon copies monkey -> now 2 monkeys (chameleon-as-monkey + real monkey)
     # This should trigger monkey ability: expel hippos
     action = actions.Action(hand_index=0, params=(1,))  # Copy monkey at index 1
-    obs_ok, legal_ok, py_result, arr = compare_step(py_state, action)
+    obs_ok, legal_ok, _py_result, _arr = compare_step(py_state, action)
 
     if obs_ok and legal_ok:
         print("  PASS: Observations and legal actions match")
@@ -210,7 +212,7 @@ def test_skunk_top_two_species():
     )
 
     action = actions.Action(hand_index=0)
-    obs_ok, legal_ok, py_result, arr = compare_step(py_state, action)
+    obs_ok, legal_ok, _py_result, _arr = compare_step(py_state, action)
 
     # After skunk: lion and hippo should be in thats_it, zebra and monkey remain
 
@@ -238,7 +240,7 @@ def test_seal_reverses_queue():
     )
 
     action = actions.Action(hand_index=0)
-    obs_ok, legal_ok, py_result, arr = compare_step(py_state, action)
+    obs_ok, legal_ok, _py_result, _arr = compare_step(py_state, action)
 
     if obs_ok and legal_ok:
         print("  PASS: Observations and legal actions match")
@@ -264,7 +266,7 @@ def test_snake_sorts_by_strength():
     )
 
     action = actions.Action(hand_index=0)
-    obs_ok, legal_ok, py_result, arr = compare_step(py_state, action)
+    obs_ok, legal_ok, _py_result, _arr = compare_step(py_state, action)
 
     # After snake: should be lion(12), hippo(11), snake(9), zebra(7), monkey(4)
 
@@ -291,7 +293,7 @@ def test_crocodile_eats_weaker():
     )
 
     action = actions.Action(hand_index=0)
-    obs_ok, legal_ok, py_result, arr = compare_step(py_state, action)
+    obs_ok, legal_ok, _py_result, _arr = compare_step(py_state, action)
 
     if obs_ok and legal_ok:
         print("  PASS: Observations and legal actions match")
@@ -316,7 +318,7 @@ def test_crocodile_blocked_by_zebra():
     )
 
     action = actions.Action(hand_index=0)
-    obs_ok, legal_ok, py_result, arr = compare_step(py_state, action)
+    obs_ok, legal_ok, _py_result, _arr = compare_step(py_state, action)
 
     if obs_ok and legal_ok:
         print("  PASS: Observations and legal actions match")
@@ -341,7 +343,7 @@ def test_hippo_pushes_forward():
     )
 
     action = actions.Action(hand_index=0)
-    obs_ok, legal_ok, py_result, arr = compare_step(py_state, action)
+    obs_ok, legal_ok, _py_result, _arr = compare_step(py_state, action)
 
     if obs_ok and legal_ok:
         print("  PASS: Observations and legal actions match")
@@ -365,7 +367,7 @@ def test_giraffe_steps_forward():
     )
 
     action = actions.Action(hand_index=0)
-    obs_ok, legal_ok, py_result, arr = compare_step(py_state, action)
+    obs_ok, legal_ok, _py_result, _arr = compare_step(py_state, action)
 
     if obs_ok and legal_ok:
         print("  PASS: Observations and legal actions match")
@@ -390,7 +392,7 @@ def test_kangaroo_hops():
 
     # Hop 2 positions
     action = actions.Action(hand_index=0, params=(2,))
-    obs_ok, legal_ok, py_result, arr = compare_step(py_state, action)
+    obs_ok, legal_ok, _py_result, _arr = compare_step(py_state, action)
 
     if obs_ok and legal_ok:
         print("  PASS: Observations and legal actions match")
@@ -417,7 +419,7 @@ def test_five_card_check():
 
     # Playing kangaroo will make queue length 5
     action = actions.Action(hand_index=0)
-    obs_ok, legal_ok, py_result, arr = compare_step(py_state, action)
+    obs_ok, legal_ok, _py_result, _arr = compare_step(py_state, action)
 
     if obs_ok and legal_ok:
         print("  PASS: Observations and legal actions match")
@@ -453,7 +455,7 @@ def test_recurring_giraffe():
     py_state = state.replace_queue(py_state, queue)
 
     action = actions.Action(hand_index=0)
-    obs_ok, legal_ok, py_result, arr = compare_step(py_state, action)
+    obs_ok, legal_ok, _py_result, _arr = compare_step(py_state, action)
 
     if obs_ok and legal_ok:
         print("  PASS: Observations and legal actions match")

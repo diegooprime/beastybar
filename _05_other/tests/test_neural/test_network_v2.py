@@ -4,23 +4,23 @@ Tests forward pass, output shapes, parameter counts, dueling architecture,
 auxiliary heads, and asymmetric encoder configurations.
 """
 
+import dataclasses
 import tempfile
 from pathlib import Path
 
-import numpy as np
 import pytest
 import torch
 
+from _01_simulator import state
 from _01_simulator.action_space import ACTION_DIM
 from _01_simulator.observations import OBSERVATION_DIM, state_to_tensor
-from _01_simulator import state
 from _02_agents.neural.network_v2 import (
+    AsymmetricTransformerEncoder,
+    AuxiliaryHeads,
     BeastyBarNetworkV2,
+    DuelingHead,
     NetworkConfigV2,
     create_network_v2,
-    DuelingHead,
-    AuxiliaryHeads,
-    AsymmetricTransformerEncoder,
 )
 
 
@@ -88,7 +88,7 @@ class TestNetworkV2ForwardPass:
         batch_size = 4
         obs = torch.randn(batch_size, OBSERVATION_DIM)
 
-        policy_logits, value, aux_outputs = network(obs, return_aux=True)
+        _policy_logits, _value, aux_outputs = network(obs, return_aux=True)
 
         assert "queue_position_logits" in aux_outputs
         assert "score_margin" in aux_outputs
@@ -426,5 +426,5 @@ class TestConfigV2:
         """Test config is frozen."""
         config = NetworkConfigV2()
 
-        with pytest.raises(Exception):  # dataclasses.FrozenInstanceError
+        with pytest.raises(dataclasses.FrozenInstanceError):
             config.hidden_dim = 512

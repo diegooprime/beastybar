@@ -7,23 +7,23 @@ results to the pure Python implementation.
 import numpy as np
 import pytest
 
-from _01_simulator import engine, simulate
-from _01_simulator.action_space import ACTION_DIM, legal_action_mask_tensor, legal_action_space
+from _01_simulator.action_space import ACTION_DIM, legal_action_mask_tensor
 from _01_simulator.observations import OBSERVATION_DIM, state_to_tensor
 from _01_simulator.state import initial_state
 
 # Try to import Cython module
 try:
-    from _01_simulator._cython import (
-        GameStateArray,
-        is_cython_available,
-        python_state_to_c,
-    )
     from _01_simulator._cython._cython_core import (
         encode_single_observation,
         get_single_legal_mask,
         get_single_scores,
         step_single,
+    )
+
+    from _01_simulator._cython import (
+        GameStateArray,
+        is_cython_available,
+        python_state_to_c,
     )
 
     CYTHON_AVAILABLE = is_cython_available()
@@ -338,7 +338,7 @@ class TestBatchOperations:
         actions = np.array([int(np.argmax(masks[i])) for i in range(num_games)], dtype=np.int64)
 
         # Step all games
-        finished = step_batch_parallel(c_states, indices, actions, num_threads=4)
+        step_batch_parallel(c_states, indices, actions, num_threads=4)
 
         # All players should have switched
         for i in range(num_games):

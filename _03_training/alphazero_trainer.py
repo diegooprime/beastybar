@@ -32,6 +32,7 @@ import json
 import logging
 import math
 import time
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -41,7 +42,7 @@ import numpy as np
 try:
     import torch
     import torch.nn as nn
-    import torch.nn.functional as F  # noqa: N812
+    import torch.nn.functional as F
 
     TORCH_AVAILABLE = True
 except ImportError:
@@ -53,8 +54,8 @@ except ImportError:
 from _01_simulator.action_space import ACTION_DIM
 from _01_simulator.observations import OBSERVATION_DIM
 from _02_agents.neural.compile import maybe_compile_network
-from _02_agents.neural.utils import NetworkConfig, get_device, seed_all
 from _02_agents.neural.network_v2 import NetworkConfigV2
+from _02_agents.neural.utils import NetworkConfig, get_device, seed_all
 from _03_training.checkpoint_manager import CheckpointManager
 from _03_training.tracking import ExperimentTracker, create_tracker
 
@@ -413,7 +414,9 @@ def value_loss_mse(
         Scalar value loss.
     """
     _ensure_torch()
-    predicted_values = predicted_values.squeeze(-1)
+    # Ensure both tensors have same shape to avoid broadcasting warnings
+    predicted_values = predicted_values.view(-1)
+    target_values = target_values.view(-1)
     return F.mse_loss(predicted_values, target_values)
 
 
@@ -1178,44 +1181,89 @@ class AlphaZeroTrainer:
         return metrics
 
     def train(self) -> None:
-        """Run the full training loop."""
+        """Run the full training loop with async game generation.
+
+        Uses ThreadPoolExecutor to overlap game generation (CPU) with
+        training (GPU) for better hardware utilization.
+        """
         logger.info(f"Starting AlphaZero training for {self.config.total_iterations} iterations")
+        logger.info("Using async game generation for CPU/GPU overlap")
         self._training_start_time = time.time()
 
         # Log hyperparameters
         self.tracker.log_hyperparameters(self.config.to_dict())
 
         try:
-            while self._iteration < self.config.total_iterations:
-                # Training iteration
-                metrics = self.train_iteration()
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                # Start first generation
+                future: Future | None = executor.submit(
+                    self.generate_training_data, self.config.games_per_iteration
+                )
 
-                # Log metrics
-                if self._iteration % self.config.log_frequency == 0:
-                    self.tracker.log_metrics(metrics, step=self._iteration)
+                while self._iteration < self.config.total_iterations:
+                    iteration_start = time.time()
 
-                    elapsed = time.time() - self._training_start_time
-                    eta = elapsed / (self._iteration + 1) * (
-                        self.config.total_iterations - self._iteration - 1
-                    )
-                    logger.info(
-                        f"Iteration {self._iteration}/{self.config.total_iterations} | "
-                        f"Loss: {metrics.get('total_loss', 0.0):.4f} | "
-                        f"Policy: {metrics.get('policy_loss', 0.0):.4f} | "
-                        f"Value: {metrics.get('value_loss', 0.0):.4f} | "
-                        f"LR: {metrics.get('learning_rate', 0.0):.2e} | "
-                        f"ETA: {eta / 60:.1f}min"
-                    )
+                    # Wait for current generation to complete
+                    gen_start = time.time()
+                    examples = future.result() if future else []
+                    gen_time = time.time() - gen_start
 
-                # Checkpoint
-                if (self._iteration + 1) % self.config.checkpoint_frequency == 0:
-                    self._save_checkpoint()
+                    # Start next generation in background (while we train)
+                    if self._iteration + 1 < self.config.total_iterations:
+                        future = executor.submit(
+                            self.generate_training_data, self.config.games_per_iteration
+                        )
+                    else:
+                        future = None
 
-                # Evaluation
-                if (self._iteration + 1) % self.config.eval_frequency == 0:
-                    self._run_evaluation()
+                    # Add examples to buffer
+                    self.replay_buffer.add_batch(examples)
 
-                self._iteration += 1
+                    # Train on buffer (GPU work - overlaps with CPU generation)
+                    train_start = time.time()
+                    train_metrics = self.train_on_buffer()
+                    train_time = time.time() - train_start
+
+                    # Build metrics
+                    iteration_time = time.time() - iteration_start
+                    metrics: dict[str, float] = {"iteration": float(self._iteration)}
+                    metrics.update(train_metrics)
+                    metrics["self_play/games_generated"] = float(self.config.games_per_iteration)
+                    metrics["self_play/examples_collected"] = float(len(examples))
+                    metrics["self_play/generation_time"] = gen_time
+                    metrics["train/training_time"] = train_time
+                    metrics["total_games_played"] = float(self._total_games_played)
+                    metrics["total_examples_collected"] = float(self._total_examples_collected)
+                    metrics["iteration_time"] = iteration_time
+
+                    self._metrics_history.append(metrics)
+
+                    # Log metrics
+                    if self._iteration % self.config.log_frequency == 0:
+                        self.tracker.log_metrics(metrics, step=self._iteration)
+
+                        elapsed = time.time() - self._training_start_time
+                        eta = elapsed / (self._iteration + 1) * (
+                            self.config.total_iterations - self._iteration - 1
+                        )
+                        logger.info(
+                            f"Iteration {self._iteration}/{self.config.total_iterations} | "
+                            f"Loss: {metrics.get('total_loss', 0.0):.4f} | "
+                            f"Policy: {metrics.get('policy_loss', 0.0):.4f} | "
+                            f"Value: {metrics.get('value_loss', 0.0):.4f} | "
+                            f"LR: {metrics.get('learning_rate', 0.0):.2e} | "
+                            f"ETA: {eta / 60:.1f}min"
+                        )
+
+                    # Checkpoint
+                    if (self._iteration + 1) % self.config.checkpoint_frequency == 0:
+                        self._save_checkpoint()
+
+                    # Evaluation
+                    if (self._iteration + 1) % self.config.eval_frequency == 0:
+                        self._run_evaluation()
+
+                    self._iteration += 1
 
         except KeyboardInterrupt:
             logger.info("Training interrupted by user")

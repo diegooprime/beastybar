@@ -12,7 +12,6 @@ Edge case tests verify that the population trainer handles
 adversarial and unusual scenarios correctly.
 """
 
-import numpy as np
 import pytest
 
 # Skip all tests if PyTorch is not available
@@ -20,14 +19,13 @@ torch = pytest.importorskip("torch")
 
 from _02_agents.neural.network import BeastyBarNetwork
 from _02_agents.neural.utils import NetworkConfig
-from _03_training.elo import EloRating, Leaderboard, PlayerStats
+from _03_training.elo import EloRating, Leaderboard
 from _03_training.population import (
     Exploiter,
     PopulationConfig,
     PopulationMember,
     PopulationTrainer,
 )
-
 
 # ============================================================================
 # Configuration Tests
@@ -306,8 +304,8 @@ class TestPopulationTrainerUnit:
         trainer = PopulationTrainer(minimal_config)
 
         # Networks should be different (random initialization)
-        params_0 = list(trainer.population[0].network.parameters())[0].data
-        params_1 = list(trainer.population[1].network.parameters())[0].data
+        params_0 = next(iter(trainer.population[0].network.parameters())).data
+        params_1 = next(iter(trainer.population[1].network.parameters())).data
 
         # With random init, parameters should differ
         # (This is probabilistic but virtually guaranteed)
@@ -394,7 +392,7 @@ class TestEdgeCases:
         assert len(trainer.replay_buffer) == 0
 
         # Training should return empty dict when buffer too small
-        metrics = trainer.train_member(trainer.population[0])
+        trainer.train_member(trainer.population[0])
         # With min_buffer_size=1, it might succeed or return empty
         # depending on implementation
 
@@ -407,7 +405,6 @@ class TestEdgeCases:
         assert exploiter is not None
 
         # "Remove" target by clearing population (simulating the target being culled)
-        original_target = exploiter.target_id
 
         # Remove all members (simulating complete population replacement)
         trainer.population.clear()
@@ -424,7 +421,7 @@ class TestEdgeCases:
         trainer = PopulationTrainer(minimal_config)
 
         # Even with high threshold, should not cull to below 2
-        culled = trainer.cull_weak_agents()
+        trainer.cull_weak_agents()
         assert len(trainer.population) >= 2
 
     def test_all_draws_elo_stability(self):
@@ -472,8 +469,8 @@ class TestEdgeCases:
                 param.add_(1.0)
 
         # Other should be unchanged
-        params1 = list(network1.parameters())[0].data.mean().item()
-        params2 = list(network2.parameters())[0].data.mean().item()
+        params1 = next(iter(network1.parameters())).data.mean().item()
+        params2 = next(iter(network2.parameters())).data.mean().item()
         assert abs(params1 - params2) > 0.5
 
 

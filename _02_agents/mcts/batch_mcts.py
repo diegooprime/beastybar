@@ -390,10 +390,7 @@ class BatchMCTS:
                 node.visit_count -= 1
 
             # Determine value from this node's player perspective
-            if node.state.active_player == perspective:
-                node_value = value
-            else:
-                node_value = -value
+            node_value = value if node.state.active_player == perspective else -value
 
             # Apply real value
             node.visit_count += 1

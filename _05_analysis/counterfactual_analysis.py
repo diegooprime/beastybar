@@ -19,7 +19,6 @@ from typing import Any
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -27,31 +26,20 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from _01_simulator import rules, state
 from _01_simulator.action_space import (
-    ACTION_DIM,
     canonical_actions,
     legal_action_space,
 )
 from _01_simulator.observations import (
-    OBSERVATION_DIM,
-    _CARD_FEATURE_DIM,
-    _NUM_SPECIES,
-    _SPECIES_INDEX,
-    _INDEX_TO_SPECIES,
     build_observation,
     observation_to_tensor,
-    species_index,
-    species_name,
 )
-from _02_agents.neural.network import BeastyBarNetwork
 from _02_agents.neural.utils import (
-    NetworkConfig,
-    load_network_from_checkpoint,
     get_device,
+    load_network_from_checkpoint,
 )
-
 
 # Species indices (alphabetically sorted)
-SPECIES_NAMES = sorted([s for s in rules.SPECIES.keys() if s != "unknown"])
+SPECIES_NAMES = sorted([s for s in rules.SPECIES if s != "unknown"])
 SPECIES_TO_IDX = {name: i for i, name in enumerate(SPECIES_NAMES)}
 
 
@@ -384,7 +372,7 @@ class CounterfactualAnalyzer:
         for card in high_value_cards:
             card_results = {"card": card, "strength": rules.SPECIES[card].strength, "positions": {}}
 
-            for pos_name, pos_idx in zip(positions, position_indices):
+            for pos_name, pos_idx in zip(positions, position_indices, strict=False):
                 # Create queue with our high-value card at position
                 queue = []
                 for i in range(5):
@@ -446,7 +434,7 @@ class CounterfactualAnalyzer:
                 monkey_action_probs.append(output_no_monkey.action_probs[i])
         monkey_prob_no_combo = sum(monkey_action_probs)
 
-        print(f"No monkey in queue:")
+        print("No monkey in queue:")
         print(f"  Value: {output_no_monkey.value:.4f}")
         print(f"  Probability of playing monkey: {monkey_prob_no_combo:.4f}")
 
@@ -472,7 +460,7 @@ class CounterfactualAnalyzer:
                 monkey_action_probs_combo.append(output_with_monkey.action_probs[i])
         monkey_prob_with_combo = sum(monkey_action_probs_combo)
 
-        print(f"\nOpponent monkey in queue (combo opportunity):")
+        print("\nOpponent monkey in queue (combo opportunity):")
         print(f"  Value: {output_with_monkey.value:.4f}")
         print(f"  Probability of playing monkey: {monkey_prob_with_combo:.4f}")
         print(f"  Probability increase: {monkey_prob_with_combo - monkey_prob_no_combo:+.4f}")
@@ -500,7 +488,7 @@ class CounterfactualAnalyzer:
                 monkey_action_probs_own.append(output_own_monkey.action_probs[i])
         monkey_prob_own = sum(monkey_action_probs_own)
 
-        print(f"\nOwn monkey in queue (swap opportunity):")
+        print("\nOwn monkey in queue (swap opportunity):")
         print(f"  Value: {output_own_monkey.value:.4f}")
         print(f"  Probability of playing monkey: {monkey_prob_own:.4f}")
 
@@ -582,7 +570,7 @@ def format_results_markdown(results: dict[str, Any]) -> str:
     lines.append("This report analyzes model sensitivities through \"what-if\" scenarios,")
     lines.append("revealing how the trained AI responds to different game situations.")
     lines.append("")
-    lines.append(f"**Model checkpoint**: v4/final.pt")
+    lines.append("**Model checkpoint**: v4/final.pt")
     lines.append("")
 
     # Card Swap Impact
@@ -623,8 +611,8 @@ def format_results_markdown(results: dict[str, Any]) -> str:
         lines.append("")
 
         # Find patterns
-        positive_swaps = [s for s in cs["swap_impacts"] if s["value_delta"] > 0.05]
-        negative_swaps = [s for s in cs["swap_impacts"] if s["value_delta"] < -0.05]
+        [s for s in cs["swap_impacts"] if s["value_delta"] > 0.05]
+        [s for s in cs["swap_impacts"] if s["value_delta"] < -0.05]
 
         # What cards are most valuable to add?
         new_card_values = {}

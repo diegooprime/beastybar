@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import torch
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -22,25 +21,16 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from _01_simulator import engine, rules, state
 from _01_simulator.action_space import (
-    ACTION_DIM,
-    action_index,
-    canonical_actions,
     index_to_action,
-    legal_action_mask_tensor,
     legal_action_space,
 )
 from _01_simulator.observations import (
-    OBSERVATION_DIM,
-    species_name,
-    state_to_tensor,
-    _INDEX_TO_SPECIES,
     _SPECIES_INDEX,
 )
 from _02_agents.neural.agent import load_neural_agent
 
-
 # Species name mapping (sorted order used in observations.py)
-SPECIES_NAMES = sorted([s for s in rules.SPECIES.keys() if s != "unknown"])
+SPECIES_NAMES = sorted([s for s in rules.SPECIES if s != "unknown"])
 # Map from species index in one-hot encoding to species name
 # The one-hot excludes 'unknown', so we need to account for that
 UNKNOWN_IDX = _SPECIES_INDEX["unknown"]
@@ -72,14 +62,14 @@ def generate_random_game_states(n_states: int, seed: int = 42) -> list[tuple[sta
     rng = random.Random(seed)
     states = []
 
-    for game_idx in range(n_states * 2):  # Generate more games to get diverse states
+    for _game_idx in range(n_states * 2):  # Generate more games to get diverse states
         game_seed = rng.randint(0, 1_000_000)
         game_state = state.initial_state(game_seed, starting_player=rng.randint(0, 1))
 
         # Play 0 to 15 random turns
         turns_to_play = rng.randint(0, 15)
 
-        for turn in range(turns_to_play):
+        for _turn in range(turns_to_play):
             if engine.is_terminal(game_state):
                 break
 
@@ -171,7 +161,7 @@ def analyze_model_preferences(
         threats = has_threatening_cards(queue_species)
 
         # Get model's policy
-        policy_probs, mask, value = agent.get_policy_and_value(game_state)
+        policy_probs, mask, _value = agent.get_policy_and_value(game_state)
         policy_probs = policy_probs.cpu().numpy()
         mask = mask.cpu().numpy()
 

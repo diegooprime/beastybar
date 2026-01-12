@@ -38,8 +38,8 @@ except ImportError:
     TORCH_AVAILABLE = False
     torch = None
 
-from _02_agents.neural.network import BeastyBarNetwork
 from _02_agents.neural.agent import NeuralAgent
+from _02_agents.neural.network import BeastyBarNetwork
 from _02_agents.neural.utils import NetworkConfig, get_device, seed_all
 from _03_training.alphazero_trainer import (
     AlphaZeroBuffer,
@@ -1297,7 +1297,7 @@ class PopulationTrainer:
 
             total_time = time.time() - self._training_start_time
             logger.info(f"Training completed in {total_time / 60:.1f} minutes")
-            logger.info(f"Final population rankings:")
+            logger.info("Final population rankings:")
             logger.info(self.leaderboard.summary())
 
     def _save_checkpoint(self, is_final: bool = False) -> Path:

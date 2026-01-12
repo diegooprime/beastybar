@@ -30,20 +30,19 @@ import hashlib
 import json
 import logging
 import pickle
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
 
-from _01_simulator import action_space, engine, state as state_module
+from _01_simulator import action_space, engine
+from _01_simulator import state as state_module
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
 
     import torch
 
-    from _02_agents.mcts.search import MCTS
     from _02_agents.neural.network import BeastyBarNetwork
 
 
@@ -392,13 +391,13 @@ class OpeningBook:
 
         # Beasty Bar contents (affects scoring, but order doesn't matter for strategy)
         bar_cards = sorted(
-            (f"{c.species}:{c.owner}" for c in game_state.zones.beasty_bar)
+            f"{c.species}:{c.owner}" for c in game_state.zones.beasty_bar
         )
         parts.append(f"bar[{','.join(bar_cards)}]")
 
         # That's It contents
         ti_cards = sorted(
-            (f"{c.species}:{c.owner}" for c in game_state.zones.thats_it)
+            f"{c.species}:{c.owner}" for c in game_state.zones.thats_it
         )
         parts.append(f"ti[{','.join(ti_cards)}]")
 
@@ -695,8 +694,6 @@ class OpeningBookGenerator:
             depth: Maximum depth to explore
             num_workers: Number of parallel workers
         """
-        import multiprocessing as mp
-        from functools import partial
 
         # Split seeds across workers
         seeds_per_worker = num_seeds // num_workers

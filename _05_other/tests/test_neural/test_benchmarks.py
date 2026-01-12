@@ -10,9 +10,9 @@ import time
 import pytest
 import torch
 
-from _01_simulator.action_space import ACTION_DIM, legal_action_mask_tensor
-from _01_simulator.observations import OBSERVATION_DIM, state_to_tensor
 from _01_simulator import state
+from _01_simulator.action_space import legal_action_mask_tensor
+from _01_simulator.observations import OBSERVATION_DIM, state_to_tensor
 from _02_agents.neural.network import create_network
 from _02_agents.neural.utils import NetworkConfig
 from _03_training.self_play import generate_games, play_game
@@ -45,7 +45,7 @@ def test_inference_latency():
 
     with torch.no_grad():
         for _ in range(num_inferences):
-            policy_logits, value = network(obs)
+            _policy_logits, _value = network(obs)
 
     elapsed = time.perf_counter() - start_time
     avg_latency_ms = (elapsed / num_inferences) * 1000
@@ -75,7 +75,7 @@ def test_game_generation_throughput():
     num_games = 10
     start_time = time.perf_counter()
 
-    trajectories = generate_games(
+    generate_games(
         network=network,
         num_games=num_games,
         temperature=1.0,

@@ -9,7 +9,6 @@ Tests cover:
 
 from __future__ import annotations
 
-import json
 import tempfile
 from pathlib import Path
 
@@ -22,7 +21,6 @@ from _03_training.curriculum import (
     CURRICULUM_LEVELS,
     MIN_SPECIES_FOR_GAME,
     OPPONENT_STAGES,
-    CheckpointInfo,
     CurriculumConfig,
     CurriculumScheduler,
     HistoricalPool,
@@ -36,7 +34,6 @@ from _03_training.curriculum import (
     save_historical_pool,
     validate_species_whitelist,
 )
-
 
 # ============================================================================
 # Species Curriculum Tests (7.1)

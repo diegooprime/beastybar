@@ -22,11 +22,11 @@ import math
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F  # noqa: N812
+import torch.nn.functional as F
 
 from _01_simulator.action_space import ACTION_DIM
-from _02_agents.neural.compile import maybe_compile_network
 from _01_simulator.observations import OBSERVATION_DIM
+from _02_agents.neural.compile import maybe_compile_network
 
 # Import NetworkConfig from utils to maintain consistency
 from _02_agents.neural.utils import NetworkConfig

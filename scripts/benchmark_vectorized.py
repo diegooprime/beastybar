@@ -19,7 +19,6 @@ import time
 from dataclasses import dataclass
 
 import torch
-import numpy as np
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
@@ -152,7 +151,7 @@ def print_results(results: list[BenchmarkResult]) -> None:
         if vec_result:
             time_reduction = (1 - vec_result.total_time / seq_result.total_time) * 100
             inference_reduction = (1 - vec_result.inference_calls / seq_result.inference_calls) * 100
-            print(f"\nSummary:")
+            print("\nSummary:")
             print(f"  Time reduction: {time_reduction:.1f}%")
             print(f"  Inference calls reduction: {inference_reduction:.1f}%")
             print(f"  Batch size improvement: {vec_result.avg_batch_size:.1f}x")

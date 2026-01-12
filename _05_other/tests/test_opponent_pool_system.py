@@ -8,12 +8,10 @@ Tests cover:
 - exploit_patch_cycle.py: CycleConfig, ExploitPatchManager
 """
 
-import math
 import tempfile
 from pathlib import Path
 
 import pytest
-
 
 # ============================================================================
 # Tests for opponent_statistics.py
@@ -386,8 +384,6 @@ class TestOpponentPool:
     def test_sampled_opponent_name_for_mcts(self):
         """SampledOpponent.name returns correct format for MCTS."""
         from _03_training.opponent_pool import (
-            MCTSOpponentConfig,
-            OpponentConfig,
             OpponentType,
             SampledOpponent,
         )
@@ -416,7 +412,7 @@ class TestOpponentPoolCheckpoints:
         pool = OpponentPool(config=config, seed=42)
 
         # Sample many times
-        type_counts = {t: 0 for t in OpponentType}
+        type_counts = dict.fromkeys(OpponentType, 0)
         for _ in range(100):
             sampled = pool.sample_opponent()
             type_counts[sampled.opponent_type] += 1
@@ -755,7 +751,7 @@ class TestEdgeCases:
         pool = OpponentPool(config=config, seed=42)
 
         # Should redistribute MCTS weight to CURRENT
-        type_counts = {t: 0 for t in OpponentType}
+        type_counts = dict.fromkeys(OpponentType, 0)
         for _ in range(50):
             sampled = pool.sample_opponent()
             type_counts[sampled.opponent_type] += 1

@@ -89,8 +89,8 @@ class TestInferenceMode:
 
         # In training mode, dropout should be stochastic
         network.train()
-        out1 = network(x)
-        out2 = network(x)
+        network(x)
+        network(x)
         # With high probability, dropout should produce different outputs
         # (This test might rarely fail due to randomness, but it's very unlikely)
 

@@ -18,8 +18,8 @@ from _04_ui.visualization.websocket_manager import VisualizerWebSocketManager
 __all__ = [
     "ActivationCaptureWrapper",
     "ActivationSnapshot",
+    "VisualizerWebSocketManager",
     "compress_activation",
     "compress_policy",
     "snapshot_to_dict",
-    "VisualizerWebSocketManager",
 ]

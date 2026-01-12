@@ -22,11 +22,9 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import os
 import shutil
 import sys
 import time
-from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -34,12 +32,10 @@ from typing import Any
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-import numpy as np
 import torch
 import yaml
 
-from _02_agents.neural.network import BeastyBarNetwork
-from _02_agents.neural.utils import NetworkConfig, get_device, seed_all
+from _02_agents.neural.utils import NetworkConfig
 from _03_training.evaluation import (
     EvaluationConfig,
     EvaluationResult,

@@ -341,10 +341,7 @@ def export_to_torchscript(
     start_time = time.perf_counter()
 
     with torch.no_grad():
-        if method == "trace":
-            scripted = torch.jit.trace(network, dummy_input)
-        else:
-            scripted = torch.jit.script(network)
+        scripted = torch.jit.trace(network, dummy_input) if method == "trace" else torch.jit.script(network)
 
     scripted.save(str(output_path))
     export_time = time.perf_counter() - start_time

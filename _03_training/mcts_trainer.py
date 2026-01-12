@@ -39,7 +39,7 @@ import numpy as np
 try:
     import torch
     import torch.nn as nn
-    import torch.nn.functional as F  # noqa: N812
+    import torch.nn.functional as F
 
     TORCH_AVAILABLE = True
 except ImportError:

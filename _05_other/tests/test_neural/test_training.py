@@ -16,7 +16,6 @@ from _03_training.ppo import PPOConfig
 from _03_training.trainer import (
     Trainer,
     TrainingConfig,
-    create_trainer_from_checkpoint,
     load_training_checkpoint,
     save_training_checkpoint,
 )
@@ -103,7 +102,7 @@ def test_checkpoint_save_load(small_training_config):
         original_state = trainer.network.state_dict()
         restored_state = trainer_restored.network.state_dict()
 
-        for key in original_state.keys():
+        for key in original_state:
             assert key in restored_state, f"Missing key in restored state: {key}"
             assert torch.allclose(original_state[key], restored_state[key], atol=1e-6), \
                 f"Weights differ for {key}"

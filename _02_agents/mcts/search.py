@@ -371,10 +371,7 @@ class MCTS:
             # Determine value from this node's player perspective
             # If node's active player matches perspective, use value as-is
             # Otherwise, negate (opponent's gain is our loss)
-            if node.state.active_player == perspective:
-                node_value = value
-            else:
-                node_value = -value
+            node_value = value if node.state.active_player == perspective else -value
 
             node.visit_count += 1
             node.total_value += node_value

@@ -68,12 +68,12 @@ def _get_torch_version() -> str:
 
 
 def maybe_compile_network(
-    network: "nn.Module",
+    network: nn.Module,
     compile_mode: str | None = None,
     dynamic: bool = True,
     fullgraph: bool = False,
     disable_on_cpu: bool = True,
-) -> "nn.Module":
+) -> nn.Module:
     """Optionally apply torch.compile() to a network for inference speedup.
 
     This function provides a safe wrapper around torch.compile() that:
@@ -170,9 +170,9 @@ def maybe_compile_network(
 
 
 def compile_for_training(
-    network: "nn.Module",
+    network: nn.Module,
     enabled: bool = True,
-) -> "nn.Module":
+) -> nn.Module:
     """Compile network with settings optimized for training.
 
     Training-optimized settings:
@@ -200,10 +200,10 @@ def compile_for_training(
 
 
 def compile_for_inference(
-    network: "nn.Module",
+    network: nn.Module,
     enabled: bool = True,
     batch_size_fixed: bool = False,
-) -> "nn.Module":
+) -> nn.Module:
     """Compile network with settings optimized for inference.
 
     Inference-optimized settings:

@@ -9,9 +9,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-import torch
 
 if TYPE_CHECKING:
+    import torch
+
     from _04_ui.visualization.activation_capture import ActivationSnapshot
 
 
@@ -82,10 +83,7 @@ def compress_policy(
     logits_np = logits.numpy().flatten().astype(np.float64)
 
     # Handle mask
-    if mask is not None:
-        mask_np = mask.numpy().flatten().astype(np.float64)
-    else:
-        mask_np = np.ones_like(logits_np)
+    mask_np = mask.numpy().flatten().astype(np.float64) if mask is not None else np.ones_like(logits_np)
 
     # Apply mask and compute softmax
     masked_logits = np.where(mask_np > 0.5, logits_np, -np.inf)

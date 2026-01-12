@@ -13,7 +13,6 @@ from pathlib import Path
 import pytest
 import torch
 
-
 # ============================================================================
 # Integration Tests: GameGenerator with opponent types
 # ============================================================================
@@ -93,7 +92,7 @@ class TestGameGeneratorIntegration:
         )
 
         # Generate games
-        transitions, trajectories, opponent_name, win_rate = generator.generate_games(
+        _transitions, _trajectories, opponent_name, _win_rate = generator.generate_games(
             num_games=4,
             iteration=1,
         )
@@ -125,7 +124,7 @@ class TestGameGeneratorIntegration:
             temperature=1.0,
         )
 
-        transitions, trajectories, opponent_name, win_rate = generator.generate_games(
+        _transitions, _trajectories, opponent_name, win_rate = generator.generate_games(
             num_games=4,
         )
 
@@ -135,9 +134,9 @@ class TestGameGeneratorIntegration:
 
     def test_generate_games_with_checkpoint_opponent(self, network, device):
         """Generate games against a checkpoint opponent."""
+        from _02_agents.neural.utils import NetworkConfig
         from _03_training.game_generator import GameGenerator
         from _03_training.opponent_pool import OpponentConfig, OpponentPool
-        from _02_agents.neural.utils import NetworkConfig
 
         config = OpponentConfig(
             current_weight=0.0,
@@ -163,7 +162,7 @@ class TestGameGeneratorIntegration:
             temperature=1.0,
         )
 
-        transitions, trajectories, opponent_name, win_rate = generator.generate_games(
+        transitions, _trajectories, opponent_name, _win_rate = generator.generate_games(
             num_games=4,
         )
 
@@ -192,8 +191,8 @@ class TestTrainerIntegration:
 
     def test_trainer_with_opponent_pool(self):
         """Trainer initializes opponent pool correctly."""
-        from _03_training.trainer import Trainer, TrainingConfig
         from _03_training.opponent_pool import OpponentConfig
+        from _03_training.trainer import Trainer, TrainingConfig
 
         with tempfile.TemporaryDirectory() as tmpdir:
             opponent_config = OpponentConfig(
@@ -241,8 +240,8 @@ class TestShortTrainingLoop:
 
     def test_training_with_opponent_pool_no_crash(self):
         """Training with opponent pool doesn't crash."""
-        from _03_training.trainer import Trainer, TrainingConfig
         from _03_training.opponent_pool import OpponentConfig
+        from _03_training.trainer import Trainer, TrainingConfig
 
         with tempfile.TemporaryDirectory() as tmpdir:
             opponent_config = OpponentConfig(
@@ -285,7 +284,7 @@ class TestOpponentPoolSampling:
         pool = OpponentPool(config=config, seed=42)
 
         # Sample many times
-        type_counts = {t: 0 for t in OpponentType}
+        type_counts = dict.fromkeys(OpponentType, 0)
         for _ in range(300):
             sampled = pool.sample_opponent()
             type_counts[sampled.opponent_type] += 1
@@ -305,7 +304,7 @@ class TestHeuristicVariantsInPool:
 
     def test_heuristic_variants_are_playable(self):
         """Heuristic variants can play games."""
-        from _01_simulator import state, engine
+        from _01_simulator import engine, state
         from _02_agents.heuristic import create_heuristic_variants
 
         variants = create_heuristic_variants()
@@ -364,7 +363,6 @@ class TestEdgeCasesWithRealComponents:
             MCTSOpponentConfig,
             OpponentConfig,
             OpponentPool,
-            OpponentType,
         )
 
         mcts_configs = [MCTSOpponentConfig(name="test_mcts")]

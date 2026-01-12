@@ -2,11 +2,12 @@
 """Evaluation report script for Beasty Bar PPO model."""
 
 import torch
-from _03_training.evaluation import create_opponent, wilson_confidence_interval
+
+from _01_simulator import engine, simulate
 from _02_agents.neural import NeuralAgent
 from _02_agents.neural.network import BeastyBarNetwork
 from _02_agents.neural.utils import NetworkConfig
-from _01_simulator import engine, simulate
+from _03_training.evaluation import create_opponent, wilson_confidence_interval
 
 # Load checkpoint
 checkpoint_path = "checkpoints/v4/final.pt"

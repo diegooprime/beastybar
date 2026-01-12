@@ -43,7 +43,6 @@ except ImportError:
 from _01_simulator import engine, state
 from _01_simulator.action_space import (
     ACTION_DIM,
-    action_index,
     index_to_action,
     legal_action_mask_tensor,
 )
@@ -373,7 +372,7 @@ class MCTSEnhancedPPO:
         """
         # Initialize game states
         games: list[_GameInProgress] = []
-        for i in range(batch_size):
+        for _i in range(batch_size):
             seed = np.random.randint(0, 2**31)
             game_state = engine.initial_state(seed=seed)
             games.append(
@@ -391,7 +390,7 @@ class MCTSEnhancedPPO:
             while any(not g.is_done for g in games):
                 # Collect active games
                 active_games = [g for g in games if not g.is_done]
-                active_states = [g.state for g in active_games]
+                [g.state for g in active_games]
 
                 # Determine which player is active (all same in 2-player alternating game)
                 # Group by active player for efficient MCTS
@@ -426,7 +425,7 @@ class MCTSEnhancedPPO:
                         )
 
                         # Process each game in group
-                        for (_, game), mcts_policy in zip(group, mcts_policies):
+                        for (_, game), mcts_policy in zip(group, mcts_policies, strict=False):
                             # Create training example
                             obs = state_to_tensor(game.state, player)
                             mask = legal_action_mask_tensor(game.state, player)

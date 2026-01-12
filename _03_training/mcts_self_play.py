@@ -42,7 +42,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import torch
-import torch.nn.functional as F  # noqa: N812
+import torch.nn.functional as F
 
 from _01_simulator import action_space, observations, simulate
 from _02_agents.mcts.batch_mcts import BatchMCTS
@@ -818,7 +818,7 @@ def _process_mcts_batch_for_perspective(
         add_root_noise=config.add_root_noise,
     )
 
-    for (state, game_idx), visit_dist in zip(states_with_indices, results):
+    for (state, game_idx), visit_dist in zip(states_with_indices, results, strict=False):
         _apply_mcts_result(active_games[game_idx], visit_dist, config, state)
 
 
@@ -1202,7 +1202,7 @@ def _process_training_moves_batch(
 
     for perspective in [0, 1]:
         p_states = [
-            (s, i) for s, i, p in zip(train_states, train_indices, perspectives)
+            (s, i) for s, i, p in zip(train_states, train_indices, perspectives, strict=False)
             if p == perspective
         ]
         if p_states:
@@ -1211,7 +1211,7 @@ def _process_training_moves_batch(
                 perspective=perspective,
                 add_root_noise=config.add_root_noise,
             )
-            for (_, game_idx), visit_dist in zip(p_states, results):
+            for (_, game_idx), visit_dist in zip(p_states, results, strict=False):
                 _apply_mcts_result_training_only(active_games[game_idx], visit_dist, config)
 
 
@@ -1238,7 +1238,7 @@ def _process_opponent_mcts_moves_batch(
 
     for perspective in [0, 1]:
         p_states = [
-            (s, i) for s, i, p in zip(opp_states, opp_indices, perspectives)
+            (s, i) for s, i, p in zip(opp_states, opp_indices, perspectives, strict=False)
             if p == perspective
         ]
         if p_states:
@@ -1247,7 +1247,7 @@ def _process_opponent_mcts_moves_batch(
                 perspective=perspective,
                 add_root_noise=False,
             )
-            for (_, game_idx), visit_dist in zip(p_states, results):
+            for (_, game_idx), visit_dist in zip(p_states, results, strict=False):
                 _apply_opponent_move(active_games[game_idx], visit_dist, config)
 
 

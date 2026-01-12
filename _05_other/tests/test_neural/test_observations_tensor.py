@@ -6,8 +6,8 @@ ensuring proper shape, normalization, and deterministic encoding.
 """
 
 import numpy as np
-import pytest
 
+from _01_simulator import state
 from _01_simulator.observations import (
     OBSERVATION_DIM,
     batch_states_to_tensor,
@@ -16,7 +16,6 @@ from _01_simulator.observations import (
     state_to_tensor,
     tensor_to_observation,
 )
-from _01_simulator import state
 
 
 def test_observation_tensor_dimensions():
@@ -120,7 +119,7 @@ def test_batch_encoding():
     assert batch_tensor.dtype == np.float32
 
     # Verify each row matches individual encoding
-    for i, (game_state, persp) in enumerate(zip(states, perspectives)):
+    for i, (game_state, persp) in enumerate(zip(states, perspectives, strict=False)):
         individual_tensor = state_to_tensor(game_state, persp)
         np.testing.assert_array_equal(batch_tensor[i], individual_tensor)
 

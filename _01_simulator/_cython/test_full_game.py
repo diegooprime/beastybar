@@ -2,16 +2,17 @@
 """Test full game simulation matches between Python and Cython."""
 
 import numpy as np
-from _01_simulator import simulate, engine
-from _01_simulator.action_space import action_index, index_to_action
 from _01_simulator._cython._cython_core import (
-    GameStateArray,
-    step_batch_parallel,
-    get_legal_masks_parallel,
-    encode_observations_parallel,
     PY_ACTION_DIM,
     PY_OBSERVATION_DIM,
+    GameStateArray,
+    encode_observations_parallel,
+    get_legal_masks_parallel,
+    step_batch_parallel,
 )
+
+from _01_simulator import engine, simulate
+from _01_simulator.action_space import action_index
 
 
 def play_full_game(seed: int) -> tuple[list, list]:

@@ -20,9 +20,7 @@ Example:
 from __future__ import annotations
 
 import logging
-from typing import Literal
-
-import torch
+from typing import TYPE_CHECKING, Literal
 
 from _02_agents.neural.network import BeastyBarNetwork
 from _02_agents.neural.utils import NetworkConfig
@@ -33,12 +31,16 @@ from _03_training.opponent_pool import (
     create_opponent_network,
 )
 from _03_training.opponent_statistics import OpponentStatsTracker
-from _03_training.replay_buffer import Transition
 from _03_training.self_play import (
     GameTrajectory,
     generate_games,
     trajectory_to_player_transitions,
 )
+
+if TYPE_CHECKING:
+    import torch
+
+    from _03_training.replay_buffer import Transition
 
 logger = logging.getLogger(__name__)
 

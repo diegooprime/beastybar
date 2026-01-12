@@ -8,6 +8,7 @@ and the mapping between action indices and game actions.
 import numpy as np
 import pytest
 
+from _01_simulator import state
 from _01_simulator.action_space import (
     ACTION_DIM,
     action_index,
@@ -15,12 +16,9 @@ from _01_simulator.action_space import (
     greedy_masked_action,
     index_to_action,
     legal_action_mask_tensor,
-    legal_action_space,
     sample_masked_action,
 )
-from _01_simulator.actions import Action
 from _01_simulator.engine import legal_actions
-from _01_simulator import state
 
 
 def test_action_mask_dimensions():
@@ -185,7 +183,7 @@ def test_batch_action_masks():
     assert batch_masks.dtype == np.float32
 
     # Verify each row matches individual mask
-    for i, (game_state, persp) in enumerate(zip(states, perspectives)):
+    for i, (game_state, persp) in enumerate(zip(states, perspectives, strict=False)):
         individual_mask = legal_action_mask_tensor(game_state, persp)
         np.testing.assert_array_equal(batch_masks[i], individual_mask)
 

@@ -10,8 +10,7 @@ import pytest
 
 from _01_simulator.action_space import ACTION_DIM
 from _01_simulator.observations import OBSERVATION_DIM
-from _03_training.replay_buffer import Batch, ReplayBuffer, TrajectoryBoundary, Transition
-
+from _03_training.replay_buffer import Batch, ReplayBuffer, Transition
 
 # ==============================================================================
 # Fixtures
@@ -435,7 +434,7 @@ class TestClearAndReset:
 
     def test_clear(self, small_buffer: ReplayBuffer) -> None:
         """Verify clear resets buffer but preserves total_added."""
-        for i in range(5):
+        for _i in range(5):
             small_buffer.add(create_transition())
 
         total_before = small_buffer.total_added

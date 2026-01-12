@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
+from typing import TYPE_CHECKING
 
 from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,9 +21,12 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
+if TYPE_CHECKING:
+    from _04_ui.visualization.visualizing_agent import VisualizingNeuralAgent
+
 # Visualization imports (lazy to avoid circular imports)
 _viz_manager = None
-_viz_capture_agents: dict[str, "VisualizingNeuralAgent"] = {}  # type: ignore[name-defined]
+_viz_capture_agents: dict[str, VisualizingNeuralAgent] = {}
 
 
 def _get_viz_manager():
@@ -113,8 +117,10 @@ def _load_neural_agent(ckpt_path: str | Path | None = None) -> tuple:
     Returns (agent, name, iteration) or (None, None, None).
     """
     try:
-        import torch
         import os
+
+        import torch
+
         from _02_agents.neural import NeuralAgent
         from _02_agents.neural.network import BeastyBarNetwork
         from _02_agents.neural.utils import NetworkConfig
@@ -181,7 +187,7 @@ _extra_checkpoints = [
     ("checkpoints/v4/iter_949.pt", 949),
     ("checkpoints/v4/iter_600_final.pt", 600),
 ]
-for ckpt_path, expected_iter in _extra_checkpoints:
+for ckpt_path, _expected_iter in _extra_checkpoints:
     if Path(ckpt_path).exists():
         _agent, _name, _iter = _load_neural_agent(ckpt_path)
         if _agent is not None and _name not in AI_AGENTS:
@@ -425,7 +431,7 @@ def create_app() -> FastAPI:
         if _neural_name and _neural_name in AI_AGENTS:
             all_neural.append((_neural_agent, "neural", _neural_iter))
         all_neural.sort(key=lambda x: x[2], reverse=True)
-        for i, (agent, name, iteration) in enumerate(all_neural):
+        for i, (_agent, name, iteration) in enumerate(all_neural):
             label = f"PPO iter {iteration}"
             if i == 0:
                 label += " (Strongest)"
@@ -455,7 +461,7 @@ def create_app() -> FastAPI:
         if _neural_name and _neural_name in AI_AGENTS:
             all_neural.append((_neural_agent, "neural", _neural_iter))
         all_neural.sort(key=lambda x: x[2], reverse=True)
-        for i, (agent, name, iteration) in enumerate(all_neural):
+        for i, (_agent, name, iteration) in enumerate(all_neural):
             label = f"PPO iter {iteration}"
             if i == 0:
                 label += " (Strongest)"
@@ -499,7 +505,7 @@ def create_app() -> FastAPI:
             from _02_agents.neural import NeuralAgent
             from _04_ui.visualization.activation_capture import VisualizingNeuralAgent
 
-            for i, (agent, agent_id) in enumerate(zip(agents, [p1_agent_id, p2_agent_id])):
+            for i, (agent, _agent_id) in enumerate(zip(agents, [p1_agent_id, p2_agent_id], strict=False)):
                 if isinstance(agent, NeuralAgent):
                     viz_wrappers[i] = VisualizingNeuralAgent(agent, websocket_manager=None)
                     is_neural[i] = True
@@ -860,7 +866,7 @@ Reply with JUST the action number (e.g., "1" or "3").""",
         from _04_ui.visualization.data_compression import snapshot_to_dict
 
         # Find any visualizing agent with history
-        for agent_name, viz_agent in _viz_capture_agents.items():
+        for _agent_name, viz_agent in _viz_capture_agents.items():
             if viz_agent.activation_history:
                 return [
                     snapshot_to_dict(snapshot)
@@ -946,7 +952,7 @@ Reply with JUST the action number (e.g., "1" or "3").""",
             observation = state_to_tensor(masked_state, player)
 
             # Get action indices
-            chosen_action = legal[action_index - 1]
+            legal[action_index - 1]
             legal_indices = list(range(len(legal)))
 
             # Get card species for labels
@@ -975,7 +981,7 @@ Reply with JUST the action number (e.g., "1" or "3").""",
         except Exception as e:
             logger.exception("Error generating explanation")
             return {
-                "error": f"Failed to generate explanation: {str(e)}",
+                "error": f"Failed to generate explanation: {e!s}",
                 "action_index": action_index,
             }
 
@@ -995,7 +1001,7 @@ Reply with JUST the action number (e.g., "1" or "3").""",
 
         try:
             from _02_agents.neural import NeuralAgent
-            from _03_training.benchmark import benchmark_model, BenchmarkConfig
+            from _03_training.benchmark import BenchmarkConfig, benchmark_model
 
             agent = AI_AGENTS["neural"]
             if not isinstance(agent, NeuralAgent):

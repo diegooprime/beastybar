@@ -1260,10 +1260,7 @@ def main() -> None:
 
     _configure_logging()
 
-    if args.resume:
-        trainer = _create_trainer_from_resume(args)
-    else:
-        trainer = _create_trainer_from_config(args)
+    trainer = _create_trainer_from_resume(args) if args.resume else _create_trainer_from_config(args)
 
     trainer.train()
 

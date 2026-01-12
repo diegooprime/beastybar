@@ -18,9 +18,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-import numpy as np
-
 if TYPE_CHECKING:
+    import numpy as np
     from numpy.typing import NDArray
 
 
@@ -149,12 +148,10 @@ PendingStep = PPOPendingStep
 
 
 __all__ = [
-    # Primary classes
-    "PPOStep",
-    "PPOPendingStep",
-    "MCTSStep",
     "MCTSPendingStep",
-    # Backward compatibility aliases
-    "TrajectoryStep",
+    "MCTSStep",
+    "PPOPendingStep",
+    "PPOStep",
     "PendingStep",
+    "TrajectoryStep",
 ]

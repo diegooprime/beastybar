@@ -376,10 +376,7 @@ class EndgameTablebase:
                         best_depth = action_depth
                     elif child_value == best_value:
                         # Prefer shorter wins, longer losses
-                        if child_value == GameTheoreticValue.WIN and action_depth < best_depth:
-                            best_action = action
-                            best_depth = action_depth
-                        elif child_value == GameTheoreticValue.LOSS and action_depth > best_depth:
+                        if (child_value == GameTheoreticValue.WIN and action_depth < best_depth) or (child_value == GameTheoreticValue.LOSS and action_depth > best_depth):
                             best_action = action
                             best_depth = action_depth
                 else:
@@ -389,10 +386,7 @@ class EndgameTablebase:
                         best_depth = action_depth
                     elif child_value == best_value:
                         # For opponent: shorter wins (our losses), longer losses (our wins)
-                        if child_value == GameTheoreticValue.LOSS and action_depth < best_depth:
-                            best_action = action
-                            best_depth = action_depth
-                        elif child_value == GameTheoreticValue.WIN and action_depth > best_depth:
+                        if (child_value == GameTheoreticValue.LOSS and action_depth < best_depth) or (child_value == GameTheoreticValue.WIN and action_depth > best_depth):
                             best_action = action
                             best_depth = action_depth
 

@@ -110,7 +110,7 @@ def find_decision_pairs(
         from _02_agents.neural.agent import load_neural_agent
         from _02_agents.neural.utils import greedy_action
     except ImportError as e:
-        raise ImportError(f"Required dependencies not available: {e}")
+        raise ImportError(f"Required dependencies not available: {e}") from e
 
     agent = load_neural_agent(model_path, device=device)
     agent.model.eval()
@@ -223,7 +223,7 @@ def run_patching_experiment(
         from _02_agents.neural.agent import load_neural_agent
         from _02_agents.neural.utils import greedy_action
     except ImportError as e:
-        raise ImportError(f"Required dependencies not available: {e}")
+        raise ImportError(f"Required dependencies not available: {e}") from e
 
     agent = load_neural_agent(model_path, device=device)
     agent.model.eval()

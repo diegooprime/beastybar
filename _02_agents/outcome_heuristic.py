@@ -747,7 +747,7 @@ def extract_weights_from_ppo(
                 continue
 
             # Pairwise difference: chosen - alternative
-            diff = [c - a for c, a in zip(chosen_features, alt_features)]
+            diff = [c - a for c, a in zip(chosen_features, alt_features, strict=False)]
             X_pairs.append(diff)
             y_pairs.append(1)  # Label: chosen is better
 
@@ -801,7 +801,7 @@ def extract_weights_from_ppo(
 
     # Map coefficients to OutcomeWeights
     # The coefficients represent the importance of each feature difference
-    feature_importances = dict(zip(FEATURE_NAMES, coef.tolist()))
+    feature_importances = dict(zip(FEATURE_NAMES, coef.tolist(), strict=False))
 
     if verbose:
         print("\nLearned feature weights:")
@@ -861,7 +861,7 @@ class DistilledOutcomeHeuristic(Agent):
         device: str = "cpu",
         seed: int | None = None,
         verbose: bool = True,
-    ) -> "DistilledOutcomeHeuristic":
+    ) -> DistilledOutcomeHeuristic:
         """Create a distilled agent by extracting weights from PPO.
 
         Args:
@@ -884,7 +884,7 @@ class DistilledOutcomeHeuristic(Agent):
     def select_action(
         self,
         game_state: state.State,
-        legal_actions: "Sequence[actions.Action]",
+        legal_actions: Sequence[actions.Action],
     ) -> actions.Action:
         return self._base.select_action(game_state, legal_actions)
 
@@ -892,9 +892,9 @@ class DistilledOutcomeHeuristic(Agent):
 __all__ = [
     "ATTENTION_WEIGHTS",
     "DISTILLED_WEIGHTS",
+    "FEATURE_NAMES",
     "DistilledOutcomeHeuristic",
     "ExtractedWeights",
-    "FEATURE_NAMES",
     "OutcomeHeuristic",
     "OutcomeHeuristicV2",
     "OutcomeMetrics",

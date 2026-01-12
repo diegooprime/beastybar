@@ -180,10 +180,9 @@ def hierarchical_clustering(embeddings: np.ndarray, n_clusters: int = 4) -> np.n
 
         for i in range(n):
             for j in range(i + 1, n):
-                if cluster_labels[i] != cluster_labels[j]:
-                    if distances[i, j] < min_dist:
-                        min_dist = distances[i, j]
-                        merge_i, merge_j = i, j
+                if cluster_labels[i] != cluster_labels[j] and distances[i, j] < min_dist:
+                    min_dist = distances[i, j]
+                    merge_i, merge_j = i, j
 
         # Merge clusters
         old_label = cluster_labels[merge_j]

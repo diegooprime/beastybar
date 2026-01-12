@@ -126,9 +126,9 @@ def _format_game_state(
     opp_info_str = "\n".join(opp_info_parts)
 
     # Your remaining cards info
-    my_played = _get_played_species(game_state, player)
-    my_in_queue = {c.species for c in game_state.zones.queue if c.owner == player}
-    my_in_hand = {c.species for c in hand}
+    _get_played_species(game_state, player)
+    {c.species for c in game_state.zones.queue if c.owner == player}
+    {c.species for c in hand}
     my_in_deck = {c.species for c in game_state.players[player].deck}
 
     my_info_parts = [

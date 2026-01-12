@@ -38,7 +38,7 @@ from typing import Any
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F  # noqa: N812
+import torch.nn.functional as F
 
 from _01_simulator.action_space import ACTION_DIM
 from _01_simulator.observations import OBSERVATION_DIM

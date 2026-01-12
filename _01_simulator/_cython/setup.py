@@ -48,11 +48,7 @@ extensions = [
             np.get_include(),
             str(cython_dir),
         ],
-        extra_compile_args=[
-            "-O3",
-            "-march=native",
-            "-ffast-math",
-        ] + omp_compile_args,
+        extra_compile_args=["-O3", "-march=native", "-ffast-math", *omp_compile_args],
         extra_link_args=omp_link_args,
         define_macros=[
             ("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION"),

@@ -11,28 +11,27 @@ This script:
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import torch
-import torch.nn as nn
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from _01_simulator import state, rules, engine
+from _01_simulator import engine, state
 from _01_simulator.observations import (
     build_observation,
     observation_to_tensor,
-    species_name,
-    _NUM_SPECIES,
 )
-from _02_agents.neural.network import BeastyBarNetwork
-from _02_agents.neural.utils import NetworkConfig, load_network_from_checkpoint
+from _02_agents.neural.utils import load_network_from_checkpoint
+
+if TYPE_CHECKING:
+    from _02_agents.neural.network import BeastyBarNetwork
 
 
 @dataclass
@@ -69,7 +68,7 @@ def register_attention_hooks(
 
     # For TransformerEncoder, we need to access the self-attention layer
     # The TransformerEncoderLayer has a self_attn attribute
-    for i, layer in enumerate(model.queue_encoder.transformer.layers):
+    for _i, _layer in enumerate(model.queue_encoder.transformer.layers):
         # Register hook on self_attn (MultiheadAttention module)
         def create_hook(layer_idx):
             def attention_hook(module, args, kwargs, output):
@@ -90,7 +89,6 @@ def register_attention_hooks(
 def create_attention_capturing_forward(model: BeastyBarNetwork):
     """Create a modified forward that captures attention weights from queue encoder."""
 
-    original_queue_forward = model.queue_encoder.forward
     attention_storage = {"weights": [], "masks": []}
 
     def capturing_forward(x: torch.Tensor, padding_mask: torch.Tensor | None = None) -> torch.Tensor:
@@ -260,7 +258,7 @@ def analyze_attention_patterns(
             continue
 
         layer_attentions = attention_storage["weights"][0]  # First (and only) batch item
-        padding_mask = attention_storage["masks"][0]
+        attention_storage["masks"][0]
 
         # Get queue info
         queue = game_state.zones.queue
@@ -308,7 +306,7 @@ def analyze_attention_patterns(
             species_attention[card.species].append(attn)
 
         # Species-specific focus patterns
-        species_in_queue = set(card.species for card in queue)
+        species_in_queue = {card.species for card in queue}
         for species in species_in_queue:
             for pos in range(queue_len):
                 species_focus_patterns[species][pos].append(attn_received_norm[pos].item())
@@ -393,7 +391,7 @@ def generate_report(analysis: dict[str, Any]) -> str:
     lines.append("|----------|--------------|---------|----------------|")
 
     for pos in range(5):
-        if pos in pos_attn and pos_attn[pos]:
+        if pos_attn.get(pos):
             stats = compute_statistics(pos_attn[pos])
             if pos == 0:
                 interp = "Front - about to score"
@@ -516,7 +514,7 @@ def generate_report(analysis: dict[str, Any]) -> str:
             lines.append("|----------|--------------|")
 
             for pos in range(5):
-                if pos in pattern and pattern[pos]:
+                if pattern.get(pos):
                     avg = np.mean(pattern[pos])
                     lines.append(f"| {pos} | {avg:.4f} |")
 
@@ -620,7 +618,7 @@ def generate_report(analysis: dict[str, Any]) -> str:
 
     # Queue length patterns
     lines.append("")
-    for i, interp in enumerate(interpretations, 1):
+    for _i, interp in enumerate(interpretations, 1):
         lines.append(interp)
         lines.append("")
 
@@ -758,7 +756,7 @@ def main():
     pos_attn = analysis["position_attention"]
     print("\nAttention by position (front=0, back=4):")
     for pos in range(5):
-        if pos in pos_attn and pos_attn[pos]:
+        if pos_attn.get(pos):
             avg = np.mean(pos_attn[pos])
             print(f"  Position {pos}: {avg:.4f}")
 

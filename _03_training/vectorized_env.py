@@ -4,10 +4,10 @@ This module implements a vectorized environment that runs N games simultaneously
 enabling batched neural network inference for dramatically improved GPU utilization.
 
 Instead of:
-    512 games × 20 steps × batch_size=1 = 10,240 tiny GPU calls
+    512 games x 20 steps x batch_size=1 = 10,240 tiny GPU calls
 
 We get:
-    ~20 steps × batch_size=512 = 20 large GPU calls
+    ~20 steps x batch_size=512 = 20 large GPU calls
 
 This is the key to efficient GPU utilization during self-play.
 

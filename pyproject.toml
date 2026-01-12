@@ -58,10 +58,27 @@ select = [
     "TCH",    # flake8-type-checking
     "RUF",    # ruff-specific rules
 ]
-ignore = ["E501"]  # Line too long (handled by formatter)
+ignore = [
+    "E501",    # Line too long (handled by formatter)
+    "N806",    # Variable naming - allow ML conventions (X, X_train, etc.)
+    "N812",    # Allow `functional as F` PyTorch convention
+    "SIM108",  # Ternary operator - not always clearer
+    "SIM102",  # Nested if - sometimes clearer than combined
+    "RUF003",  # Unicode in comments - multiplication signs are fine
+    "RUF012",  # ClassVar - not required for all class attrs
+    "RUF043",  # Raw strings in pytest match - works without raw
+]
 
 [tool.ruff.lint.per-file-ignores]
 "_05_other/tests/*" = ["N802", "N803"]  # Allow test function naming
+"scripts/*" = ["E402"]  # Scripts need sys.path modification before imports
+"_01_simulator/_cython/test_*.py" = ["E402", "F401"]  # Cython test scripts
+"_01_simulator/_cython/__init__.py" = ["F401"]  # Re-exports for availability checking
+"_05_analysis/*" = ["E402", "N803"]  # Analysis scripts - sys.path and ML conventions
+"_04_ui/app.py" = ["E402"]  # Lazy imports for circular dependency avoidance
+"__init__.py" = ["F401", "F405"]  # Re-exports and star imports in package init
+"_05_other/tests/test_population.py" = ["E402"]  # pytest.importorskip before imports
+"scripts/benchmark_cython.py" = ["F401"]  # Imports for availability checking
 
 [tool.ruff.format]
 quote-style = "double"

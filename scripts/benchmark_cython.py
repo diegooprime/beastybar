@@ -19,20 +19,26 @@ import argparse
 import os
 import sys
 import time
-from typing import Callable
+from collections.abc import Callable
 
 import numpy as np
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from _01_simulator import engine, simulate
-from _01_simulator.action_space import ACTION_DIM, legal_action_mask_tensor, legal_action_space
+from _01_simulator import engine
+from _01_simulator.action_space import ACTION_DIM, legal_action_mask_tensor
 from _01_simulator.observations import OBSERVATION_DIM, state_to_tensor
 from _01_simulator.state import initial_state
 
 # Try to import Cython
 try:
+    from _01_simulator._cython._cython_core import (
+        encode_single_observation,
+        get_single_legal_mask,
+        step_single,
+    )
+
     from _01_simulator._cython import (
         GameStateArray,
         encode_observations_parallel,
@@ -40,11 +46,6 @@ try:
         is_cython_available,
         python_state_to_c,
         step_batch_parallel,
-    )
-    from _01_simulator._cython._cython_core import (
-        encode_single_observation,
-        get_single_legal_mask,
-        step_single,
     )
 
     CYTHON_AVAILABLE = is_cython_available()

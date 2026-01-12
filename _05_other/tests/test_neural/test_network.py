@@ -8,14 +8,13 @@ gradient flow, and model persistence for the actor-critic network.
 import tempfile
 from pathlib import Path
 
-import numpy as np
 import pytest
 import torch
 
+from _01_simulator import state
 from _01_simulator.action_space import ACTION_DIM
 from _01_simulator.observations import OBSERVATION_DIM, state_to_tensor
-from _01_simulator import state
-from _02_agents.neural.network import BeastyBarNetwork, create_network
+from _02_agents.neural.network import create_network
 from _02_agents.neural.utils import NetworkConfig
 
 

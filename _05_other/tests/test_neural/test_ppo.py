@@ -6,9 +6,7 @@ policy loss with clipping, value loss, entropy bonus, and update steps.
 """
 
 import numpy as np
-import pytest
 import torch
-import torch.nn as nn
 
 from _01_simulator.action_space import ACTION_DIM
 from _01_simulator.observations import OBSERVATION_DIM
@@ -49,11 +47,11 @@ def test_gae_computation():
     assert advantages[2] > 0, "Final advantage should be positive for positive reward"
 
     # Test edge case: lambda=0 (one-step TD)
-    advantages_td, returns_td = compute_gae(rewards, values, dones, gamma, gae_lambda=0.0)
+    advantages_td, _returns_td = compute_gae(rewards, values, dones, gamma, gae_lambda=0.0)
     assert advantages_td.shape == (3,)
 
     # Test edge case: lambda=1 (Monte Carlo)
-    advantages_mc, returns_mc = compute_gae(rewards, values, dones, gamma, gae_lambda=1.0)
+    advantages_mc, _returns_mc = compute_gae(rewards, values, dones, gamma, gae_lambda=1.0)
     assert advantages_mc.shape == (3,)
 
 

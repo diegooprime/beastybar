@@ -51,18 +51,14 @@ from _02_agents.neural.utils import (
 )
 
 __all__ = [
-    # Network V1
     "ACTION_DIM",
     "OBSERVATION_DIM",
     "BeastyBarNetwork",
-    "CheckpointData",
-    # Network V2
     "BeastyBarNetworkV2",
-    "NetworkConfigV2",
-    "create_network_v2",
-    # Agent
+    "CheckpointData",
     "InferenceMode",
     "NetworkConfig",
+    "NetworkConfigV2",
     "NeuralAgent",
     "batch_greedy_actions",
     "batch_sample_actions",
@@ -71,6 +67,7 @@ __all__ = [
     "compute_action_probs",
     "count_parameters",
     "create_network",
+    "create_network_v2",
     "create_neural_agent",
     "default_config",
     "get_device",

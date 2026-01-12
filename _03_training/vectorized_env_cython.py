@@ -436,10 +436,7 @@ def _is_neural_network(obj: object) -> bool:
     if isinstance(obj, torch.nn.Module):
         return True
     # Duck typing: has forward method but not select_action (which agents have)
-    if hasattr(obj, "forward") and callable(getattr(obj, "forward", None)):
-        if not hasattr(obj, "select_action"):
-            return True
-    return False
+    return bool(hasattr(obj, "forward") and callable(getattr(obj, "forward", None)) and not hasattr(obj, "select_action"))
 
 
 def generate_games_vectorized_cython_with_opponent(

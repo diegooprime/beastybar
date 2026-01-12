@@ -68,7 +68,7 @@ class TestMCTSNodeExpansion:
         assert len(node.children) == len(legal)
 
         # Check each child has correct prior
-        for action, child in node.children.items():
+        for _action, child in node.children.items():
             assert child.parent == node
             assert child.prior == pytest.approx(1.0 / len(legal))
             assert child.visit_count == 0
@@ -266,7 +266,7 @@ class TestMCTSNodeBackup:
         priors = {action: 1.0 / len(legal) for action in legal}
         root.expand(priors)
 
-        child = list(root.children.values())[0]
+        child = next(iter(root.children.values()))
         child.backup(1.0)
 
         # Child gets positive value
@@ -288,13 +288,13 @@ class TestMCTSNodeBackup:
         root.expand(priors)
 
         # Get first child and expand it
-        child1 = list(root.children.values())[0]
+        child1 = next(iter(root.children.values()))
         legal2 = list(engine.legal_actions(child1.state, child1.state.active_player))
         priors2 = {action: 1.0 / len(legal2) for action in legal2}
         child1.expand(priors2)
 
         # Get grandchild and backup
-        child2 = list(child1.children.values())[0]
+        child2 = next(iter(child1.children.values()))
         child2.backup(1.0)
 
         # Check propagation with alternating signs
@@ -326,7 +326,7 @@ class TestMCTSNodeBestChild:
 
         result = node.best_child_by_visits()
         assert result is not None
-        action, child = result
+        _action, child = result
         assert child == children[1][1]
         assert child.visit_count == 10
 

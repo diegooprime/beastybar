@@ -29,7 +29,7 @@ from _01_simulator.action_space import (
 from _01_simulator.observations import state_to_tensor
 
 # All species (sorted)
-SPECIES_NAMES = sorted([s for s in rules.SPECIES.keys() if s != "unknown"])
+SPECIES_NAMES = sorted([s for s in rules.SPECIES if s != "unknown"])
 
 
 @dataclass
@@ -164,7 +164,7 @@ def mine_embedding_similarities(
         Dictionary mapping species pairs to cosine similarities.
     """
     try:
-        import torch
+        import torch  # noqa: F401 - availability check before loading neural agent
 
         from _02_agents.neural.agent import load_neural_agent
     except ImportError as e:
@@ -232,7 +232,7 @@ def mine_behavioral_interactions(
         from _02_agents.neural.agent import load_neural_agent
         from _02_agents.neural.utils import greedy_action
     except ImportError as e:
-        raise ImportError(f"Required dependencies not available: {e}")
+        raise ImportError(f"Required dependencies not available: {e}") from e
 
     agent = load_neural_agent(model_path, device=device)
     agent.model.eval()

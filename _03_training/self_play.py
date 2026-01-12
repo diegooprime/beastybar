@@ -16,9 +16,9 @@ transitions are collected for training. Player 1 can be:
 **GPU Optimization**: For high GPU utilization, use `generate_games_batched()`
 which employs a vectorized environment to batch inference across many games.
 This transforms inference from:
-    512 games × 20 steps × batch_size=1 = 10,240 tiny GPU calls
+    512 games x 20 steps x batch_size=1 = 10,240 tiny GPU calls
 To:
-    ~20 steps × batch_size=512 = 20 large GPU calls
+    ~20 steps x batch_size=512 = 20 large GPU calls
 
 Example:
     from _03_training.self_play import play_game, generate_games
@@ -584,10 +584,10 @@ def generate_games_batched(
 
     This is the GPU-optimized version that batches inference across all active games.
     Instead of running games sequentially with single-sample inference:
-        512 games × 20 steps × batch_size=1 = 10,240 tiny GPU calls
+        512 games x 20 steps x batch_size=1 = 10,240 tiny GPU calls
 
     This runs all games in parallel and batches inference:
-        ~20 steps × batch_size=512 = 20 large GPU calls
+        ~20 steps x batch_size=512 = 20 large GPU calls
 
     This dramatically improves GPU utilization from ~1-18% to ~80-95%.
 

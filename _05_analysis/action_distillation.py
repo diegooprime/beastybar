@@ -35,7 +35,7 @@ from _01_simulator.observations import (
 )
 
 # Species names (sorted alphabetically)
-SPECIES_NAMES = sorted([s for s in rules.SPECIES.keys() if s != "unknown"])
+SPECIES_NAMES = sorted([s for s in rules.SPECIES if s != "unknown"])
 SPECIES_TO_IDX = {name: idx for idx, name in enumerate(SPECIES_NAMES)}
 
 
@@ -220,7 +220,6 @@ def extract_action_features(game_state: state.State, player: int) -> ActionFeatu
     opp_cards = [c for c in queue if c.owner == opponent]
     my_cards = [c for c in queue if c.owner == player]
 
-    threat_species = {"lion", "hippo", "crocodile", "zebra"}
 
     return ActionFeatures(
         queue_length=len(queue),
@@ -370,7 +369,7 @@ def collect_action_data_from_ppo(
         from _02_agents.neural.agent import load_neural_agent
         from _02_agents.neural.utils import greedy_action
     except ImportError as e:
-        raise ImportError(f"Required dependencies not available: {e}")
+        raise ImportError(f"Required dependencies not available: {e}") from e
 
     # Load model
     agent = load_neural_agent(model_path, device=device)
@@ -463,8 +462,8 @@ def train_parrot_classifier(
     try:
         from sklearn.model_selection import train_test_split
         from sklearn.tree import DecisionTreeClassifier
-    except ImportError:
-        raise ImportError("scikit-learn required for training classifiers")
+    except ImportError as e:
+        raise ImportError("scikit-learn required for training classifiers") from e
 
     if len(data.parrot_features) < 100:
         print("Not enough parrot samples for training")
@@ -473,7 +472,7 @@ def train_parrot_classifier(
     # Combine target features with context
     X = np.array([
         np.concatenate([pf, cf])
-        for pf, cf in zip(data.parrot_features, data.parrot_context)
+        for pf, cf in zip(data.parrot_features, data.parrot_context, strict=False)
     ])
     y = np.array(data.parrot_labels)
 
@@ -501,7 +500,7 @@ def train_parrot_classifier(
     context_feature_names = _get_context_feature_names()
     feature_names = parrot_feature_names + context_feature_names
 
-    importances = dict(zip(feature_names, clf.feature_importances_))
+    importances = dict(zip(feature_names, clf.feature_importances_, strict=False))
 
     return clf, accuracy, importances
 
@@ -514,8 +513,8 @@ def train_kangaroo_classifier(
     try:
         from sklearn.model_selection import train_test_split
         from sklearn.tree import DecisionTreeClassifier
-    except ImportError:
-        raise ImportError("scikit-learn required for training classifiers")
+    except ImportError as e:
+        raise ImportError("scikit-learn required for training classifiers") from e
 
     if len(data.kangaroo_features) < 100:
         print("Not enough kangaroo samples for training")
@@ -543,7 +542,7 @@ def train_kangaroo_classifier(
         "hop1_behind_species", "hop2_behind_species",
         "hop1_safer", "hop2_reaches_front",
     ]
-    importances = dict(zip(feature_names, clf.feature_importances_))
+    importances = dict(zip(feature_names, clf.feature_importances_, strict=False))
 
     return clf, accuracy, importances
 
@@ -556,8 +555,8 @@ def train_species_classifier(
     try:
         from sklearn.model_selection import train_test_split
         from sklearn.tree import DecisionTreeClassifier
-    except ImportError:
-        raise ImportError("scikit-learn required for training classifiers")
+    except ImportError as e:
+        raise ImportError("scikit-learn required for training classifiers") from e
 
     if len(data.species_features) < 100:
         print("Not enough species samples for training")
@@ -581,7 +580,7 @@ def train_species_classifier(
     accuracy = clf.score(X_test, y_test)
 
     feature_names = _get_context_feature_names()
-    importances = dict(zip(feature_names, clf.feature_importances_))
+    importances = dict(zip(feature_names, clf.feature_importances_, strict=False))
 
     return clf, accuracy, importances
 

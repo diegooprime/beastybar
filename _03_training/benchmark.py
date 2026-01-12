@@ -19,6 +19,7 @@ Example:
 
 from __future__ import annotations
 
+import contextlib
 import gc
 import logging
 import time
@@ -162,10 +163,8 @@ def _measure_latency(
     obs = torch.randn(batch_size, OBSERVATION_DIM)
 
     # Try to move to same device as model
-    try:
+    with contextlib.suppress(Exception):
         obs = obs.cuda() if torch.cuda.is_available() else obs
-    except Exception:
-        pass
 
     # Warmup
     for _ in range(warmup):
@@ -292,10 +291,8 @@ def _measure_throughput(
     batched = {}
     for batch_size in config.batch_sizes:
         obs_batch = torch.randn(batch_size, OBSERVATION_DIM)
-        try:
+        with contextlib.suppress(Exception):
             obs_batch = obs_batch.to(device)
-        except Exception:
-            pass
 
         # Warmup
         for _ in range(10):
