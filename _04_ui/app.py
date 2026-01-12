@@ -875,6 +875,164 @@ Reply with JUST the action number (e.g., "1" or "3").""",
             viz_agent.clear_history()
         return {"status": "cleared"}
 
+    # =========================================================================
+    # Move Explanation Endpoint (Phase 6)
+    # =========================================================================
+
+    @app.post("/api/explain-move")
+    def api_explain_move(payload: dict) -> dict:
+        """Explain why the AI chose a particular move.
+
+        This endpoint provides insights into the neural network's decision-making
+        process, including feature importance, alternative actions considered,
+        and confidence levels.
+
+        Request body:
+            - action_index (int): Index of the action to explain (1-based)
+            - agent_name (str, optional): Which AI agent to use for explanation
+
+        Returns:
+            - chosen_action: Details about the selected action
+            - alternatives: Other actions that were considered
+            - confidence: How confident the AI is in this choice
+            - value_prediction: Expected game outcome
+            - top_factors: Most important factors in the decision
+            - reasoning: Human-readable explanation
+        """
+        game_state = store.require_state()
+
+        if simulate.is_terminal(game_state):
+            raise HTTPException(status_code=400, detail="Game is already over")
+
+        player = game_state.active_player
+        legal = simulate.legal_actions(game_state, player)
+
+        if not legal:
+            raise HTTPException(status_code=400, detail="No legal actions available")
+
+        action_index = payload.get("actionIndex", 1)
+        agent_name = payload.get("agentName", "neural")
+
+        if action_index < 1 or action_index > len(legal):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid action index. Choose 1-{len(legal)}"
+            )
+
+        # Get the neural agent
+        if agent_name not in AI_AGENTS:
+            agent_name = "neural" if "neural" in AI_AGENTS else "heuristic"
+
+        agent = AI_AGENTS.get(agent_name)
+
+        # Check if agent is a neural agent
+        try:
+            from _02_agents.neural import NeuralAgent
+            if not isinstance(agent, NeuralAgent):
+                return {
+                    "error": "Explanation only available for neural agents",
+                    "agent_type": type(agent).__name__,
+                }
+        except ImportError:
+            return {"error": "Neural agent module not available"}
+
+        # Get observation and explain
+        try:
+            from _01_simulator.observations import state_to_tensor
+            from _02_agents.neural.explain import MoveExplainer, format_explanation_for_api
+
+            # Convert state to tensor for the neural network
+            masked_state = state.mask_state_for_player(game_state, player)
+            observation = state_to_tensor(masked_state, player)
+
+            # Get action indices
+            chosen_action = legal[action_index - 1]
+            legal_indices = list(range(len(legal)))
+
+            # Get card species for labels
+            card_species = [
+                game_state.players[player].hand[a.hand_index].species
+                for a in legal
+            ]
+
+            # Create explainer and get explanation
+            explainer = MoveExplainer(agent.model)
+            explanation = explainer.explain(
+                observation=observation,
+                chosen_action_idx=action_index - 1,
+                legal_action_indices=legal_indices,
+                card_species=card_species,
+            )
+
+            # Format for API response
+            result = format_explanation_for_api(explanation)
+            result["action_labels"] = [
+                _action_label(game_state.players[player].hand[a.hand_index], a)
+                for a in legal
+            ]
+            return result
+
+        except Exception as e:
+            logger.exception("Error generating explanation")
+            return {
+                "error": f"Failed to generate explanation: {str(e)}",
+                "action_index": action_index,
+            }
+
+    # =========================================================================
+    # Benchmark Endpoint (Phase 6)
+    # =========================================================================
+
+    @app.get("/api/benchmark")
+    def api_benchmark() -> dict:
+        """Get inference benchmark results for the current neural model.
+
+        Returns performance metrics including latency, throughput,
+        and memory usage for the loaded neural network.
+        """
+        if "neural" not in AI_AGENTS:
+            return {"error": "No neural agent loaded"}
+
+        try:
+            from _02_agents.neural import NeuralAgent
+            from _03_training.benchmark import benchmark_model, BenchmarkConfig
+
+            agent = AI_AGENTS["neural"]
+            if not isinstance(agent, NeuralAgent):
+                return {"error": "Neural agent not available"}
+
+            config = BenchmarkConfig(
+                num_iterations=100,
+                warmup_iterations=10,
+                batch_sizes=[1, 8],
+                include_memory=True,
+                include_games=False,
+            )
+
+            result = benchmark_model(
+                agent.model,
+                config=config,
+                model_name="neural",
+            )
+
+            return {
+                "model_name": result.model_name,
+                "device": result.device,
+                "latency": [
+                    {
+                        "batch_size": lat.batch_size,
+                        "avg_ms": round(lat.avg_ms, 3),
+                        "p95_ms": round(lat.p95_ms, 3),
+                    }
+                    for lat in result.latency
+                ],
+                "memory_mb": round(result.memory.model_size_mb, 1) if result.memory else None,
+                "throughput_per_sec": round(result.throughput.inferences_per_second, 0) if result.throughput else None,
+            }
+        except Exception as e:
+            logger.exception("Benchmark failed")
+            return {"error": str(e)}
+
     return app
 
 
