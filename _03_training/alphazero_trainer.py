@@ -693,13 +693,13 @@ class AlphaZeroTrainer:
         return self._batch_mcts
 
     def generate_training_data(self, num_games: int) -> list[TrainingExample]:
-        """Generate training data using MCTS search.
+        """Generate training data using parallel MCTS self-play.
 
-        This is the core AlphaZero self-play function:
-        1. For each game position, run MCTS to get improved policy
-        2. Sample action from MCTS visit counts
-        3. Store (observation, mcts_policy, player) for later value assignment
-        4. After game ends, assign game outcome as value target
+        Runs multiple games in parallel for efficient GPU utilization:
+        1. Maintain pool of active games (up to parallel_games)
+        2. Batch MCTS search across all active game states
+        3. Apply actions and collect training examples
+        4. Start new games as others complete
 
         If tablebase is loaded:
         - Use tablebase moves in endgame positions (perfect play)
@@ -722,24 +722,76 @@ class AlphaZeroTrainer:
         from _03_training.game_utils import compute_rewards, compute_winner
         from _03_training.utils import inference_mode
 
-        examples = []
+        examples: list[TrainingExample] = []
         batch_mcts = self._get_batch_mcts()
         tablebase_hits = 0
         tablebase_value_hits = 0
 
-        # Set network to evaluation mode for MCTS
+        # Track parallel games
+        parallel_games = min(self.config.parallel_games, num_games)
+        games_started = 0
+        games_completed = 0
+
+        # Active game state tracking
+        # Each entry: (state, game_examples, move_count, game_id)
+        # game_examples: list of (obs, mask, mcts_policy, player, tablebase_value)
+        active_games: list[tuple] = []
+
+        def start_new_game() -> tuple:
+            """Initialize a new game."""
+            nonlocal games_started
+            seed = np.random.randint(0, 2**31)
+            state = simulate.new_game(seed)
+            games_started += 1
+            return (state, [], 0, games_started - 1)
+
+        def finalize_game(game_state, game_examples: list, game_id: int) -> None:
+            """Compute outcomes and create training examples for completed game."""
+            nonlocal games_completed, tablebase_value_hits
+
+            scores = simulate.score(game_state)
+            final_scores = (scores[0], scores[1])
+            winner = compute_winner(final_scores)
+            value_p0, value_p1 = compute_rewards(winner, final_scores, shaped=False)
+
+            for obs, mask, policy, player, tb_value in game_examples:
+                if tb_value is not None:
+                    value = tb_value
+                    tablebase_value_hits += 1
+                else:
+                    value = value_p0 if player == 0 else value_p1
+
+                examples.append(
+                    TrainingExample(
+                        observation=obs,
+                        action_mask=mask,
+                        mcts_policy=policy,
+                        value=value,
+                    )
+                )
+
+            games_completed += 1
+            if games_completed % max(1, num_games // 10) == 0:
+                logger.info(f"Generated {games_completed}/{num_games} games")
+
+        # Initialize first batch of games
+        while len(active_games) < parallel_games and games_started < num_games:
+            active_games.append(start_new_game())
+
+        # Main loop: process all games in parallel batches
         with inference_mode(self.network):
-            for game_idx in range(num_games):
-                seed = np.random.randint(0, 2**31)
-                state = simulate.new_game(seed)
-                game_examples = []  # (obs, mask, mcts_policy, player, tablebase_value)
-                move_count = 0
+            while active_games:
+                # Separate games into: tablebase positions, MCTS positions, terminal
+                mcts_games = []  # Games needing MCTS
+                mcts_indices = []  # Original indices in active_games
 
-                while not simulate.is_terminal(state) and move_count < 200:
+                for idx, (state, game_examples, move_count, game_id) in enumerate(active_games):
+                    if simulate.is_terminal(state) or move_count >= 200:
+                        continue  # Will be finalized below
+
                     player = state.active_player
-                    tablebase_value = None  # Will be set if we have ground truth
 
-                    # Check if tablebase applies (endgame position)
+                    # Check tablebase first
                     use_tablebase = (
                         self._tablebase is not None
                         and self.config.use_tablebase_play
@@ -747,109 +799,128 @@ class AlphaZeroTrainer:
                     )
 
                     if use_tablebase:
-                        # Use tablebase for perfect endgame play
                         tablebase_hits += 1
                         legal = list(simulate.legal_actions(state, player))
                         optimal_action = self._tablebase.get_optimal_action(state, legal)
 
                         if optimal_action is not None:
-                            # Create one-hot policy for optimal action
+                            # Create one-hot policy
                             action_idx = action_index(optimal_action)
                             mcts_policy = np.zeros(ACTION_DIM, dtype=np.float32)
                             mcts_policy[action_idx] = 1.0
 
-                            # Get tablebase value for training target
+                            # Get tablebase value
+                            tablebase_value = None
                             if self.config.use_tablebase_values:
                                 entry = self._tablebase.solve(state, player)
-                                # Convert WIN=1, DRAW=0, LOSS=-1 (skip UNKNOWN=2)
                                 if entry.value != GameTheoreticValue.UNKNOWN:
                                     tablebase_value = float(entry.value.value)
 
-                            # Store example
+                            # Store example and apply action
                             obs = state_to_tensor(state, player)
                             mask = legal_action_mask_tensor(state, player)
                             game_examples.append((obs, mask, mcts_policy, player, tablebase_value))
 
-                            # Apply optimal action
-                            state = simulate.apply(state, optimal_action)
-                            move_count += 1
+                            new_state = simulate.apply(state, optimal_action)
+                            active_games[idx] = (new_state, game_examples, move_count + 1, game_id)
                             continue
 
-                    # Standard MCTS search
-                    visit_distribution = batch_mcts.search_batch(
-                        states=[state],
-                        perspective=player,
-                        add_root_noise=True,
-                    )[0]
+                    # Needs MCTS search
+                    mcts_games.append((state, player, game_examples, move_count, game_id, idx))
+                    mcts_indices.append(idx)
 
-                    if not visit_distribution:
-                        # Fallback: uniform over legal actions
-                        mask = legal_action_mask_tensor(state, player)
-                        legal_actions = np.where(mask > 0)[0]
-                        if len(legal_actions) == 0:
-                            break
-                        visit_distribution = {
-                            int(a): 1.0 / len(legal_actions) for a in legal_actions
-                        }
+                # Batch MCTS search for all games that need it
+                if mcts_games:
+                    states_batch = [g[0] for g in mcts_games]
+                    # Use first game's player perspective (both players evaluated separately)
+                    # Actually we need per-state perspective
+                    players_batch = [g[1] for g in mcts_games]
 
-                    # Convert visit distribution to dense policy array
-                    mcts_policy = np.zeros(ACTION_DIM, dtype=np.float32)
-                    for action_idx, prob in visit_distribution.items():
-                        if 0 <= action_idx < ACTION_DIM:
-                            mcts_policy[action_idx] = prob
+                    # Group by player for batched search (same perspective)
+                    p0_indices = [i for i, p in enumerate(players_batch) if p == 0]
+                    p1_indices = [i for i, p in enumerate(players_batch) if p == 1]
 
-                    # Check if we can use tablebase value even without tablebase play
-                    if (
-                        self._tablebase is not None
-                        and self.config.use_tablebase_values
-                        and not use_tablebase  # Didn't use tablebase for move
-                        and self._tablebase.is_endgame_position(state)
-                    ):
-                        entry = self._tablebase.solve(state, player)
-                        # Only use known values (skip UNKNOWN=2)
-                        if entry.value != GameTheoreticValue.UNKNOWN:
-                            tablebase_value = float(entry.value.value)
+                    visit_distributions = [None] * len(mcts_games)
 
-                    # Store example (value assigned later if no tablebase value)
-                    obs = state_to_tensor(state, player)
-                    mask = legal_action_mask_tensor(state, player)
-                    game_examples.append((obs, mask, mcts_policy, player, tablebase_value))
-
-                    # Sample action from MCTS policy with temperature
-                    temperature = self.config.get_temperature(move_count)
-                    action_idx = self._sample_from_policy(visit_distribution, temperature)
-
-                    # Apply action
-                    action = index_to_action(action_idx)
-                    state = simulate.apply(state, action)
-                    move_count += 1
-
-                # Game over - compute outcome and assign values
-                scores = simulate.score(state)
-                final_scores = (scores[0], scores[1])
-                winner = compute_winner(final_scores)
-                value_p0, value_p1 = compute_rewards(winner, final_scores, shaped=False)
-
-                # Create training examples
-                for obs, mask, policy, player, tb_value in game_examples:
-                    # Use tablebase value if available (ground truth), else game outcome
-                    if tb_value is not None:
-                        value = tb_value
-                        tablebase_value_hits += 1
-                    else:
-                        value = value_p0 if player == 0 else value_p1
-
-                    examples.append(
-                        TrainingExample(
-                            observation=obs,
-                            action_mask=mask,
-                            mcts_policy=policy,
-                            value=value,
+                    # Search player 0 batch
+                    if p0_indices:
+                        p0_states = [states_batch[i] for i in p0_indices]
+                        p0_results = batch_mcts.search_batch(
+                            states=p0_states,
+                            perspective=0,
+                            add_root_noise=True,
                         )
-                    )
+                        for i, result in zip(p0_indices, p0_results, strict=True):
+                            visit_distributions[i] = result
 
-                if (game_idx + 1) % max(1, num_games // 10) == 0:
-                    logger.info(f"Generated {game_idx + 1}/{num_games} games")
+                    # Search player 1 batch
+                    if p1_indices:
+                        p1_states = [states_batch[i] for i in p1_indices]
+                        p1_results = batch_mcts.search_batch(
+                            states=p1_states,
+                            perspective=1,
+                            add_root_noise=True,
+                        )
+                        for i, result in zip(p1_indices, p1_results, strict=True):
+                            visit_distributions[i] = result
+
+                    # Process MCTS results and update games
+                    for i, (state, player, game_examples, move_count, game_id, orig_idx) in enumerate(mcts_games):
+                        visit_distribution = visit_distributions[i]
+
+                        if not visit_distribution:
+                            # Fallback: uniform over legal actions
+                            mask = legal_action_mask_tensor(state, player)
+                            legal_actions = np.where(mask > 0)[0]
+                            if len(legal_actions) == 0:
+                                # Terminal-like state, mark for finalization
+                                continue
+                            visit_distribution = {
+                                int(a): 1.0 / len(legal_actions) for a in legal_actions
+                            }
+
+                        # Convert to dense policy
+                        mcts_policy = np.zeros(ACTION_DIM, dtype=np.float32)
+                        for action_idx, prob in visit_distribution.items():
+                            if 0 <= action_idx < ACTION_DIM:
+                                mcts_policy[action_idx] = prob
+
+                        # Check tablebase value even if not using tablebase for moves
+                        tablebase_value = None
+                        if (
+                            self._tablebase is not None
+                            and self.config.use_tablebase_values
+                            and self._tablebase.is_endgame_position(state)
+                        ):
+                            entry = self._tablebase.solve(state, player)
+                            if entry.value != GameTheoreticValue.UNKNOWN:
+                                tablebase_value = float(entry.value.value)
+
+                        # Store example
+                        obs = state_to_tensor(state, player)
+                        mask = legal_action_mask_tensor(state, player)
+                        game_examples.append((obs, mask, mcts_policy, player, tablebase_value))
+
+                        # Sample action with temperature
+                        temperature = self.config.get_temperature(move_count)
+                        action_idx = self._sample_from_policy(visit_distribution, temperature)
+                        action = index_to_action(action_idx)
+                        new_state = simulate.apply(state, action)
+
+                        active_games[orig_idx] = (new_state, game_examples, move_count + 1, game_id)
+
+                # Finalize completed games and start new ones
+                new_active_games = []
+                for state, game_examples, move_count, game_id in active_games:
+                    if simulate.is_terminal(state) or move_count >= 200:
+                        finalize_game(state, game_examples, game_id)
+                        # Start new game if needed
+                        if games_started < num_games:
+                            new_active_games.append(start_new_game())
+                    else:
+                        new_active_games.append((state, game_examples, move_count, game_id))
+
+                active_games = new_active_games
 
         self._total_games_played += num_games
         self._total_examples_collected += len(examples)

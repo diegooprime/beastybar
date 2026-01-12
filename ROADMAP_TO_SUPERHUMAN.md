@@ -847,18 +847,31 @@ eval_opponents:
 - 100% verified consistency
 - Integrated into AlphaZero training (ground truth values)
 
-### Current Training Run
+### Parallel Game Generation - IMPLEMENTED (2026-01-12)
 
-**Started:** 2026-01-12 20:05 UTC
-**Hardware:** NVIDIA H100 80GB HBM3 (RunPod)
-**Config:** `configs/alphazero_h100.yaml`
-**W&B:** https://wandb.ai/diegoships101-none/beastybar/runs/5he4zpcr
+| Component | File | Status |
+|-----------|------|--------|
+| Parallel Self-Play | `_03_training/alphazero_trainer.py` | ✅ Complete |
+| Optimized Config | `configs/alphazero_parallel.yaml` | ✅ Complete |
+
+**Key Changes:**
+- Rewrote `generate_training_data()` to run multiple games simultaneously
+- Batches MCTS search across all active game states (up to 64 games)
+- Separates by player perspective for correct batched evaluation
+- Replaces completed games automatically to maintain pool
+- ~4x fewer GPU round-trips compared to sequential generation
+
+**Performance:** 276 examples/second on CPU (will be much faster on GPU with batched MCTS)
+
+### Recommended Training Config
+
+**Config:** `configs/alphazero_parallel.yaml`
 
 ```yaml
-# Key settings
+# Key settings for parallel training
 num_simulations: 200
 games_per_iteration: 256
-total_iterations: 2000
+parallel_games: 64            # Games running simultaneously
 batch_size: 2048
 tablebase_path: data/endgame_4card_final.tb
 use_tablebase_values: true
