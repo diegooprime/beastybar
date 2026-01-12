@@ -34,6 +34,7 @@ class OpponentType(Enum):
     CHECKPOINT = auto()
     RANDOM = auto()
     HEURISTIC = auto()
+    OUTCOME_HEURISTIC = auto()  # Outcome-based heuristics (forward simulation)
     MCTS = auto()
 
 
@@ -80,17 +81,31 @@ class SampledOpponent:
                 return "random"
             case OpponentType.HEURISTIC:
                 return "heuristic"
+            case OpponentType.OUTCOME_HEURISTIC:
+                return "outcome_heuristic"
             case OpponentType.MCTS:
                 return self.mcts_config_name or "mcts"
 
 
 @dataclass
 class OpponentConfig:
-    """Configuration for opponent sampling distribution."""
+    """Configuration for opponent sampling distribution.
+
+    Weights:
+        current_weight: Self-play against current network
+        checkpoint_weight: Past network checkpoints (prevents forgetting)
+        random_weight: Random agent (baseline calibration)
+        heuristic_weight: Basic heuristic agents (HeuristicAgent variants)
+        outcome_heuristic_weight: Outcome-based heuristics (forward simulation agents)
+        mcts_weight: MCTS search-based opponents (strong training signal)
+
+    All weights must sum to 1.0.
+    """
     current_weight: float = 0.6
     checkpoint_weight: float = 0.2
     random_weight: float = 0.1
     heuristic_weight: float = 0.1
+    outcome_heuristic_weight: float = 0.0  # Outcome-based heuristics (separate from basic heuristics)
     mcts_weight: float = 0.0  # Default 0 for backward compatibility
     max_checkpoints: int = 10
     mcts_configs: list[MCTSOpponentConfig] = field(default_factory=list)
@@ -101,6 +116,7 @@ class OpponentConfig:
             + self.checkpoint_weight
             + self.random_weight
             + self.heuristic_weight
+            + self.outcome_heuristic_weight
             + self.mcts_weight
         )
         if abs(total - 1.0) > 1e-6:
@@ -142,6 +158,7 @@ class OpponentPool:
         self._random_agent: Agent | None = None
         self._heuristic_agent: Agent | None = None
         self._heuristic_variants: list[Agent] | None = None
+        self._outcome_heuristic_variants: list[Agent] | None = None
         self._mcts_agents: dict[str, MCTSAgent] = {}
         self._mcts_network: BeastyBarNetwork | None = None
         self._sample_counts: dict[OpponentType, int] = dict.fromkeys(OpponentType, 0)
@@ -152,6 +169,8 @@ class OpponentPool:
             f"random={self.config.random_weight:.0%}",
             f"heuristic={self.config.heuristic_weight:.0%}",
         ]
+        if self.config.outcome_heuristic_weight > 0:
+            log_parts.append(f"outcome_heuristic={self.config.outcome_heuristic_weight:.0%}")
         if self.config.mcts_weight > 0:
             log_parts.append(f"mcts={self.config.mcts_weight:.0%}")
         logger.info(f"OpponentPool: {', '.join(log_parts)}")
@@ -165,12 +184,38 @@ class OpponentPool:
 
     @property
     def heuristic_agent(self) -> Agent:
-        """Sample a random heuristic variant."""
+        """Sample a random heuristic variant (excludes outcome-based heuristics)."""
         if self._heuristic_variants is None:
-            from _02_agents.heuristic import create_heuristic_variants
-            self._heuristic_variants = create_heuristic_variants()
+            from _02_agents.heuristic import (
+                HeuristicAgent,
+                HeuristicConfig,
+                OnlineStrategies,
+            )
+            # Create basic heuristic variants (not outcome-based)
+            self._heuristic_variants = [
+                HeuristicAgent(config=HeuristicConfig(bar_weight=3.0, aggression=0.8)),  # aggressive
+                HeuristicAgent(config=HeuristicConfig(bar_weight=1.0, aggression=0.2)),  # defensive
+                HeuristicAgent(config=HeuristicConfig(queue_front_weight=2.0)),  # queue controller
+                HeuristicAgent(config=HeuristicConfig(species_weights={"skunk": 2.0})),  # skunk specialist
+                HeuristicAgent(config=HeuristicConfig(noise_epsilon=0.15)),  # noisy
+                OnlineStrategies(),  # reactive
+            ]
         # Randomly sample from variants each time
         return self._rng.choice(self._heuristic_variants)
+
+    @property
+    def outcome_heuristic_agent(self) -> Agent:
+        """Sample a random outcome-based heuristic variant."""
+        if self._outcome_heuristic_variants is None:
+            from _02_agents.outcome_heuristic import (
+                DistilledOutcomeHeuristic,
+                OutcomeHeuristic,
+            )
+            self._outcome_heuristic_variants = [
+                OutcomeHeuristic(),
+                DistilledOutcomeHeuristic(),
+            ]
+        return self._rng.choice(self._outcome_heuristic_variants)
 
     @property
     def mcts_agents(self) -> dict[str, MCTSAgent]:
@@ -229,6 +274,7 @@ class OpponentPool:
             self.config.checkpoint_weight if self.checkpoints else 0,
             self.config.random_weight,
             self.config.heuristic_weight,
+            self.config.outcome_heuristic_weight,
             self.config.mcts_weight if self.config.mcts_configs else 0,
         ]
         opponent_type = self._rng.choices(list(OpponentType), weights=weights)[0]
@@ -244,6 +290,8 @@ class OpponentPool:
                 return SampledOpponent(OpponentType.RANDOM, agent=self.random_agent)
             case OpponentType.HEURISTIC:
                 return SampledOpponent(OpponentType.HEURISTIC, agent=self.heuristic_agent)
+            case OpponentType.OUTCOME_HEURISTIC:
+                return SampledOpponent(OpponentType.OUTCOME_HEURISTIC, agent=self.outcome_heuristic_agent)
             case OpponentType.MCTS:
                 agents = self.mcts_agents
                 config_name = self._rng.choice(list(agents.keys()))
@@ -285,15 +333,34 @@ def create_opponent_network(
 def create_default_mcts_configs() -> list[MCTSOpponentConfig]:
     """Create a diverse set of default MCTS opponent configurations.
 
-    Returns 6 configs with varying characteristics:
-    - Exploitation-heavy: Low c_puct for greedy search
-    - Balanced: Standard MCTS parameters
-    - Exploration-heavy: High c_puct for broad search
-    - Fast/shallow: Fewer simulations for speed
-    - Deep search: More simulations for strength
-    - High noise: More Dirichlet noise for diversity
+    Returns 8 configs with varying characteristics:
+    - MCTS-100: Primary training opponent (100 sims, balanced params)
+    - MCTS-100-exploit: Exploitation-heavy 100-sim variant
+    - Exploitation-heavy: Low c_puct for greedy search (200 sims)
+    - Balanced: Standard MCTS parameters (200 sims)
+    - Exploration-heavy: High c_puct for broad search (200 sims)
+    - Fast/shallow: Fewer simulations for speed (50 sims)
+    - Deep search: More simulations for strength (500 sims)
+    - High noise: More Dirichlet noise for diversity (200 sims)
     """
     return [
+        # Primary MCTS-100 opponent for harder training signal
+        MCTSOpponentConfig(
+            c_puct=1.5,
+            num_simulations=100,
+            dirichlet_epsilon=0.25,
+            dirichlet_alpha=0.3,
+            temperature=0.5,  # Lower temperature for more deterministic play
+            name="mcts_100",
+        ),
+        # MCTS-100 with exploitation bias
+        MCTSOpponentConfig(
+            c_puct=0.8,
+            num_simulations=100,
+            dirichlet_epsilon=0.15,
+            temperature=0.3,
+            name="mcts_100_exploit",
+        ),
         MCTSOpponentConfig(
             c_puct=0.5,
             num_simulations=200,
@@ -347,6 +414,7 @@ class AdaptiveOpponentPool(OpponentPool):
             OpponentType.CHECKPOINT: self.config.checkpoint_weight,
             OpponentType.RANDOM: self.config.random_weight,
             OpponentType.HEURISTIC: self.config.heuristic_weight,
+            OpponentType.OUTCOME_HEURISTIC: self.config.outcome_heuristic_weight,
             OpponentType.MCTS: self.config.mcts_weight,
         }
         logger.info("AdaptiveOpponentPool initialized with win-rate-based weighting")
@@ -372,9 +440,12 @@ class AdaptiveOpponentPool(OpponentPool):
             "current": OpponentType.CURRENT,
             "random": OpponentType.RANDOM,
             "heuristic": OpponentType.HEURISTIC,
+            "outcome_heuristic": OpponentType.OUTCOME_HEURISTIC,
+            "distilled_outcome": OpponentType.OUTCOME_HEURISTIC,  # Alias
         }
         # Checkpoint entries get aggregated
         # MCTS entries get aggregated
+        # Outcome heuristic entries get aggregated
 
         # Calculate raw weights: invert win rates (lose more = higher weight)
         raw_weights: dict[OpponentType, float] = {}
@@ -450,6 +521,7 @@ class AdaptiveOpponentPool(OpponentPool):
             checkpoint_weight if self.checkpoints else 0,
             self._adaptive_weights[OpponentType.RANDOM],
             self._adaptive_weights[OpponentType.HEURISTIC],
+            self._adaptive_weights[OpponentType.OUTCOME_HEURISTIC],
             mcts_weight if self.config.mcts_configs else 0,
         ]
         opponent_type = self._rng.choices(list(OpponentType), weights=weights)[0]
@@ -465,6 +537,8 @@ class AdaptiveOpponentPool(OpponentPool):
                 return SampledOpponent(OpponentType.RANDOM, agent=self.random_agent)
             case OpponentType.HEURISTIC:
                 return SampledOpponent(OpponentType.HEURISTIC, agent=self.heuristic_agent)
+            case OpponentType.OUTCOME_HEURISTIC:
+                return SampledOpponent(OpponentType.OUTCOME_HEURISTIC, agent=self.outcome_heuristic_agent)
             case OpponentType.MCTS:
                 agents = self.mcts_agents
                 config_name = self._rng.choice(list(agents.keys()))
@@ -485,6 +559,35 @@ class AdaptiveOpponentPool(OpponentPool):
         return stats
 
 
+def create_mcts_100_configs() -> list[MCTSOpponentConfig]:
+    """Create MCTS-100 opponent configurations optimized for training.
+
+    Returns 2 configs focused on 100-simulation MCTS opponents:
+    - mcts_100: Balanced 100-sim MCTS for consistent hard training signal
+    - mcts_100_exploit: More exploitative variant for challenging edge cases
+
+    Use this when you want focused MCTS-100 training without the full
+    diversity of create_default_mcts_configs().
+    """
+    return [
+        MCTSOpponentConfig(
+            c_puct=1.5,
+            num_simulations=100,
+            dirichlet_epsilon=0.25,
+            dirichlet_alpha=0.3,
+            temperature=0.5,
+            name="mcts_100",
+        ),
+        MCTSOpponentConfig(
+            c_puct=0.8,
+            num_simulations=100,
+            dirichlet_epsilon=0.15,
+            temperature=0.3,
+            name="mcts_100_exploit",
+        ),
+    ]
+
+
 __all__ = [
     "AdaptiveOpponentPool",
     "CheckpointEntry",
@@ -494,5 +597,6 @@ __all__ = [
     "OpponentType",
     "SampledOpponent",
     "create_default_mcts_configs",
+    "create_mcts_100_configs",
     "create_opponent_network",
 ]

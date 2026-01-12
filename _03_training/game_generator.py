@@ -152,7 +152,7 @@ class GameGenerator:
                 # Use MCTS agent from pool
                 opponent_agent = sampled.agent
                 collect_both_players = False  # Only collect P0 (learning agent)
-            elif sampled.opponent_type in (OpponentType.RANDOM, OpponentType.HEURISTIC):
+            elif sampled.opponent_type in (OpponentType.RANDOM, OpponentType.HEURISTIC, OpponentType.OUTCOME_HEURISTIC):
                 opponent_agent = sampled.agent
                 collect_both_players = False  # Only collect P0 (learning agent)
 
@@ -284,7 +284,7 @@ class GameGenerator:
             elif sampled.opponent_type == OpponentType.MCTS:
                 # Use MCTS agent from pool
                 opponent_agent = sampled.agent
-            elif sampled.opponent_type in (OpponentType.RANDOM, OpponentType.HEURISTIC):
+            elif sampled.opponent_type in (OpponentType.RANDOM, OpponentType.HEURISTIC, OpponentType.OUTCOME_HEURISTIC):
                 opponent_agent = sampled.agent
 
         return generate_games(
@@ -345,6 +345,7 @@ def generate_games_batched_by_opponent(
         OpponentType.CHECKPOINT: config.checkpoint_weight if opponent_pool.checkpoints else 0.0,
         OpponentType.RANDOM: config.random_weight,
         OpponentType.HEURISTIC: config.heuristic_weight,
+        OpponentType.OUTCOME_HEURISTIC: config.outcome_heuristic_weight,
         OpponentType.MCTS: config.mcts_weight if config.mcts_configs else 0.0,
     }
 
@@ -421,6 +422,8 @@ def generate_games_batched_by_opponent(
             opponent_agent = opponent_pool.random_agent
         elif opp_type == OpponentType.HEURISTIC:
             opponent_agent = opponent_pool.heuristic_agent
+        elif opp_type == OpponentType.OUTCOME_HEURISTIC:
+            opponent_agent = opponent_pool.outcome_heuristic_agent
         elif opp_type == OpponentType.MCTS:
             agents = opponent_pool.mcts_agents
             config_name = opponent_pool._rng.choice(list(agents.keys()))

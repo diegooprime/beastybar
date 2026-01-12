@@ -61,6 +61,7 @@ from _03_training.opponent_pool import (
     OpponentConfig,
     OpponentPool,
     OpponentType,
+    create_mcts_100_configs,
 )
 from _03_training.opponent_statistics import OpponentStatsTracker
 from _03_training.ppo import PPOBatch, PPOConfig, iterate_minibatches
@@ -266,6 +267,7 @@ class TrainingConfig:
     total_iterations: int = 1000
     checkpoint_frequency: int = 50
     eval_frequency: int = 10
+    eval_games_per_opponent: int = 200  # Games per opponent during evaluation (higher = more reliable signal)
     eval_opponents: list[str] = field(
         default_factory=lambda: [
             "random",
@@ -720,8 +722,17 @@ class Trainer:
 
             # Set up MCTS opponents if enabled
             if config.use_mcts_opponents:
+                # Auto-populate MCTS configs if not provided but mcts_weight > 0
+                if not config.opponent_config.mcts_configs and config.opponent_config.mcts_weight > 0:
+                    config.opponent_config.mcts_configs = create_mcts_100_configs()
+                    logger.info(
+                        f"Auto-populated {len(config.opponent_config.mcts_configs)} MCTS-100 configs"
+                    )
                 self.opponent_pool.set_mcts_network(self.network)
-                logger.info("MCTS opponents enabled in opponent pool")
+                mcts_config_names = [c.name for c in config.opponent_config.mcts_configs]
+                logger.info(
+                    f"MCTS opponents enabled in opponent pool: {mcts_config_names}"
+                )
 
             # Set up heuristic variants if enabled
             if config.use_heuristic_variants:
@@ -1495,7 +1506,7 @@ class Trainer:
                 device=self._device,
                 tracker=self.tracker,
                 step=self._iteration,
-                games_per_opponent=50,
+                games_per_opponent=self.config.eval_games_per_opponent,
                 opponents=self.config.eval_opponents,
                 play_both_sides=True,
                 mode="greedy",

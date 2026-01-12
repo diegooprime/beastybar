@@ -270,16 +270,77 @@ class TestMCTSOpponentConfig:
 class TestCreateDefaultMCTSConfigs:
     """Test create_default_mcts_configs function."""
 
-    def test_returns_6_distinct_configs(self):
-        """create_default_mcts_configs() returns 6 distinct configs."""
+    def test_returns_8_distinct_configs(self):
+        """create_default_mcts_configs() returns 8 distinct configs including MCTS-100."""
         from _03_training.opponent_pool import create_default_mcts_configs
 
         configs = create_default_mcts_configs()
-        assert len(configs) == 6
+        assert len(configs) == 8
 
         # Check names are distinct
         names = [c.name for c in configs]
         assert len(names) == len(set(names))
+
+        # Verify MCTS-100 configs are present
+        mcts_100_names = [c.name for c in configs if c.num_simulations == 100]
+        assert "mcts_100" in mcts_100_names
+        assert "mcts_100_exploit" in mcts_100_names
+
+
+class TestCreateMCTS100Configs:
+    """Test create_mcts_100_configs function."""
+
+    def test_returns_2_focused_configs(self):
+        """create_mcts_100_configs() returns 2 MCTS-100 configs."""
+        from _03_training.opponent_pool import create_mcts_100_configs
+
+        configs = create_mcts_100_configs()
+        assert len(configs) == 2
+
+        # All should be 100 simulations
+        for config in configs:
+            assert config.num_simulations == 100
+
+        names = [c.name for c in configs]
+        assert "mcts_100" in names
+        assert "mcts_100_exploit" in names
+
+
+class TestOutcomeHeuristicOpponent:
+    """Test OUTCOME_HEURISTIC opponent type."""
+
+    def test_outcome_heuristic_weight_in_config(self):
+        """OpponentConfig supports outcome_heuristic_weight."""
+        from _03_training.opponent_pool import OpponentConfig
+
+        config = OpponentConfig(
+            current_weight=0.5,
+            checkpoint_weight=0.1,
+            random_weight=0.1,
+            heuristic_weight=0.1,
+            outcome_heuristic_weight=0.2,
+            mcts_weight=0.0,
+        )
+        assert config.outcome_heuristic_weight == 0.2
+
+    def test_outcome_heuristic_sampling(self):
+        """OpponentPool samples OUTCOME_HEURISTIC opponents correctly."""
+        from _03_training.opponent_pool import OpponentConfig, OpponentPool, OpponentType
+
+        config = OpponentConfig(
+            current_weight=0.0,
+            checkpoint_weight=0.0,
+            random_weight=0.0,
+            heuristic_weight=0.0,
+            outcome_heuristic_weight=1.0,
+            mcts_weight=0.0,
+        )
+        pool = OpponentPool(config=config, seed=42)
+
+        sampled = pool.sample_opponent()
+        assert sampled.opponent_type == OpponentType.OUTCOME_HEURISTIC
+        assert sampled.name == "outcome_heuristic"
+        assert sampled.agent is not None
 
 
 class TestOpponentPool:

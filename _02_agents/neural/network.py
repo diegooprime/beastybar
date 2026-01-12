@@ -364,6 +364,40 @@ class SetTransformerEncoder(nn.Module):
         return pooled
 
 
+class ResidualBlock(nn.Module):
+    """Simple residual block for value head with LayerNorm.
+
+    Architecture:
+        x -> LayerNorm -> FC -> GELU -> Dropout -> FC -> Dropout -> + x
+    """
+
+    def __init__(self, hidden_dim: int, dropout: float = 0.1) -> None:
+        super().__init__()
+        self.layer_norm = nn.LayerNorm(hidden_dim)
+        self.fc1 = nn.Linear(hidden_dim, hidden_dim)
+        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
+        self.activation = nn.GELU()
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply residual block.
+
+        Args:
+            x: Shape (batch, hidden_dim)
+
+        Returns:
+            Shape (batch, hidden_dim)
+        """
+        residual = x
+        x = self.layer_norm(x)
+        x = self.fc1(x)
+        x = self.activation(x)
+        x = self.dropout(x)
+        x = self.fc2(x)
+        x = self.dropout(x)
+        return x + residual
+
+
 class FusionBlock(nn.Module):
     """Residual fusion block with FC layers."""
 
@@ -473,12 +507,14 @@ class BeastyBarNetwork(nn.Module):
             nn.Linear(self.config.hidden_dim // 2, self.config.action_dim),
         )
 
-        # Value head: hidden_dim -> 1 (with tanh)
+        # Value head: deeper with residual blocks for better value estimation
+        # This is the key bottleneck fix from ROADMAP_TO_SUPERHUMAN.md
         self.value_head = nn.Sequential(
-            nn.Linear(self.config.hidden_dim, self.config.hidden_dim // 2),
+            nn.Linear(self.config.hidden_dim, self.config.hidden_dim),
             nn.GELU(),
-            nn.Dropout(self.config.dropout),
-            nn.Linear(self.config.hidden_dim // 2, 1),
+            ResidualBlock(self.config.hidden_dim, self.config.dropout),
+            ResidualBlock(self.config.hidden_dim, self.config.dropout),
+            nn.Linear(self.config.hidden_dim, 1),
             nn.Tanh(),
         )
 
@@ -700,6 +736,7 @@ def create_network(
 
 __all__ = [
     "BeastyBarNetwork",
+    "ResidualBlock",
     "create_network",
     "maybe_compile_network",
 ]
