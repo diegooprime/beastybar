@@ -175,6 +175,19 @@ if _neural_agent is not None:
     # Keep "neural" as alias for backwards compatibility
     AI_AGENTS["neural"] = _neural_agent
 
+# Load additional neural agents
+_neural_agents_extra: list[tuple] = []
+_extra_checkpoints = [
+    ("checkpoints/v4/iter_949.pt", 949),
+    ("checkpoints/v4/iter_600_final.pt", 600),
+]
+for ckpt_path, expected_iter in _extra_checkpoints:
+    if Path(ckpt_path).exists():
+        _agent, _name, _iter = _load_neural_agent(ckpt_path)
+        if _agent is not None and _name not in AI_AGENTS:
+            AI_AGENTS[_name] = _agent
+            _neural_agents_extra.append((_agent, _name, _iter))
+
 # Add MCTS agent if available
 # NOTE: MCTSAgent signature changed - temporarily disabled
 # if MCTSAgent is not None:
@@ -407,11 +420,19 @@ def create_app() -> FastAPI:
     def api_ai_agents() -> list[dict]:
         """List available AI agents."""
         agents = []
+        # Add neural agents sorted by iteration (highest first)
+        all_neural = list(_neural_agents_extra)
         if _neural_name and _neural_name in AI_AGENTS:
+            all_neural.append((_neural_agent, "neural", _neural_iter))
+        all_neural.sort(key=lambda x: x[2], reverse=True)
+        for i, (agent, name, iteration) in enumerate(all_neural):
+            label = f"PPO iter {iteration}"
+            if i == 0:
+                label += " (Strongest)"
             agents.append({
-                "id": "neural",
-                "name": f"PPO iter {_neural_iter}",
-                "description": f"Neural network trained for {_neural_iter} iterations"
+                "id": name,
+                "name": label,
+                "description": f"Neural network trained for {iteration} iterations"
             })
         agents.extend([
             {"id": "heuristic", "name": "Heuristic (Default)", "description": "Balanced strategic AI"},
@@ -429,11 +450,19 @@ def create_app() -> FastAPI:
     def api_ai_agents_for_battle() -> list[dict]:
         """List AI agents available for AI vs AI battles."""
         agents = []
+        # Add neural agents sorted by iteration (highest first)
+        all_neural = list(_neural_agents_extra)
         if _neural_name and _neural_name in AI_AGENTS:
+            all_neural.append((_neural_agent, "neural", _neural_iter))
+        all_neural.sort(key=lambda x: x[2], reverse=True)
+        for i, (agent, name, iteration) in enumerate(all_neural):
+            label = f"PPO iter {iteration}"
+            if i == 0:
+                label += " (Strongest)"
             agents.append({
-                "id": "neural",
-                "name": f"PPO iter {_neural_iter}",
-                "description": f"Neural network trained for {_neural_iter} iterations"
+                "id": name,
+                "name": label,
+                "description": f"Neural network trained for {iteration} iterations"
             })
         agents.extend([
             {"id": "heuristic", "name": "Heuristic (Default)", "description": "Balanced strategic AI"},

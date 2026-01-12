@@ -1531,15 +1531,7 @@
       <div class="modal-field">
         <label class="modal-label">Opponent</label>
         <select class="modal-select" id="ai-select">
-          <option value="neural">PPO iter 600 (Strongest)</option>
-          <option value="heuristic">Heuristic (Default)</option>
-          <option value="aggressive">Heuristic (Aggressive)</option>
-          <option value="defensive">Heuristic (Defensive)</option>
-          <option value="queue_control">Heuristic (Queue Control)</option>
-          <option value="skunk_specialist">Heuristic (Skunk Specialist)</option>
-          <option value="noisy">Heuristic (Noisy)</option>
-          <option value="online">Online Strategies</option>
-          <option value="random">Random</option>
+          <!-- Dynamically populated from /api/ai-agents -->
         </select>
       </div>
 
@@ -1649,7 +1641,26 @@
       }
     });
 
+    async function loadAgents() {
+      try {
+        const res = await fetch('/api/ai-agents');
+        if (res.ok) {
+          const agents = await res.json();
+          aiSelect.innerHTML = '';
+          agents.forEach(agent => {
+            const opt = document.createElement('option');
+            opt.value = agent.id;
+            opt.textContent = agent.name;
+            aiSelect.appendChild(opt);
+          });
+        }
+      } catch (err) {
+        console.error('Failed to load agents:', err);
+      }
+    }
+
     function showModal() {
+      loadAgents();
       modalOverlay.classList.add('visible');
     }
 
@@ -2431,10 +2442,22 @@
 
         // If visualizer mode, store data and open visualizer in new window
         if (useVizMode) {
-          localStorage.setItem('battleData', JSON.stringify(battleData));
-          localStorage.setItem('battleSync', JSON.stringify({
-            gameIndex: 0, turnIndex: 0, wins: [0, 0], speed: battleSpeed
-          }));
+          // Strip activations to avoid localStorage quota issues
+          const strippedData = {
+            ...battleData,
+            games: battleData.games.map(g => ({
+              ...g,
+              turns: g.turns.map(t => ({ ...t, activations: null }))
+            }))
+          };
+          try {
+            localStorage.setItem('battleData', JSON.stringify(strippedData));
+            localStorage.setItem('battleSync', JSON.stringify({
+              gameIndex: 0, turnIndex: 0, wins: [0, 0], speed: battleSpeed
+            }));
+          } catch (e) {
+            console.warn('Could not store battle data in localStorage:', e);
+          }
           // Small delay to ensure localStorage write completes before popup reads
           setTimeout(() => {
             window.vizWindow = window.open('/battle-visualizer?sync=true', 'neural-viz',
