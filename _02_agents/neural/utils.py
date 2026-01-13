@@ -76,6 +76,9 @@ class NetworkConfig:
     max_bar_length: int = 24
     hand_size: int = 4
 
+    # Value head architecture (True = ResidualBlocks, False = simple MLP)
+    deep_value_head: bool = True
+
     def to_dict(self) -> dict[str, Any]:
         """Convert config to dictionary for serialization."""
         return asdict(self)
@@ -346,6 +349,20 @@ def load_network_from_checkpoint(
     # Handle nested network_config (PPO checkpoints) vs flat config (neural checkpoints)
     if "network_config" in config_dict:
         config_dict = config_dict["network_config"]
+
+    # Auto-detect deep_value_head from model weights if not in config
+    # This handles checkpoints created before the deep_value_head config was added
+    if "deep_value_head" not in config_dict and "model_state_dict" in checkpoint:
+        state_dict = checkpoint["model_state_dict"]
+        # Check value_head.0.weight shape to detect architecture
+        # Deep value head: [hidden_dim, hidden_dim] (256, 256)
+        # Simple value head: [hidden_dim//2, hidden_dim] (128, 256)
+        if "value_head.0.weight" in state_dict:
+            vh_shape = state_dict["value_head.0.weight"].shape
+            hidden_dim = config_dict.get("hidden_dim", 256)
+            # If first dim is smaller than hidden_dim, it's a simple value head
+            config_dict["deep_value_head"] = vh_shape[0] == hidden_dim
+
     config = NetworkConfig.from_dict(config_dict) if config_dict else default_config()
 
     # Import network class if not provided

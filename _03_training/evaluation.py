@@ -154,17 +154,29 @@ def create_opponent(name: str) -> Agent:
             num_simulations=num_simulations,
             temperature=0.1,  # Near-greedy for evaluation
         )
-    elif name_lower == "self" or name_lower.startswith("ppo"):
+    elif name_lower == "self" or name_lower == "ppo":
         # Self-play: load the same PPO model as opponent
         from _02_agents.neural.agent import load_neural_agent
 
         checkpoint = "checkpoints/v2/iter_000199.pt"
-        return load_neural_agent(checkpoint, mode="greedy", device="mps")
+        return load_neural_agent(checkpoint, mode="greedy", device="auto")
+    elif name_lower.startswith("neural:") or name_lower.startswith("ppo:"):
+        # Load neural model from arbitrary path
+        # Format: "neural:path/to/checkpoint.pt" or "ppo:path/to/checkpoint.pt"
+        from pathlib import Path
+
+        from _02_agents.neural.agent import load_neural_agent
+
+        checkpoint_path = name.split(":", 1)[1]
+        if not Path(checkpoint_path).exists():
+            raise ValueError(f"Neural opponent checkpoint not found: {checkpoint_path}")
+        return load_neural_agent(checkpoint_path, mode="greedy", device="auto")
     else:
         raise ValueError(
             f"Unknown opponent: {name}. "
             f"Available: random, heuristic, aggressive, defensive, queue, skunk, noisy, online, "
-            f"outcome_heuristic, distilled_outcome, mcts-100, mcts-500, mcts-1000, self"
+            f"outcome_heuristic, distilled_outcome, mcts-100, mcts-500, mcts-1000, self, "
+            f"neural:<path>, ppo:<path>"
         )
 
 
