@@ -165,16 +165,17 @@ class MMapTablebase:
 
     def _open(self) -> None:
         """Open or create the memory-mapped file."""
-        mode = "r+b" if self.path.exists() else "w+b"
         if self.readonly:
             mode = "rb"
-
-        if not self.path.exists() and not self.readonly:
+        elif not self.path.exists():
             # Create file with initial size
             self.path.parent.mkdir(parents=True, exist_ok=True)
             with open(self.path, "wb") as f:
                 # Initialize with zeros (UNKNOWN values)
                 f.write(b"\x00" * self.size)
+            mode = "r+b"  # Now open for read/write (file exists)
+        else:
+            mode = "r+b"
 
         self._file = open(self.path, mode)  # noqa: SIM115
 
@@ -187,6 +188,9 @@ class MMapTablebase:
 
     def close(self) -> None:
         """Close the memory-mapped file."""
+        # Must delete numpy view BEFORE closing mmap (it holds a reference)
+        self._array = None
+
         if self._mmap is not None:
             self._mmap.flush()
             self._mmap.close()
@@ -195,8 +199,6 @@ class MMapTablebase:
         if self._file is not None:
             self._file.close()
             self._file = None
-
-        self._array = None
 
     def __enter__(self) -> MMapTablebase:
         return self

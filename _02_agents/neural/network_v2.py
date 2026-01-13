@@ -294,34 +294,40 @@ class AsymmetricTransformerEncoder(nn.Module):
         self.empty_rep = nn.Parameter(torch.zeros(1, hidden_dim))
 
     def forward(self, x: torch.Tensor, padding_mask: torch.Tensor | None = None) -> torch.Tensor:
-        """Forward pass with CUDA graph compatible operations (no dynamic indexing).
-
-        Args:
-            x: Input tensor of shape (batch, seq_len, hidden_dim).
-            padding_mask: Optional mask of shape (batch, seq_len), True = padded.
-
-        Returns:
-            Pooled representation of shape (batch, hidden_dim).
-        """
         batch_size = x.size(0)
 
-        # Apply positional encoding if enabled
+        if padding_mask is not None:
+            all_padded = padding_mask.all(dim=-1)
+        else:
+            all_padded = torch.zeros(batch_size, dtype=torch.bool, device=x.device)
+
+        if all_padded.all():
+            return self.empty_rep.expand(batch_size, -1)
+
         if self.use_positional_encoding and self.positional_encoding is not None:
             x = self.positional_encoding(x)
 
-        # Always process full batch - transformer handles masking internally
-        # This avoids dynamic boolean indexing which breaks CUDA graphs
+        if padding_mask is not None and all_padded.any():
+            non_empty_mask = ~all_padded
+            x_non_empty = x[non_empty_mask]
+            padding_non_empty = padding_mask[non_empty_mask]
+
+            x_encoded = self.transformer(x_non_empty, src_key_padding_mask=padding_non_empty)
+
+            inv_mask = ~padding_non_empty
+            inv_mask_expanded = inv_mask.unsqueeze(-1).float()
+            pooled_non_empty = (x_encoded * inv_mask_expanded).sum(dim=1) / inv_mask_expanded.sum(dim=1).clamp(min=1)
+
+            result = self.empty_rep.expand(batch_size, -1).clone()
+            result[non_empty_mask] = pooled_non_empty
+            return result
+
         x = self.transformer(x, src_key_padding_mask=padding_mask)
 
-        # Vectorized pooling (no conditional indexing - CUDA graph safe)
         if padding_mask is not None:
             inv_mask = ~padding_mask
             inv_mask_expanded = inv_mask.unsqueeze(-1).float()
-            # Masked positions contribute 0, then we normalize
             pooled = (x * inv_mask_expanded).sum(dim=1) / inv_mask_expanded.sum(dim=1).clamp(min=1)
-            # Handle all-padded case: use empty_rep
-            all_padded = padding_mask.all(dim=-1, keepdim=True)
-            pooled = torch.where(all_padded, self.empty_rep.expand(batch_size, -1), pooled)
         else:
             pooled = x.mean(dim=1)
 
@@ -378,8 +384,9 @@ class DuelingHead(nn.Module):
         advantage = self.advantage_stream(x)  # (batch, action_dim)
 
         # Mask advantages for illegal actions before computing mean
-        # Use torch.where instead of boolean indexing (CUDA graph safe)
         if action_mask is not None:
+            masked_advantage = advantage.clone()
+            masked_advantage[action_mask == 0] = float("-inf")
             # Compute mean only over legal actions
             legal_count = action_mask.sum(dim=-1, keepdim=True).clamp(min=1)
             advantage_masked = torch.where(action_mask > 0, advantage, torch.zeros_like(advantage))

@@ -25,13 +25,13 @@ temperature: 1.0
 temperature_drop_move: 12
 final_temperature: 0.1
 
-# Parallel self-play - MASSIVELY INCREASED
-games_per_iteration: 2048     # Was 512 - 4x more data per iteration
-parallel_games: 512           # Was 128 - 4x more concurrent games
+# Parallel self-play - INCREASED (conservative)
+games_per_iteration: 1024     # Was 512 - 2x more data per iteration
+parallel_games: 256           # Was 128 - 2x more concurrent games
 
-# Training schedule - ADJUSTED for larger batches
-total_iterations: 1500        # Was 3000 - fewer iters, more data each
-batch_size: 16384             # Was 4096 - 4x larger batches
+# Training schedule
+total_iterations: 2000
+batch_size: 4096              # Original - safe for H100
 epochs_per_iteration: 4
 
 # Optimization

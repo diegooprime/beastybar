@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from .base import Agent, AgentFn
 from .heuristic import HeuristicAgent, HeuristicConfig, MaterialEvaluator, create_heuristic_variants
-from .mcts import MCTSAgent, MCTSNode, SimpleMCTSNode
 from .openings import OpeningBook, OpeningBookAgent, OpeningBookGenerator, OpeningEntry
 from .outcome_heuristic import (
     DISTILLED_WEIGHTS,
@@ -15,6 +14,14 @@ from .outcome_heuristic import (
     extract_weights_from_ppo,
 )
 from .random_agent import RandomAgent
+
+# Lazy import MCTS (requires torch)
+try:
+    from .mcts import MCTSAgent, MCTSNode, SimpleMCTSNode
+except ImportError:
+    MCTSAgent = None  # type: ignore
+    MCTSNode = None  # type: ignore
+    SimpleMCTSNode = None  # type: ignore
 
 __all__ = [
     "DISTILLED_WEIGHTS",

@@ -1240,6 +1240,323 @@
       50% { box-shadow: 0 0 20px 5px var(--success-glow); }
     }
 
+    /* ===================== Card Animations ===================== */
+
+    /* Animation timing variables - much slower for clarity */
+    :root {
+      --anim-fast: 500ms;
+      --anim-normal: 700ms;
+      --anim-slow: 900ms;
+      --anim-very-slow: 1200ms;
+      --anim-easing: cubic-bezier(0.25, 0.1, 0.25, 1);
+      --anim-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    /* Card flying to queue animation - smooth arc with lift */
+    @keyframes card-fly-to-queue {
+      0% {
+        opacity: 1;
+        transform: scale(1) rotate(0deg);
+      }
+      15% {
+        opacity: 1;
+        transform: scale(1.08) rotate(-2deg) translateY(-20px);
+      }
+      50% {
+        opacity: 1;
+        transform: translate(calc(var(--fly-x) * 0.6), calc(var(--fly-y) * 0.4 - 80px)) scale(1.12) rotate(3deg);
+      }
+      85% {
+        opacity: 1;
+        transform: translate(calc(var(--fly-x) * 0.95), calc(var(--fly-y) * 0.9)) scale(1.02) rotate(-1deg);
+      }
+      100% {
+        opacity: 1;
+        transform: translate(var(--fly-x), var(--fly-y)) scale(1) rotate(0deg);
+      }
+    }
+
+    .card.animating-to-queue {
+      position: fixed !important;
+      z-index: 1000;
+      animation: card-fly-to-queue var(--anim-normal) cubic-bezier(0.22, 1, 0.36, 1) forwards;
+      pointer-events: none;
+      /* Ensure card is visible */
+      background: var(--bg-elevated);
+      border: 2px solid var(--accent);
+      border-radius: 0.75rem;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.5), 0 0 20px rgba(59, 130, 246, 0.3);
+    }
+
+    /* Kill effect - card dies dramatically */
+    @keyframes card-kill-effect {
+      0% {
+        transform: scale(1) rotate(0deg);
+        filter: brightness(1);
+        opacity: 1;
+      }
+      15% {
+        transform: scale(1.15) rotate(0deg);
+        filter: brightness(1.8);
+        box-shadow: 0 0 40px var(--danger), 0 0 60px var(--danger);
+      }
+      30% {
+        transform: scale(1.1) rotate(0deg);
+        filter: brightness(1.4) saturate(0.3);
+        box-shadow: 0 0 30px var(--danger);
+      }
+      50% {
+        transform: scale(0.9) rotate(5deg) translateY(10px);
+        filter: brightness(0.8) saturate(0.2);
+        opacity: 0.8;
+      }
+      75% {
+        transform: scale(0.7) rotate(-8deg) translateY(30px) translateX(20px);
+        opacity: 0.4;
+      }
+      100% {
+        transform: scale(0.4) rotate(15deg) translateY(80px) translateX(40px);
+        opacity: 0;
+      }
+    }
+
+    .card.animating-kill {
+      animation: card-kill-effect var(--anim-slow) var(--anim-easing) forwards;
+      pointer-events: none;
+      z-index: 100;
+    }
+
+    /* Heaven's Gate entry - card scores with celebration */
+    @keyframes card-to-heaven {
+      0% {
+        transform: translateX(0) scale(1);
+        opacity: 1;
+      }
+      20% {
+        transform: translateX(10px) scale(1.12);
+        box-shadow: 0 0 30px var(--success), 0 0 50px var(--success-glow);
+        filter: brightness(1.3);
+      }
+      40% {
+        transform: translateX(-30px) scale(1.08);
+        box-shadow: 0 0 40px var(--success);
+      }
+      100% {
+        transform: translateX(-200px) scale(0.6);
+        opacity: 0;
+      }
+    }
+
+    .card.animating-score {
+      animation: card-to-heaven var(--anim-slow) var(--anim-easing) forwards;
+      pointer-events: none;
+      z-index: 100;
+    }
+
+    /* That's It entry - card bounces to hell pile */
+    @keyframes card-to-hell {
+      0% {
+        transform: translateX(0) scale(1);
+        opacity: 1;
+      }
+      30% {
+        transform: translateX(15px) scale(1.05);
+        box-shadow: 0 0 20px var(--danger-glow);
+      }
+      100% {
+        transform: translateX(150px) scale(0.7);
+        opacity: 0;
+      }
+    }
+
+    .card.animating-to-hell {
+      animation: card-to-hell 220ms var(--anim-easing) forwards;
+      pointer-events: none;
+      z-index: 100;
+    }
+
+    /* Queue reorder - smooth position transition */
+    .card.animating-move {
+      transition: transform var(--anim-fast) var(--anim-easing);
+      z-index: 50;
+    }
+
+    /* Queue reversal flash (seal ability) */
+    @keyframes queue-reverse-flash {
+      0% {
+        background: var(--bg-card);
+        border-color: var(--border);
+        box-shadow: none;
+      }
+      25% {
+        background: rgba(139, 92, 246, 0.25);
+        border-color: #8b5cf6;
+        box-shadow: inset 0 0 30px rgba(139, 92, 246, 0.4), 0 0 20px rgba(139, 92, 246, 0.3);
+      }
+      50% {
+        background: rgba(139, 92, 246, 0.15);
+        border-color: #8b5cf6;
+        box-shadow: inset 0 0 20px rgba(139, 92, 246, 0.2);
+      }
+      75% {
+        background: rgba(139, 92, 246, 0.2);
+        border-color: #8b5cf6;
+        box-shadow: inset 0 0 25px rgba(139, 92, 246, 0.3), 0 0 15px rgba(139, 92, 246, 0.2);
+      }
+      100% {
+        background: var(--bg-card);
+        border-color: var(--border);
+        box-shadow: none;
+      }
+    }
+
+    .queue.animating-reverse {
+      animation: queue-reverse-flash 600ms ease-in-out;
+    }
+
+    /* Card appearing in queue (after fly animation completes or AI play) */
+    @keyframes card-appear {
+      0% {
+        transform: scale(0.3) translateY(30px);
+        opacity: 0;
+        box-shadow: 0 0 0 rgba(59, 130, 246, 0);
+      }
+      50% {
+        transform: scale(1.1) translateY(-5px);
+        opacity: 1;
+        box-shadow: 0 0 30px rgba(59, 130, 246, 0.5);
+      }
+      100% {
+        transform: scale(1) translateY(0);
+        opacity: 1;
+        box-shadow: none;
+      }
+    }
+
+    .card.animating-appear {
+      animation: card-appear 500ms var(--anim-bounce) forwards;
+    }
+
+    /* Subtle highlight for the card being played */
+    .card.animating-playing {
+      transform: scale(0.95);
+      opacity: 0.7;
+      transition: all 100ms ease-out;
+    }
+
+    /* Stagger animation delays for multiple cards */
+    .card.anim-delay-1 { animation-delay: 100ms; }
+    .card.anim-delay-2 { animation-delay: 200ms; }
+    .card.anim-delay-3 { animation-delay: 300ms; }
+    .card.anim-delay-4 { animation-delay: 400ms; }
+
+    /* Animation label that shows what's happening */
+    .anim-label {
+      position: fixed;
+      font-size: 1.5rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      pointer-events: none;
+      z-index: 2000;
+      text-shadow: 0 2px 8px rgba(0,0,0,0.8), 0 0 20px currentColor;
+      animation: anim-label-pop 1s var(--anim-easing) forwards;
+    }
+
+    .anim-label.kill { color: #ef4444; }
+    .anim-label.score { color: #22c55e; }
+    .anim-label.hop { color: #f59e0b; }
+    .anim-label.reverse { color: #8b5cf6; }
+    .anim-label.roar { color: #f97316; }
+    .anim-label.order { color: #06b6d4; }
+    .anim-label.push { color: #ec4899; }
+    .anim-label.swap { color: #14b8a6; }
+    .anim-label.move { color: #a855f7; }
+
+    @keyframes anim-label-pop {
+      0% {
+        opacity: 0;
+        transform: scale(0.5) translateY(20px);
+      }
+      20% {
+        opacity: 1;
+        transform: scale(1.3) translateY(-10px);
+      }
+      50% {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+      }
+      80% {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+      }
+      100% {
+        opacity: 0;
+        transform: scale(0.8) translateY(-30px);
+      }
+    }
+
+    /* Card hopping animation (kangaroo) */
+    @keyframes card-hop {
+      0% { transform: translateY(0); }
+      25% { transform: translateY(-40px) scale(1.1); }
+      50% { transform: translateY(-60px) scale(1.15); }
+      75% { transform: translateY(-30px) scale(1.05); }
+      100% { transform: translateY(0) scale(1); }
+    }
+
+    .card.animating-hop {
+      animation: card-hop 500ms var(--anim-bounce);
+      z-index: 200;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+    }
+
+    /* Card push animation (hippo) */
+    @keyframes card-push {
+      0% { transform: translateX(0) scale(1); }
+      20% { transform: translateX(-15px) scale(1.05); }
+      40% { transform: translateX(30px) scale(1.15); }
+      60% { transform: translateX(20px) scale(1.1); }
+      80% { transform: translateX(10px) scale(1.02); }
+      100% { transform: translateX(0) scale(1); }
+    }
+
+    .card.animating-push {
+      animation: card-push 400ms var(--anim-easing);
+      z-index: 200;
+      box-shadow: 0 0 30px rgba(236, 72, 153, 0.5);
+    }
+
+    /* Card roar animation (lion) */
+    @keyframes card-roar {
+      0% { transform: scale(1); filter: brightness(1); }
+      15% { transform: scale(1.2); filter: brightness(1.3); }
+      30% { transform: scale(1.15); filter: brightness(1.5); }
+      50% { transform: scale(1.25); filter: brightness(1.2); }
+      70% { transform: scale(1.1); filter: brightness(1.1); }
+      100% { transform: scale(1); filter: brightness(1); }
+    }
+
+    .card.animating-roar {
+      animation: card-roar 450ms var(--anim-easing);
+      z-index: 200;
+      box-shadow: 0 0 40px rgba(249, 115, 22, 0.6);
+    }
+
+    /* Highlight card being affected */
+    .card.highlight-target {
+      box-shadow: 0 0 0 4px var(--warning), 0 0 30px var(--warning);
+      transition: box-shadow 200ms ease;
+    }
+
+    .card.highlight-kill {
+      box-shadow: 0 0 0 4px var(--danger), 0 0 30px var(--danger);
+    }
+
+    .card.highlight-score {
+      box-shadow: 0 0 0 4px var(--success), 0 0 30px var(--success);
+    }
+
     /* Loading overlay for battle computation */
     .battle-loading-overlay {
       position: absolute;
@@ -1652,6 +1969,768 @@
     let currentOpponentName = null;
     let gameResultRecorded = false;
 
+    // ===================== Animation System =====================
+
+    // Animation state
+    let previousGameState = null;
+    let isAnimating = false;
+    let playingCardKey = null;
+
+    // Animation timing constants (ms) - much slower for clarity
+    const ANIM_TIMING = {
+      CARD_TO_QUEUE: 700,
+      QUEUE_REORDER: 600,
+      KILL_EFFECT: 900,
+      SCORE_ENTRY: 900,
+      HELL_ENTRY: 700,
+      STAGGER_DELAY: 200,
+      PHASE_GAP: 400
+    };
+
+    // Generate unique key for a card
+    function getCardKey(card) {
+      if (!card) return null;
+      return `${card.owner}-${card.species}`;
+    }
+
+    // Position tracker for FLIP animations
+    const positionTracker = {
+      positions: new Map(),
+
+      captureAll() {
+        this.positions.clear();
+        // Capture hand cards
+        const handCards = document.querySelectorAll('#hand .card');
+        console.log('[ANIM] Found hand cards:', handCards.length);
+        handCards.forEach((el, idx) => {
+          const key = el.dataset.cardKey;
+          console.log('[ANIM] Hand card', idx, 'key:', key);
+          if (key) {
+            this.positions.set(key, {
+              rect: el.getBoundingClientRect(),
+              container: 'hand',
+              index: idx,
+              element: el
+            });
+          }
+        });
+        // Capture queue cards
+        const queueCards = document.querySelectorAll('#queue .card');
+        console.log('[ANIM] Found queue cards:', queueCards.length);
+        queueCards.forEach((el, idx) => {
+          const key = el.dataset.cardKey;
+          if (key) {
+            this.positions.set(key, {
+              rect: el.getBoundingClientRect(),
+              container: 'queue',
+              index: idx,
+              element: el
+            });
+          }
+        });
+        console.log('[ANIM] Total positions captured:', this.positions.size);
+      },
+
+      getPosition(cardKey) {
+        return this.positions.get(cardKey);
+      },
+
+      clear() {
+        this.positions.clear();
+      }
+    };
+
+    // Animation utilities
+    function delay(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    function waitForAnimation(element, fallbackMs = 300) {
+      return new Promise(resolve => {
+        const handler = () => {
+          element.removeEventListener('animationend', handler);
+          resolve();
+        };
+        element.addEventListener('animationend', handler);
+        // Fallback in case animation doesn't fire
+        setTimeout(resolve, fallbackMs);
+      });
+    }
+
+    // Clone a card element for animation
+    function cloneCardForAnimation(originalEl) {
+      const clone = originalEl.cloneNode(true);
+      clone.style.position = 'fixed';
+      clone.style.margin = '0';
+      clone.style.pointerEvents = 'none';
+      clone.style.zIndex = '1000';
+      return clone;
+    }
+
+    // Show animation label at a position
+    function showAnimLabel(text, x, y, type) {
+      const label = document.createElement('div');
+      label.className = `anim-label ${type}`;
+      label.textContent = text;
+      label.style.left = x + 'px';
+      label.style.top = y + 'px';
+      document.body.appendChild(label);
+
+      // Remove after animation
+      setTimeout(() => {
+        label.remove();
+      }, 1000);
+
+      return label;
+    }
+
+    // Show label near a card element
+    function showLabelNearCard(cardEl, text, type) {
+      if (!cardEl) return;
+      const rect = cardEl.getBoundingClientRect();
+      showAnimLabel(text, rect.left + rect.width / 2 - 30, rect.top - 40, type);
+    }
+
+    // Find queue element target position
+    function getQueueTargetPosition() {
+      const queue = document.getElementById('queue');
+      const queueRect = queue.getBoundingClientRect();
+      const existingCards = queue.querySelectorAll('.card');
+
+      if (existingCards.length > 0) {
+        // Position after last card
+        const lastCard = existingCards[existingCards.length - 1];
+        const lastRect = lastCard.getBoundingClientRect();
+        return {
+          x: lastRect.right + 12, // gap
+          y: lastRect.top + lastRect.height / 2
+        };
+      }
+      // Center of queue
+      return {
+        x: queueRect.left + queueRect.width / 2,
+        y: queueRect.top + queueRect.height / 2
+      };
+    }
+
+    // Animate card flying from hand to queue
+    async function animateCardToQueue(cardKey, sourceRect) {
+      console.log('[ANIM] animateCardToQueue called', cardKey, sourceRect);
+      if (!sourceRect) {
+        console.log('[ANIM] No sourceRect, returning');
+        return;
+      }
+
+      // Find where the card will land in queue
+      const targetPos = getQueueTargetPosition();
+
+      // Create flying card clone
+      const flyingCard = document.createElement('div');
+      flyingCard.className = 'card hand-card animating-to-queue';
+      flyingCard.style.width = sourceRect.width + 'px';
+      flyingCard.style.height = sourceRect.height + 'px';
+      flyingCard.style.left = sourceRect.left + 'px';
+      flyingCard.style.top = sourceRect.top + 'px';
+
+      // Calculate delta
+      const deltaX = targetPos.x - sourceRect.left - sourceRect.width / 2;
+      const deltaY = targetPos.y - sourceRect.top - sourceRect.height / 2;
+
+      flyingCard.style.setProperty('--fly-x', deltaX + 'px');
+      flyingCard.style.setProperty('--fly-y', deltaY + 'px');
+
+      // Copy card appearance
+      if (previousGameState) {
+        const hand = previousGameState.hands[previousGameState.humanPlayer];
+        const card = hand.find(c => getCardKey(c) === cardKey);
+        if (card) {
+          const artUrl = getCardArtUrl(card);
+          if (artUrl) {
+            flyingCard.innerHTML = `
+              <div class="card-art" style="background-image: url(${artUrl})"></div>
+              <div class="card-overlay"></div>
+            `;
+          }
+          flyingCard.innerHTML += `
+            <div class="card-content">
+              <div class="card-top">
+                <span class="card-owner-badge" data-owner="${card.owner}"></span>
+                <span class="card-strength">${card.strength}</span>
+              </div>
+              <div class="card-bottom">
+                <div class="card-species">${card.species}</div>
+                <div class="card-points">+${card.points} pts</div>
+              </div>
+            </div>
+          `;
+        }
+      }
+
+      document.body.appendChild(flyingCard);
+      await waitForAnimation(flyingCard, ANIM_TIMING.CARD_TO_QUEUE + 50);
+      flyingCard.remove();
+    }
+
+    // Animate cards being killed (sent to That's It)
+    async function animateKillCards(cardKeys) {
+      const animations = [];
+
+      // First, highlight all cards being killed
+      cardKeys.forEach((key) => {
+        const cardEl = document.querySelector(`#queue .card[data-card-key="${key}"]`);
+        if (cardEl) {
+          cardEl.classList.add('highlight-kill');
+        }
+      });
+
+      // Show "KILLED!" label on first card
+      const firstCard = document.querySelector(`#queue .card[data-card-key="${cardKeys[0]}"]`);
+      if (firstCard) {
+        showLabelNearCard(firstCard, 'KILLED!', 'kill');
+      }
+
+      await delay(300); // Let highlight show
+
+      cardKeys.forEach((key, idx) => {
+        const cardEl = document.querySelector(`#queue .card[data-card-key="${key}"]`);
+        if (cardEl) {
+          cardEl.classList.remove('highlight-kill');
+          cardEl.classList.add('animating-kill');
+          if (idx > 0) cardEl.classList.add(`anim-delay-${Math.min(idx, 4)}`);
+          animations.push(waitForAnimation(cardEl, ANIM_TIMING.KILL_EFFECT + idx * ANIM_TIMING.STAGGER_DELAY + 50));
+        }
+      });
+
+      if (animations.length > 0) {
+        await Promise.all(animations);
+      }
+    }
+
+    // Animate cards scoring to Heaven's Gate
+    async function animateScoreCards(cardKeys) {
+      const animations = [];
+
+      // First, highlight all cards scoring
+      cardKeys.forEach((key) => {
+        const cardEl = document.querySelector(`#queue .card[data-card-key="${key}"]`);
+        if (cardEl) {
+          cardEl.classList.add('highlight-score');
+        }
+      });
+
+      // Show "SCORE!" label on first card
+      const firstCard = document.querySelector(`#queue .card[data-card-key="${cardKeys[0]}"]`);
+      if (firstCard) {
+        showLabelNearCard(firstCard, 'SCORE!', 'score');
+      }
+
+      await delay(400); // Let highlight show longer for score
+
+      cardKeys.forEach((key, idx) => {
+        const cardEl = document.querySelector(`#queue .card[data-card-key="${key}"]`);
+        if (cardEl) {
+          cardEl.classList.remove('highlight-score');
+          cardEl.classList.add('animating-score');
+          if (idx > 0) cardEl.classList.add(`anim-delay-${Math.min(idx, 4)}`);
+          animations.push(waitForAnimation(cardEl, ANIM_TIMING.SCORE_ENTRY + idx * ANIM_TIMING.STAGGER_DELAY + 50));
+        }
+      });
+
+      if (animations.length > 0) {
+        await Promise.all(animations);
+      }
+    }
+
+    // Animate cards going to That's It pile (5-animal check)
+    async function animateToHellCards(cardKeys) {
+      const animations = [];
+
+      cardKeys.forEach((key, idx) => {
+        const cardEl = document.querySelector(`#queue .card[data-card-key="${key}"]`);
+        if (cardEl) {
+          cardEl.classList.add('animating-to-hell');
+          if (idx > 0) cardEl.classList.add(`anim-delay-${Math.min(idx, 4)}`);
+          animations.push(waitForAnimation(cardEl, ANIM_TIMING.HELL_ENTRY + idx * ANIM_TIMING.STAGGER_DELAY + 50));
+        }
+      });
+
+      if (animations.length > 0) {
+        await Promise.all(animations);
+      }
+    }
+
+    // FLIP animation for queue reorder
+    async function animateQueueReorder(oldPositions) {
+      const queueCards = document.querySelectorAll('#queue .card');
+
+      // Apply inverse transforms
+      const toAnimate = [];
+      queueCards.forEach(cardEl => {
+        const key = cardEl.dataset.cardKey;
+        const oldPos = oldPositions.get(key);
+        if (oldPos && oldPos.container === 'queue') {
+          const newRect = cardEl.getBoundingClientRect();
+          const deltaX = oldPos.rect.left - newRect.left;
+          const deltaY = oldPos.rect.top - newRect.top;
+
+          if (Math.abs(deltaX) > 1 || Math.abs(deltaY) > 1) {
+            cardEl.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
+            cardEl.style.transition = 'none';
+            toAnimate.push(cardEl);
+          }
+        }
+      });
+
+      if (toAnimate.length === 0) return;
+
+      // Force reflow
+      document.body.offsetHeight;
+
+      // Play animation
+      await Promise.all(toAnimate.map(cardEl => {
+        return new Promise(resolve => {
+          cardEl.classList.add('animating-move');
+          cardEl.style.transform = '';
+
+          const handler = () => {
+            cardEl.removeEventListener('transitionend', handler);
+            cardEl.classList.remove('animating-move');
+            cardEl.style.transition = '';
+            resolve();
+          };
+          cardEl.addEventListener('transitionend', handler);
+          setTimeout(resolve, ANIM_TIMING.QUEUE_REORDER + 50);
+        });
+      }));
+    }
+
+    // Flash queue for seal reversal
+    async function animateQueueReversal() {
+      const queue = document.getElementById('queue');
+
+      // Show FLIP! label in center of queue
+      const queueRect = queue.getBoundingClientRect();
+      showAnimLabel('FLIP!', queueRect.left + queueRect.width / 2 - 30, queueRect.top + queueRect.height / 2 - 20, 'reverse');
+
+      queue.classList.add('animating-reverse');
+      await delay(600); // Longer for more drama
+      queue.classList.remove('animating-reverse');
+    }
+
+    // Parse turn flow events to determine animations
+    function parseAnimationEvents(oldState, newState, turnFlow) {
+      const animations = [];
+
+      if (!turnFlow || !oldState || !newState) return animations;
+
+      // Detect played card from human (hand → queue)
+      if (playingCardKey) {
+        animations.push({ type: 'card-to-queue', cardKey: playingCardKey });
+      }
+
+      // Detect AI played card by parsing the "play" step
+      if (!playingCardKey) {
+        const playStep = turnFlow.find(s => s.name === 'play');
+        if (playStep && playStep.events) {
+          for (const event of playStep.events) {
+            // Match "Played [Species] (P[N]) to the queue"
+            const match = event.match(/Played\s+(\w+)\s+\(P(\d)\)/i);
+            if (match) {
+              const species = match[1].toLowerCase();
+              const player = parseInt(match[2]);
+              // Find this card in the new queue
+              const cardInQueue = newState.queue.find(c =>
+                c.species.toLowerCase() === species && c.owner === player
+              );
+              if (cardInQueue) {
+                animations.push({ type: 'card-appear-in-queue', cardKey: getCardKey(cardInQueue) });
+              }
+            }
+          }
+        }
+      }
+
+      // Find cards that moved to That's It (killed)
+      const killedKeys = findRemovedFromQueue(oldState.queue, newState.queue, newState.zones.thatsIt);
+      if (killedKeys.length > 0) {
+        animations.push({ type: 'kill', cardKeys: killedKeys });
+      }
+
+      // Find cards that moved to Heaven's Gate (scored)
+      const scoredKeys = findRemovedFromQueue(oldState.queue, newState.queue, newState.zones.beastyBar);
+      if (scoredKeys.length > 0) {
+        animations.push({ type: 'score', cardKeys: scoredKeys });
+      }
+
+      // Check for queue reorder events
+      for (const step of turnFlow) {
+        const events = step.events || [];
+        for (const event of events) {
+          const eventLower = event.toLowerCase();
+
+          // Queue reorder (various animals)
+          if (eventLower.includes('hops')) {
+            animations.push({ type: 'queue-reorder', reason: 'hop', label: 'HOP!' });
+          } else if (eventLower.includes('roars') || eventLower.includes('to the front')) {
+            animations.push({ type: 'queue-reorder', reason: 'roar', label: 'ROAR!' });
+          } else if (eventLower.includes('orders') || eventLower.includes('sorted') || eventLower.includes('rearranges')) {
+            animations.push({ type: 'queue-reorder', reason: 'order', label: 'ORDER!' });
+          } else if (eventLower.includes('pushes') || eventLower.includes('behind')) {
+            animations.push({ type: 'queue-reorder', reason: 'push', label: 'PUSH!' });
+          } else if (eventLower.includes('swaps') || eventLower.includes('switches')) {
+            animations.push({ type: 'queue-reorder', reason: 'swap', label: 'SWAP!' });
+          } else if (eventLower.includes('moves') || eventLower.includes('shifts')) {
+            animations.push({ type: 'queue-reorder', reason: 'move', label: 'MOVE!' });
+          }
+
+          // Seal reversal
+          if (eventLower.includes('flips') || eventLower.includes('reverses direction')) {
+            animations.push({ type: 'queue-reverse' });
+          }
+        }
+      }
+
+      // Fallback: detect queue reorder by comparing positions directly
+      // Only if no reorder animation was already added
+      const hasReorderAnim = animations.some(a => a.type === 'queue-reorder' || a.type === 'queue-reverse');
+      if (!hasReorderAnim && oldState.queue && newState.queue) {
+        // Check if existing cards changed positions (excluding added/removed cards)
+        const oldKeys = oldState.queue.map(getCardKey);
+        const newKeys = newState.queue.map(getCardKey);
+
+        // Find cards that exist in both queues
+        const commonKeys = oldKeys.filter(k => newKeys.includes(k));
+
+        // Check if their relative order changed
+        if (commonKeys.length >= 2) {
+          const oldOrder = commonKeys.map(k => oldKeys.indexOf(k));
+          const newOrder = commonKeys.map(k => newKeys.indexOf(k));
+
+          // Check if any pair is in different relative order
+          let orderChanged = false;
+          for (let i = 0; i < commonKeys.length - 1 && !orderChanged; i++) {
+            for (let j = i + 1; j < commonKeys.length; j++) {
+              const oldDiff = oldOrder[i] - oldOrder[j];
+              const newDiff = newOrder[i] - newOrder[j];
+              if ((oldDiff > 0 && newDiff < 0) || (oldDiff < 0 && newDiff > 0)) {
+                orderChanged = true;
+                break;
+              }
+            }
+          }
+
+          if (orderChanged) {
+            console.log('[ANIM] Detected queue reorder by position comparison');
+            animations.push({ type: 'queue-reorder', reason: 'move', label: 'SHUFFLE!' });
+          }
+        }
+      }
+
+      console.log('[ANIM] Detected killedKeys:', killedKeys);
+      console.log('[ANIM] Detected scoredKeys:', scoredKeys);
+      console.log('[ANIM] All animations:', animations.map(a => a.type));
+
+      return animations;
+    }
+
+    // Helper: find cards removed from queue
+    function findRemovedFromQueue(oldQueue, newQueue, targetPile) {
+      if (!oldQueue || !newQueue) return [];
+
+      const oldKeys = new Set(oldQueue.map(getCardKey));
+      const newKeys = new Set(newQueue.map(getCardKey));
+      const targetKeys = new Set((targetPile || []).map(getCardKey));
+
+      const removed = [];
+      oldKeys.forEach(key => {
+        if (!newKeys.has(key) && targetKeys.has(key)) {
+          removed.push(key);
+        }
+      });
+
+      return removed;
+    }
+
+    // Helper: compare arrays
+    function arraysEqual(a, b) {
+      if (!a || !b || a.length !== b.length) return false;
+      return a.every((v, i) => v === b[i]);
+    }
+
+    // Main animation orchestrator
+    async function runAnimations(oldState, newState, turnFlow) {
+      console.log('[ANIM] runAnimations called');
+      console.log('[ANIM] playingCardKey:', playingCardKey);
+      console.log('[ANIM] positionTracker size:', positionTracker.positions.size);
+
+      if (isAnimating) {
+        console.log('[ANIM] Already animating, skipping');
+        return;
+      }
+      isAnimating = true;
+
+      try {
+        const animations = parseAnimationEvents(oldState, newState, turnFlow);
+        console.log('[ANIM] Parsed animations:', JSON.stringify(animations));
+
+        if (animations.length === 0) {
+          console.log('[ANIM] No animations to run');
+          return;
+        }
+
+        // Phase 1: Card to queue animation (human player)
+        const cardToQueue = animations.find(a => a.type === 'card-to-queue');
+        if (cardToQueue) {
+          const sourcePos = positionTracker.getPosition(cardToQueue.cardKey);
+          console.log('[ANIM] Card to queue sourcePos:', sourcePos);
+          if (sourcePos) {
+            await animateCardToQueue(cardToQueue.cardKey, sourcePos.rect);
+          }
+        }
+
+        // Phase 2: Render intermediate state (cards in queue before kill/score)
+        // We need to show cards that will be killed/scored, so render with old queue + new card
+        // For simplicity, render old state to show cards that will animate out
+        const hasKillOrScore = animations.some(a =>
+          a.type === 'kill' || a.type === 'score' || a.type === 'to-hell'
+        );
+
+        if (hasKillOrScore) {
+          // Temporarily render a state where killed/scored cards are still visible
+          const tempState = JSON.parse(JSON.stringify(newState));
+          // Add back the cards that were removed so we can animate them
+          const killAnim = animations.find(a => a.type === 'kill');
+          const scoreAnim = animations.find(a => a.type === 'score');
+
+          if (killAnim) {
+            killAnim.cardKeys.forEach(key => {
+              const card = oldState.queue.find(c => getCardKey(c) === key);
+              if (card && !tempState.queue.find(c => getCardKey(c) === key)) {
+                tempState.queue.push(card);
+              }
+            });
+          }
+          if (scoreAnim) {
+            scoreAnim.cardKeys.forEach(key => {
+              const card = oldState.queue.find(c => getCardKey(c) === key);
+              if (card && !tempState.queue.find(c => getCardKey(c) === key)) {
+                tempState.queue.unshift(card); // Scored cards were at front
+              }
+            });
+          }
+
+          gameState = tempState;
+          render();
+          await delay(50); // Let DOM update
+        }
+
+        // Phase 3: Kill animations
+        const killAnim = animations.find(a => a.type === 'kill');
+        if (killAnim && killAnim.cardKeys.length > 0) {
+          console.log('[ANIM] Running kill animation for:', killAnim.cardKeys);
+          await animateKillCards(killAnim.cardKeys);
+          await delay(ANIM_TIMING.PHASE_GAP);
+        }
+
+        // Phase 4: Score animations
+        const scoreAnim = animations.find(a => a.type === 'score');
+        if (scoreAnim && scoreAnim.cardKeys.length > 0) {
+          console.log('[ANIM] Running score animation for:', scoreAnim.cardKeys);
+          await animateScoreCards(scoreAnim.cardKeys);
+          await delay(ANIM_TIMING.PHASE_GAP);
+        }
+
+        // Phase 5: Queue reorder (FLIP animation)
+        const reorderAnim = animations.find(a => a.type === 'queue-reorder');
+        if (reorderAnim) {
+          console.log('[ANIM] Running queue reorder animation', reorderAnim.reason);
+
+          // Step 1: Show intermediate state (card at end of queue before hop)
+          // Build intermediate queue: new cards at end, old order preserved
+          const intermediateState = JSON.parse(JSON.stringify(newState));
+
+          // Get cards that are new to queue (just played)
+          const oldQueueKeys = new Set(oldState.queue.map(getCardKey));
+          const newCards = newState.queue.filter(c => !oldQueueKeys.has(getCardKey(c)));
+          const existingCards = newState.queue.filter(c => oldQueueKeys.has(getCardKey(c)));
+
+          // Reconstruct with old order for existing cards, new cards at end
+          const orderedExisting = oldState.queue.filter(c =>
+            existingCards.some(nc => getCardKey(nc) === getCardKey(c))
+          );
+          intermediateState.queue = [...orderedExisting, ...newCards];
+
+          // Render intermediate state
+          gameState = intermediateState;
+          render();
+          await delay(200);
+
+          // Find the card that's moving most (either new card or card that changed position most)
+          let movingCardKey = null;
+          let movingCardEl = null;
+
+          if (newCards.length > 0) {
+            // New card is moving
+            movingCardKey = getCardKey(newCards[0]);
+            movingCardEl = document.querySelector(`#queue .card[data-card-key="${movingCardKey}"]`);
+          } else {
+            // No new cards - find card that moved the most by comparing indices
+            const oldQueueKeysList = oldState.queue.map(getCardKey);
+            const newQueueKeysList = newState.queue.map(getCardKey);
+
+            let maxMove = 0;
+            existingCards.forEach(card => {
+              const key = getCardKey(card);
+              const oldIdx = oldQueueKeysList.indexOf(key);
+              const newIdx = newQueueKeysList.indexOf(key);
+              const move = Math.abs(newIdx - oldIdx);
+              if (move > maxMove) {
+                maxMove = move;
+                movingCardKey = key;
+              }
+            });
+
+            if (movingCardKey) {
+              movingCardEl = document.querySelector(`#queue .card[data-card-key="${movingCardKey}"]`);
+            }
+          }
+
+          // Show label and highlight on the moving card
+          if (movingCardEl && reorderAnim.label) {
+            movingCardEl.classList.add('highlight-target');
+            showLabelNearCard(movingCardEl, reorderAnim.label, reorderAnim.reason);
+
+            // Add specific animation based on reason
+            if (reorderAnim.reason === 'hop') {
+              movingCardEl.classList.add('animating-hop');
+              await delay(500);
+              movingCardEl.classList.remove('animating-hop');
+            } else if (reorderAnim.reason === 'push') {
+              movingCardEl.classList.add('animating-push');
+              await delay(400);
+              movingCardEl.classList.remove('animating-push');
+            } else if (reorderAnim.reason === 'roar') {
+              movingCardEl.classList.add('animating-roar');
+              await delay(450);
+              movingCardEl.classList.remove('animating-roar');
+            }
+          }
+
+          await delay(300); // Let label show
+
+          // Step 2: Capture positions before reorder
+          const beforePositions = new Map();
+          document.querySelectorAll('#queue .card').forEach(el => {
+            const key = el.dataset.cardKey;
+            if (key) {
+              beforePositions.set(key, el.getBoundingClientRect());
+            }
+          });
+
+          // Remove highlights
+          document.querySelectorAll('#queue .card.highlight-target').forEach(el => {
+            el.classList.remove('highlight-target');
+          });
+
+          // Step 3: Render final state
+          gameState = newState;
+          render();
+          await delay(50);
+
+          // Step 4: Calculate deltas and apply inverse transforms
+          const cardsToAnimate = [];
+          document.querySelectorAll('#queue .card').forEach(el => {
+            const key = el.dataset.cardKey;
+            const oldRect = beforePositions.get(key);
+            if (oldRect) {
+              const newRect = el.getBoundingClientRect();
+              const deltaX = oldRect.left - newRect.left;
+              const deltaY = oldRect.top - newRect.top;
+
+              if (Math.abs(deltaX) > 5 || Math.abs(deltaY) > 5) {
+                el.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
+                el.style.transition = 'none';
+                el.style.zIndex = '100';
+                cardsToAnimate.push(el);
+              }
+            }
+          });
+
+          if (cardsToAnimate.length > 0) {
+            // Force reflow
+            document.body.offsetHeight;
+
+            // Step 5: Animate to final positions
+            await Promise.all(cardsToAnimate.map(el => {
+              return new Promise(resolve => {
+                el.style.transition = `transform ${ANIM_TIMING.QUEUE_REORDER}ms var(--anim-bounce)`;
+                el.style.transform = '';
+
+                setTimeout(() => {
+                  el.style.transition = '';
+                  el.style.zIndex = '';
+                  resolve();
+                }, ANIM_TIMING.QUEUE_REORDER + 50);
+              });
+            }));
+          }
+
+          await delay(ANIM_TIMING.PHASE_GAP);
+        }
+
+        // Phase 6: Queue reversal
+        const reverseAnim = animations.find(a => a.type === 'queue-reverse');
+        if (reverseAnim) {
+          console.log('[ANIM] Running queue reverse animation');
+          await animateQueueReversal();
+        }
+
+        // Phase 7: AI card appear animation
+        const appearAnim = animations.find(a => a.type === 'card-appear-in-queue');
+        if (appearAnim) {
+          console.log('[ANIM] Running card appear animation');
+          gameState = newState;
+          render();
+          await delay(50);
+          const cardEl = document.querySelector(`#queue .card[data-card-key="${appearAnim.cardKey}"]`);
+          if (cardEl) {
+            cardEl.classList.add('animating-appear');
+            await delay(ANIM_TIMING.CARD_TO_QUEUE);
+            cardEl.classList.remove('animating-appear');
+          }
+        }
+
+      } finally {
+        isAnimating = false;
+        playingCardKey = null;
+        positionTracker.clear();
+      }
+    }
+
+    // Simple flash effect for queue reorder
+    async function animateQueueFlash() {
+      const queue = document.getElementById('queue');
+      queue.style.transition = 'box-shadow 150ms ease-out';
+      queue.style.boxShadow = '0 0 20px var(--warning)';
+      await delay(150);
+      queue.style.boxShadow = '';
+      await delay(150);
+      queue.style.transition = '';
+    }
+
+    // Clear any active animations
+    function clearAnimations() {
+      isAnimating = false;
+      playingCardKey = null;
+      document.querySelectorAll('[class*="animating-"]').forEach(el => {
+        el.className = el.className.replace(/\banimating-\S+/g, '').trim();
+        el.style.transform = '';
+        el.style.transition = '';
+      });
+    }
+
+    // ===================== End Animation System =====================
+
     // Elements
     const turnBadge = document.getElementById('turn-badge');
     const turnText = document.getElementById('turn-text');
@@ -1937,13 +3016,21 @@
       aiMoveBtn.disabled = true;
       aiMoveBtn.textContent = 'AI Moving...';
 
+      // Capture state and positions for animations
+      previousGameState = gameState ? JSON.parse(JSON.stringify(gameState)) : null;
+      positionTracker.captureAll();
+
       try {
         const res = await fetch('/api/ai-move', { method: 'POST' });
         if (res.ok) {
+          await refreshStateWithAnimations();
+        } else {
+          clearAnimations();
           await refreshState();
         }
       } catch (err) {
         console.error('AI move failed:', err);
+        clearAnimations();
         aiMoveBtn.disabled = false;
         aiMoveBtn.textContent = 'AI Move';
       }
@@ -2252,6 +3339,7 @@
 
       const el = document.createElement('div');
       el.className = 'card';
+      el.dataset.cardKey = getCardKey(card); // For animation tracking
       if (isHandCard) el.classList.add('hand-card');
       if (playable) el.classList.add('playable');
       if (selected) el.classList.add('selected');
@@ -2385,7 +3473,30 @@
 
     async function sendAction(action) {
       pendingSelection = null;
-      render();
+
+      // Capture state and positions BEFORE action for animations
+      previousGameState = gameState ? JSON.parse(JSON.stringify(gameState)) : null;
+      positionTracker.captureAll();
+
+      // Determine which card is being played (for hand → queue animation)
+      const playedSpecies = action.card?.species || action.species;
+      if (playedSpecies && gameState) {
+        const humanPlayer = gameState.humanPlayer;
+        const hand = gameState.hands[humanPlayer];
+        const playedCard = hand.find(c => c.species === playedSpecies);
+        if (playedCard) {
+          playingCardKey = getCardKey(playedCard);
+          console.log('[ANIM] Set playingCardKey:', playingCardKey);
+        }
+      }
+
+      // Mark the card as playing (visual feedback)
+      if (playingCardKey) {
+        const cardEl = document.querySelector(`#hand .card[data-card-key="${playingCardKey}"]`);
+        if (cardEl) {
+          cardEl.classList.add('animating-playing');
+        }
+      }
 
       try {
         const res = await fetch('/api/action', {
@@ -2394,13 +3505,46 @@
           body: JSON.stringify(action)
         });
         if (!res.ok) {
-          // Game state lost or invalid action
           console.error('Action failed:', res.status);
+          clearAnimations();
+          await refreshState();
+          return;
         }
-        await refreshState();
+        await refreshStateWithAnimations();
       } catch (err) {
         console.error('Action failed:', err);
+        clearAnimations();
         await refreshState();
+      }
+    }
+
+    // Refresh state with animation support
+    async function refreshStateWithAnimations() {
+      try {
+        const res = await fetch('/api/state');
+        if (!res.ok) {
+          gameState = null;
+          showModal();
+          return;
+        }
+
+        const newState = await res.json();
+        const turnFlow = newState.turnFlow || [];
+
+        // Run animations if we have previous state
+        if (previousGameState && turnFlow.length > 0) {
+          gameState = newState;
+          await runAnimations(previousGameState, newState, turnFlow);
+        }
+
+        // Final render with new state
+        gameState = newState;
+        previousGameState = null;
+        render();
+      } catch (err) {
+        console.error('Refresh failed:', err);
+        previousGameState = null;
+        clearAnimations();
       }
     }
 
