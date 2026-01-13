@@ -1437,11 +1437,35 @@
       animation: card-appear 500ms var(--anim-bounce) forwards;
     }
 
-    /* Subtle highlight for the card being played */
+    /* Card being played - fade out smoothly while clone flies */
     .card.animating-playing {
-      transform: scale(0.95);
-      opacity: 0.7;
-      transition: all 100ms ease-out;
+      animation: card-playing-out 500ms ease-out forwards;
+      pointer-events: none;
+      z-index: 500;
+    }
+
+    @keyframes card-playing-out {
+      0% {
+        transform: scale(1);
+        opacity: 1;
+        filter: brightness(1);
+      }
+      20% {
+        transform: scale(1.08) translateY(-15px);
+        opacity: 0.95;
+        filter: brightness(1.2);
+        box-shadow: 0 15px 40px rgba(59, 130, 246, 0.4);
+      }
+      60% {
+        transform: scale(0.9) translateY(-25px);
+        opacity: 0.5;
+        filter: brightness(0.9);
+      }
+      100% {
+        transform: scale(0.7) translateY(-35px);
+        opacity: 0;
+        filter: brightness(0.7);
+      }
     }
 
     /* Stagger animation delays for multiple cards */
@@ -2121,6 +2145,15 @@
         return;
       }
 
+      // Find and fade the original card in hand
+      const originalCard = document.querySelector(`#hand .card[data-card-key="${cardKey}"]`);
+      if (originalCard) {
+        originalCard.classList.add('animating-playing');
+      }
+
+      // Small delay to let the lift animation start
+      await delay(100);
+
       // Find where the card will land in queue
       const targetPos = getQueueTargetPosition();
 
@@ -2169,6 +2202,11 @@
       document.body.appendChild(flyingCard);
       await waitForAnimation(flyingCard, ANIM_TIMING.CARD_TO_QUEUE + 50);
       flyingCard.remove();
+
+      // Remove the original card's animation class (it will be re-rendered without the card anyway)
+      if (originalCard) {
+        originalCard.classList.remove('animating-playing');
+      }
     }
 
     // Animate cards being killed (sent to That's It)
@@ -3472,6 +3510,12 @@
     }
 
     async function sendAction(action) {
+      // Prevent actions during animations to avoid corrupted state
+      if (isAnimating) {
+        console.log('[ACTION] Blocked - animation in progress');
+        return;
+      }
+
       pendingSelection = null;
 
       // Capture state and positions BEFORE action for animations
@@ -3490,13 +3534,8 @@
         }
       }
 
-      // Mark the card as playing (visual feedback)
-      if (playingCardKey) {
-        const cardEl = document.querySelector(`#hand .card[data-card-key="${playingCardKey}"]`);
-        if (cardEl) {
-          cardEl.classList.add('animating-playing');
-        }
-      }
+      // Visual feedback will be handled during animations
+      // We don't mark here to avoid the fade completing before animations start
 
       try {
         const res = await fetch('/api/action', {
