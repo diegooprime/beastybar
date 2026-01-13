@@ -55,8 +55,8 @@ buffer_size: 3000000          # Was 1500000 - 2x for more data
 min_buffer_size: 30000        # Was 15000
 
 # Performance - CRITICAL SETTINGS
-torch_compile: true
-torch_compile_mode: "reduce-overhead"  # Skips slow autotuning phase
+torch_compile: false  # Disabled - dynamic shapes cause issues
+# torch_compile_mode: "reduce-overhead"
 
 # Tablebase
 tablebase_path: "data/endgame_4card_final.tb"
