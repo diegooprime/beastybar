@@ -62,7 +62,7 @@ class BatchMCTS:
         dirichlet_alpha: float = 0.3,
         dirichlet_epsilon: float = 0.25,
         virtual_loss: float = 3.0,
-        batch_size: int = 8,
+        batch_size: int = 64,  # Increased from 8 for better GPU utilization
         device: torch.device | str | None = None,
     ) -> None:
         """Initialize batched MCTS with neural network.

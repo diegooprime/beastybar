@@ -1014,11 +1014,11 @@ class AlphaZeroTrainer:
             min(batch_size, len(self.replay_buffer))
         )
 
-        # Convert to tensors
-        obs_tensor = torch.from_numpy(observations).to(self._device)
-        mask_tensor = torch.from_numpy(action_masks).to(self._device)
-        policy_tensor = torch.from_numpy(mcts_policies).to(self._device)
-        value_tensor = torch.from_numpy(values).to(self._device)
+        # Convert to tensors with pinned memory for faster CPU->GPU transfer
+        obs_tensor = torch.from_numpy(observations).pin_memory().to(self._device, non_blocking=True)
+        mask_tensor = torch.from_numpy(action_masks).pin_memory().to(self._device, non_blocking=True)
+        policy_tensor = torch.from_numpy(mcts_policies).pin_memory().to(self._device, non_blocking=True)
+        value_tensor = torch.from_numpy(values).pin_memory().to(self._device, non_blocking=True)
 
         # Set network to training mode
         self.network.train()
@@ -1072,11 +1072,11 @@ class AlphaZeroTrainer:
         observations, action_masks, mcts_policies, values = self.replay_buffer.sample_all()
         num_samples = len(observations)
 
-        # Convert to tensors
-        obs_tensor = torch.from_numpy(observations).to(self._device)
-        mask_tensor = torch.from_numpy(action_masks).to(self._device)
-        policy_tensor = torch.from_numpy(mcts_policies).to(self._device)
-        value_tensor = torch.from_numpy(values).to(self._device)
+        # Convert to tensors with pinned memory for faster CPU->GPU transfer
+        obs_tensor = torch.from_numpy(observations).pin_memory().to(self._device, non_blocking=True)
+        mask_tensor = torch.from_numpy(action_masks).pin_memory().to(self._device, non_blocking=True)
+        policy_tensor = torch.from_numpy(mcts_policies).pin_memory().to(self._device, non_blocking=True)
+        value_tensor = torch.from_numpy(values).pin_memory().to(self._device, non_blocking=True)
 
         # Train for multiple epochs
         metrics_accum = {"policy_loss": 0.0, "value_loss": 0.0, "total_loss": 0.0}

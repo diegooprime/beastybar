@@ -75,6 +75,14 @@ def merge_configs(
 
 def main() -> int:
     """Main AlphaZero training CLI entry point."""
+    import torch
+
+    # H100 GPU Optimization: Enable TF32 for ~7x speedup on float32 matmuls
+    torch.set_float32_matmul_precision('high')
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+    torch.backends.cudnn.benchmark = True
+
     parser = argparse.ArgumentParser(
         description="Train Beasty Bar neural agent with AlphaZero-style MCTS",
         formatter_class=argparse.RawDescriptionHelpFormatter,
