@@ -4,10 +4,9 @@ This package provides neural network-based agents for playing Beasty Bar,
 including model architecture, utilities, and trained agent implementations.
 
 Modules:
-    utils: Network utilities (checkpointing, action sampling, configuration)
-    network: Neural network architecture (V1)
-    network_v2: Enhanced architecture with asymmetric encoders (V2)
+    network: Neural network architecture (transformer policy-value network)
     agent: NeuralAgent class for policy-based action selection
+    utils: Network utilities (checkpointing, action sampling, configuration)
     compile: Torch compile utilities for inference speedup
 """
 
@@ -24,11 +23,6 @@ from _02_agents.neural.compile import (
     maybe_compile_network,
 )
 from _02_agents.neural.network import BeastyBarNetwork, create_network
-from _02_agents.neural.network_v2 import (
-    BeastyBarNetworkV2,
-    NetworkConfigV2,
-    create_network_v2,
-)
 from _02_agents.neural.utils import (
     ACTION_DIM,
     OBSERVATION_DIM,
@@ -54,11 +48,9 @@ __all__ = [
     "ACTION_DIM",
     "OBSERVATION_DIM",
     "BeastyBarNetwork",
-    "BeastyBarNetworkV2",
     "CheckpointData",
     "InferenceMode",
     "NetworkConfig",
-    "NetworkConfigV2",
     "NeuralAgent",
     "batch_greedy_actions",
     "batch_sample_actions",
@@ -67,7 +59,6 @@ __all__ = [
     "compute_action_probs",
     "count_parameters",
     "create_network",
-    "create_network_v2",
     "create_neural_agent",
     "default_config",
     "get_device",

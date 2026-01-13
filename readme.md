@@ -1,34 +1,227 @@
 # Beasty Bar AI
 
-**Goal: Create the best Beasty Bar player ever, for any opponent, all the time.**
+**Goal: Create the best Beasty Bar player ever, for any opponent.**
 
-I searched online for Beasty Bar AI projects and found nothing. So I built one.
+This is my first machine learning project. I've read a lot of theory, but this is the first time I'm actually building something from scratch. I'm using [Claude Code](https://github.com/anthropics/claude-code) as my main collaborator for thinking through problems, evaluating approaches, and writing the code. I'm doing this for fun because it's interesting and maximizes my learning.
+
+**Fair warning:** This is a messy project. I'm learning as I go, trying lots of experiments, and figuring things out. I've spent ~$300 on RunPod A100s so far, mostly running experiments to see what works. I'm using W&B for tracking runs, but honestly it's been a mess—lots of abandoned runs, inconsistent naming, and experiments that went nowhere. That's part of learning.
+
+---
+
+[Beasty Bar](https://www.zoch-verlag.com/zoch_en/brands/beasty-bar/) is a card game designed by Stefan Kloß and published by Zoch Verlag in 2014. Players compete to get their animal cards into "Heaven" (the bar) while avoiding "Hell". Each of the 12 animal species has unique abilities that trigger when played—lions scare away weaker animals, skunks repel neighbors, crocodiles eat the weakest, and so on. The game combines hand management, timing, and player interaction.
+
+Watch this video for an explanation: [Beasty Bar Rules](https://youtu.be/UTweio-pcro?si=FdxYL1L6yX5mU5SC)
+
+---
+
+## What This Codebase Is
+
+This project is three things:
+
+1. **A Game Simulator** — A complete implementation of Beasty Bar rules, state management, and action space. Currently has both Python (for development) and Cython (for training speed) implementations.
+
+2. **A PPO Training Pipeline** — Self-play reinforcement learning with opponent diversity to train neural networks that play Beasty Bar. Runs on GPU (I'm using RunPod A100s), with Cython acceleration for 200x faster game simulation.
+
+3. **A Web UI** — Play against AI opponents, watch AIs battle each other, or play with friends. Includes real-time neural network visualization showing what the AI is "thinking".
+
+---
 
 ## Demo
 
-```bash
-uvicorn _04_ui.app:create_app --reload
-# http://localhost:8000
+*Video coming soon*
+
+---
+
+# Game Simulator
+
+The simulator (`_01_simulator/`) is a complete implementation of Beasty Bar (2-player only).
+
+### What It Does
+
+- **State Management**: Immutable game states with zones (hands, queue, heaven, hell)
+- **Action Space**: 124 discrete actions covering all possible plays and ability choices
+- **Card Abilities**: All 12 species implemented with their unique effects
+- **Observation Encoding**: 988-dimensional vector representation for neural networks
+- **Rewards**: Configurable reward shaping for RL training
+
+### Why It Matters
+
+Most board game AIs start with a simulator. This one is designed for RL from the ground up:
+- Immutable states enable easy tree search and parallel simulation
+- The observation encoding captures everything the AI needs to make decisions
+- Action masking ensures the AI only considers legal moves
+
+### Design Choices
+
+- **Immutable states** over mutable: Safer for parallel self-play, easier to debug
+- **Flat action space** over hierarchical: Simpler policy network, faster training
+- **Dense observations** over sparse: Transformers handle redundancy well
+- **2-player only**: The real game supports 2-4 players, but we're keeping it simple
+
+### Structure
+
+```
+_01_simulator/
+├── state.py          # Game state representation
+├── engine.py         # Game loop and turn management
+├── cards.py          # Species-specific ability handlers
+├── action_space.py   # Action encoding/decoding
+├── observations.py   # State → tensor conversion
+├── rewards.py        # Reward calculation
+├── simulate.py       # High-level game simulation
+└── _cython/          # Cython acceleration (200x speedup)
 ```
 
-## Model
+### Cython Acceleration
 
-| File | Size | Purpose |
-|------|------|---------|
-| `model_inference.pt` | ~66 MB | **Use this** - weights only, for inference/deployment |
-| `iter_949.pt` | ~847 MB | Full training checkpoint (resume training) |
+The `_cython/` directory contains a complete reimplementation of the game engine in Cython for ~200x faster simulation. Currently the training code auto-detects availability and falls back to pure Python if not compiled.
 
-| Metric | Value |
-|--------|-------|
-| Win rate vs heuristics | 88% |
-| Win rate vs random | 98% |
-| Win rate vs outcome_heuristic | 60% |
-| Training | 949 iterations, 15M+ games |
-| Time | ~10 hrs on A100 |
+**Current state:** We maintain both Python and Cython implementations. The plan is to migrate to Cython-only to simplify the codebase.
 
-Hugging Face: https://huggingface.co/shiptoday101/beastybar-ppo
+```bash
+# Build Cython extension (required for training)
+bash scripts/build_cython.sh
+```
 
-### Loading for Inference
+---
+
+# Training Pipeline
+
+The training code (`_03_training/`) implements PPO self-play with opponent diversity.
+
+### What It Does
+
+- **PPO (Proximal Policy Optimization)**: Stable policy gradient updates with clipping
+- **GAE (Generalized Advantage Estimation)**: Variance reduction for value learning
+- **Opponent Pool**: Mix of self-play, past checkpoints, random, and heuristic opponents
+- **Adaptive Weighting**: Automatically adjusts opponent mix based on win rates
+
+### Why Opponent Diversity?
+
+I believe pure self-play causes policy collapse—the AI learns to exploit itself rather than play well generally. Mixing in diverse opponents (random, heuristic, past versions) should force the AI to stay robust. **Note:** I haven't actually tested pure self-play to confirm this causes collapse; this is a design choice based on reading about RL training. Testing pure self-play could be a good experiment.
+
+### Design Choices
+
+- **PPO over DQN/A2C**: Better sample efficiency, stable training
+- **Opponent pool over pure self-play**: Prevents collapse (theoretically), maintains diversity
+- **Cython acceleration**: 200x faster simulation enables more games per iteration
+- **Async game generation**: Parallel workers to maximize GPU utilization
+
+### Key Parameters
+
+| Parameter | Value | Why |
+|-----------|-------|-----|
+| Hidden dim | 256 | Balance between capacity and speed |
+| Transformer layers | 4 | Enough depth for strategic reasoning |
+| Games per iteration | 8,192 | Sufficient batch diversity |
+| Learning rate | 0.0001 | Stable convergence |
+| Entropy coefficient | 0.04→0.01 | Encourage exploration early, exploit later |
+
+### Structure
+
+```
+_03_training/
+├── trainer.py           # Main training loop
+├── ppo.py               # PPO algorithm implementation
+├── self_play.py         # Game generation and trajectory collection
+├── opponent_pool.py     # Diverse opponent sampling
+├── evaluation.py        # Model evaluation against baselines
+├── checkpoint_manager.py # Save/load checkpoints
+└── tracking.py          # W&B and console logging
+```
+
+### Usage
+
+```bash
+# Train from scratch
+uv run scripts/train.py --config configs/iter600_to_1000.yaml
+
+# Resume training
+uv run scripts/train.py --resume checkpoints/iter_949.pt
+
+# With W&B tracking
+uv run scripts/train.py --config configs/iter600_to_1000.yaml --tracker wandb
+```
+
+### Known Issues
+
+**GPU Utilization**: One of my main challenges is not fully utilizing compute resources. Some training runs only consume ~20% of the GPU, and I haven't figured out how to balance game generation speed with network forward passes to maximize throughput. If you have experience with this, I'd love to hear suggestions.
+
+---
+
+# Web UI
+
+The UI (`_04_ui/`) lets you play and watch Beasty Bar games in the browser.
+
+### What It Does
+
+- **Play vs AI**: Challenge any of the trained agents
+- **Watch AI vs AI**: See neural networks battle with real-time visualization
+- **Multiplayer**: Play against friends locally
+- **Visualization**: Watch neural network activations as the AI thinks
+
+### Why It Matters
+
+Training metrics only tell part of the story. Watching games reveals:
+- Does the AI understand card abilities?
+- Does it plan ahead or react randomly?
+- Where does it make mistakes?
+
+### Features
+
+- **Multiple AI opponents**: Random, heuristic variants, neural network, tablebase-enhanced
+- **Real-time updates**: WebSocket-based game state streaming
+- **Activation visualization**: See which cards the AI is attending to
+- **Battle mode**: Pit any two agents against each other
+
+### Structure
+
+```
+_04_ui/
+├── app.py              # FastAPI application
+├── static/             # HTML/CSS/JS frontend
+│   ├── index.html      # Main game interface
+│   ├── visualizer.html # Neural network visualization
+│   └── cards/          # Card images
+└── visualization/      # Real-time activation capture
+```
+
+*Screenshots coming soon*
+
+---
+
+# Current Model
+
+### Training History
+
+| Checkpoint | Iterations | Games | Notes |
+|------------|------------|-------|-------|
+| `iter_600_final.pt` | 600 | ~5M | Stable baseline |
+| `iter_949.pt` | 949 | ~15M | Best model, continued training |
+
+Training done on RunPod A100 GPUs (~$300 spent on experiments so far, ~10 hours of actual training).
+
+### Performance
+
+| Opponent | Win Rate |
+|----------|----------|
+| Random | 98% |
+| Heuristic | 88% |
+| Outcome Heuristic | 60% |
+
+### Architecture
+
+- **Type**: Transformer policy-value network
+- **Parameters**: ~1.3M
+- **Input**: 988-dim observation vector
+- **Output**: 124-dim action logits + scalar value
+
+### Download
+
+- Hugging Face (model): https://huggingface.co/shiptoday101/beastybar-ppo
+- Hugging Face (tablebase): https://huggingface.co/datasets/shiptoday101/beastybar-tablebase
+
+### Loading
 
 ```python
 from _03_training.checkpoint_manager import load_for_inference
@@ -40,74 +233,64 @@ network = BeastyBarNetwork(NetworkConfig.from_dict(config))
 network.load_state_dict(state_dict)
 ```
 
-### Converting Existing Checkpoints
+---
 
-```python
-from _03_training.checkpoint_manager import export_for_inference
+# Next Steps
 
-# Convert training checkpoint to inference checkpoint
-export_for_inference("checkpoints/iter_949.pt", "model_inference.pt")
-```
+Ordered by priority. Each task is written to be delegated to an AI agent with clear scope.
 
-## Training
+### Immediate
 
-Two training approaches available:
+- [ ] **Migrate to Cython-only**: We're already using Cython for training. Verify the Cython implementation matches Python behavior exactly (run tests, compare game outcomes), then delete all pure Python simulator code in `_01_simulator/*.py` (keep only `_cython/`). Update imports across the codebase to use Cython directly. Goal: single source of truth, no fallback logic.
 
-**PPO (original):** Self-play with opponent pool diversity. Pure self-play causes collapse—mixing in random/heuristic opponents fixes it.
+- [ ] **Evaluate latest model**: Run `scripts/evaluate.py` with `iter_949.pt` against ALL opponents (random, heuristic, aggressive, defensive, queue, skunk, noisy, online, outcome_heuristic, distilled_outcome). Use at least 500 games per opponent. Record win rates and update the Performance table in this README.
+
+- [ ] **Clean up W&B**: Go through the W&B project, delete abandoned/failed runs, establish a clear naming convention for future runs, organize into meaningful groups. Document the naming convention in this README or a separate doc.
+
+### Before Next Training Run
+
+- [ ] **Maximize GPU/CPU utilization**: Currently training runs only use ~20% GPU. Investigate the bottleneck—is it game generation (CPU), batch transfer, or network inference? Profile the training loop, identify where time is spent, and optimize. Goal: get GPU utilization above 80% before starting the next training run. Document findings.
+
+### Soon
+
+- [ ] **Refactor web UI**: The current `_04_ui/app.py` is a 1500+ line monolith. Refactor into proper modules following FastAPI best practices: separate routers, models, services. Keep exact same functionality, just clean architecture. No new features—pure refactor.
+
+- [ ] **Fix Hugging Face repo**: Same cleanup we did for this README—update model cards, remove outdated information, make sure download instructions work, verify files are correct. Both the model repo and tablebase dataset repo.
+
+- [ ] **Continue training**: Push past iteration 1000 with lower learning rate schedule. Requires GPU utilization fix first.
+
+### Later
+
+- [ ] **Expand tablebase**: Generate 8-card tablebase using AWS high-CPU instance (see `docs/TABLEBASE_AWS_PLAN.md`). This will cover more endgame positions for stronger play.
+
+- [ ] **Strategy guide**: After final training run, analyze what the AI learned—which cards it values, common patterns, mistakes it makes. Write up findings as documentation.
+
+---
+
+# Testing
 
 ```bash
-uv sync
-uv run scripts/train.py --config configs/default.yaml
+uv run pytest tests/
 ```
 
-**AlphaZero (recommended):** MCTS policy targets with tablebase integration for superhuman play.
+# Evaluation
 
 ```bash
-uv run python train_alphazero.py --config configs/alphazero_h100.yaml
+uv run scripts/evaluate.py --model checkpoints/iter_949.pt --opponents random,heuristic --games 200
 ```
 
-## Endgame Tablebase
+---
 
-1 million solved endgame positions (≤4 cards per player) with perfect play.
+# Links
 
-| File | Size | Positions |
-|------|------|-----------|
-| `endgame_4card_final.tb` | 19 MB | 1,000,000 |
-
-Hugging Face: https://huggingface.co/datasets/shiptoday101/beastybar-tablebase
-
-```python
-from _02_agents.tablebase import EndgameTablebase, TablebaseAgent
-
-tablebase = EndgameTablebase.load("endgame_4card_final.tb")
-agent = TablebaseAgent(tablebase, fallback_agent=neural_agent)
-```
-
-## Stack
-
-- Transformer policy-value network (17M parameters)
-- PPO with GAE / AlphaZero with MCTS
-- Endgame tablebase (minimax with alpha-beta)
-- Adaptive MCTS (100-6400 simulations)
-- Cython acceleration (200x speedup)
-- FastAPI web UI
-
-## Structure
-
-```
-_01_simulator/   # Game engine
-_02_agents/      # AI players (neural, MCTS, tablebase, solver)
-_03_training/    # PPO + AlphaZero training
-_04_ui/          # Web interface
-```
-
-## Links
-
-- [Game rules](_05_other/rules.md)
 - [Technical docs](docs/TECHNICAL.md)
-- [Roadmap to Superhuman](ROADMAP_TO_SUPERHUMAN.md)
-- [Beasty Bar PDF](https://tesera.ru/images/items/1525203/BeastyBar_EN-online.pdf)
+- [API docs](docs/API.md)
+- [Tablebase AWS plan](docs/TABLEBASE_AWS_PLAN.md)
+- [Beasty Bar rules (PDF)](https://tesera.ru/images/items/1525203/BeastyBar_EN-online.pdf)
+- [Beasty Bar on Zoch Verlag](https://www.zoch-verlag.com/zoch_en/brands/beasty-bar/)
 
-## License
+---
+
+# License
 
 MIT

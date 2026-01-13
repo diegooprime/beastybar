@@ -3,6 +3,13 @@
 Provides perfect play in positions with few remaining cards through
 retrograde analysis from terminal positions.
 
+Current: 1M positions (≤4 cards per player) in data/endgame_4card_final.tb
+
+TODO: Compute more positions
+- Generate 5-card tablebase (~10M positions)
+- Generate 6-card tablebase (~100M positions)
+- See docs/TABLEBASE_AWS_PLAN.md for AWS generation plan
+
 Modules:
 - endgame: Forward minimax search with alpha-beta pruning
 - enumerate: Systematic position enumeration
