@@ -56,7 +56,7 @@ min_buffer_size: 30000        # Was 15000
 
 # Performance - CRITICAL SETTINGS
 torch_compile: true
-torch_compile_mode: "max-autotune-no-cudagraphs"  # Was reduce-overhead - avoids CUDA graph issues
+torch_compile_mode: "reduce-overhead"  # Skips slow autotuning phase
 
 # Tablebase
 tablebase_path: "data/endgame_4card_final.tb"
