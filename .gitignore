@@ -24,6 +24,9 @@ _01_simulator/_cython/*.html
 .DS_Store
 **/.DS_Store
 
+# Player stats (personal data)
+_04_ui/data/player_stats.json
+
 # Lock files (optional - can be tracked if desired)
 # uv.lock
 .DS_Store

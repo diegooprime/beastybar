@@ -63,6 +63,13 @@ try:
 except ImportError:
     MCTSAgent = None  # type: ignore[misc,assignment]
 
+# Import tablebase for endgame perfect play
+try:
+    from _02_agents.tablebase import EndgameTablebase, TablebaseAgent
+except ImportError:
+    EndgameTablebase = None  # type: ignore[misc,assignment]
+    TablebaseAgent = None  # type: ignore[misc,assignment]
+
 logger = logging.getLogger(__name__)
 
 # Lazy import to avoid circular dependency
@@ -128,16 +135,37 @@ def _load_neural_agent(ckpt_path: str | Path | None = None) -> tuple:
         def load_from_checkpoint(path):
             """Load network from PPO or MCTS checkpoint."""
             checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+            state_dict = checkpoint["model_state_dict"]
+
             # Extract network config (nested in training config)
             config_dict = checkpoint.get("config", {})
             if "network_config" in config_dict:
-                net_config = NetworkConfig.from_dict(config_dict["network_config"])
-            else:
-                net_config = NetworkConfig.from_dict(config_dict)
+                config_dict = config_dict["network_config"]
+
+            # Auto-detect deep_value_head from state_dict shape
+            hidden_dim = config_dict.get("hidden_dim", 256)
+            value_head_0_shape = state_dict.get("value_head.0.weight", torch.zeros(1)).shape
+            deep_value_head = len(value_head_0_shape) >= 2 and value_head_0_shape[0] == hidden_dim
+
+            net_config = NetworkConfig(
+                observation_dim=config_dict.get("observation_dim", 988),
+                action_dim=config_dict.get("action_dim", 124),
+                hidden_dim=hidden_dim,
+                num_heads=config_dict.get("num_heads", 8),
+                num_layers=config_dict.get("num_layers", 4),
+                dropout=config_dict.get("dropout", 0.1),
+                species_embedding_dim=config_dict.get("species_embedding_dim", 64),
+                card_feature_dim=config_dict.get("card_feature_dim", 17),
+                num_species=config_dict.get("num_species", 12),
+                max_queue_length=config_dict.get("max_queue_length", 5),
+                max_bar_length=config_dict.get("max_bar_length", 24),
+                hand_size=config_dict.get("hand_size", 4),
+                deep_value_head=deep_value_head,
+            )
 
             # Create and load network
             network = BeastyBarNetwork(net_config)
-            network.load_state_dict(checkpoint["model_state_dict"])
+            network.load_state_dict(state_dict)
             network.eval()
             return network, checkpoint.get("iteration", 0)
 
@@ -199,6 +227,25 @@ for ckpt_path, _expected_iter in _extra_checkpoints:
 # if MCTSAgent is not None:
 #     AI_AGENTS["mcts"] = MCTSAgent(iterations=500, determinizations=8, seed=None)
 
+# Load tablebase-enhanced iter_949 agent (neural + perfect endgame play)
+_tablebase_path = Path("data/endgame_4card_final.tb")
+if EndgameTablebase is not None and TablebaseAgent is not None and _tablebase_path.exists():
+    try:
+        _tablebase = EndgameTablebase.load(_tablebase_path)
+        logger.info(f"Loaded tablebase with {len(_tablebase.positions)} positions")
+        # Find the iter_949 neural agent to wrap with tablebase
+        _iter949_agent = AI_AGENTS.get("ppo_iter949")
+        if _iter949_agent is not None:
+            _tablebase_agent = TablebaseAgent(
+                tablebase=_tablebase,
+                fallback_agent=_iter949_agent,
+                solve_on_miss=True,
+            )
+            AI_AGENTS["ppo_iter949_tablebase"] = _tablebase_agent
+            logger.info("Created tablebase-enhanced iter_949 agent: ppo_iter949_tablebase")
+    except Exception as e:
+        logger.warning(f"Failed to load tablebase: {e}")
+
 # Claude Code is a special "opponent" - moves are entered manually by the user
 CLAUDE_CODE_OPPONENT = "claude"
 
@@ -206,6 +253,9 @@ CLAUDE_CODE_OPPONENT = "claude"
 CLAUDE_BRIDGE_DIR = Path(__file__).resolve().parent / "claude_bridge"
 CLAUDE_STATE_FILE = CLAUDE_BRIDGE_DIR / "state.json"
 CLAUDE_MOVE_FILE = CLAUDE_BRIDGE_DIR / "move.json"
+
+# Stats file path
+STATS_FILE = Path(__file__).resolve().parent / "data" / "player_stats.json"
 
 
 @dataclass
@@ -422,10 +472,52 @@ def create_app() -> FastAPI:
 
         return _serialize(store.require_state(), store.seed, store)
 
+    # ===================== Stats API =====================
+
+    @app.get("/api/stats")
+    def api_get_stats() -> dict:
+        """Get player stats from server."""
+        try:
+            if STATS_FILE.exists():
+                return json.loads(STATS_FILE.read_text())
+            return {}
+        except Exception as e:
+            logger.warning(f"Failed to load stats: {e}")
+            return {}
+
+    @app.post("/api/stats")
+    def api_save_stats(stats: dict) -> dict:
+        """Save player stats to server."""
+        try:
+            STATS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            STATS_FILE.write_text(json.dumps(stats, indent=2))
+            return {"status": "ok"}
+        except Exception as e:
+            logger.error(f"Failed to save stats: {e}")
+            raise HTTPException(status_code=500, detail="Failed to save stats")
+
+    @app.delete("/api/stats")
+    def api_clear_stats() -> dict:
+        """Clear all player stats."""
+        try:
+            if STATS_FILE.exists():
+                STATS_FILE.unlink()
+            return {"status": "ok"}
+        except Exception as e:
+            logger.error(f"Failed to clear stats: {e}")
+            raise HTTPException(status_code=500, detail="Failed to clear stats")
+
     @app.get("/api/ai-agents")
     def api_ai_agents() -> list[dict]:
         """List available AI agents."""
         agents = []
+        # Add tablebase-enhanced agent if available (strongest option)
+        if "ppo_iter949_tablebase" in AI_AGENTS:
+            agents.append({
+                "id": "ppo_iter949_tablebase",
+                "name": "PPO iter 949 + Tablebase (Superhuman)",
+                "description": "Neural network with perfect endgame play via tablebase"
+            })
         # Add neural agents sorted by iteration (highest first)
         all_neural = list(_neural_agents_extra)
         if _neural_name and _neural_name in AI_AGENTS:
@@ -433,8 +525,6 @@ def create_app() -> FastAPI:
         all_neural.sort(key=lambda x: x[2], reverse=True)
         for i, (_agent, name, iteration) in enumerate(all_neural):
             label = f"PPO iter {iteration}"
-            if i == 0:
-                label += " (Strongest)"
             agents.append({
                 "id": name,
                 "name": label,
@@ -456,6 +546,13 @@ def create_app() -> FastAPI:
     def api_ai_agents_for_battle() -> list[dict]:
         """List AI agents available for AI vs AI battles."""
         agents = []
+        # Add tablebase-enhanced agent if available (strongest option)
+        if "ppo_iter949_tablebase" in AI_AGENTS:
+            agents.append({
+                "id": "ppo_iter949_tablebase",
+                "name": "PPO iter 949 + Tablebase (Superhuman)",
+                "description": "Neural network with perfect endgame play via tablebase"
+            })
         # Add neural agents sorted by iteration (highest first)
         all_neural = list(_neural_agents_extra)
         if _neural_name and _neural_name in AI_AGENTS:
@@ -463,8 +560,6 @@ def create_app() -> FastAPI:
         all_neural.sort(key=lambda x: x[2], reverse=True)
         for i, (_agent, name, iteration) in enumerate(all_neural):
             label = f"PPO iter {iteration}"
-            if i == 0:
-                label += " (Strongest)"
             agents.append({
                 "id": name,
                 "name": label,

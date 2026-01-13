@@ -507,16 +507,26 @@ class BeastyBarNetwork(nn.Module):
             nn.Linear(self.config.hidden_dim // 2, self.config.action_dim),
         )
 
-        # Value head: deeper with residual blocks for better value estimation
-        # This is the key bottleneck fix from ROADMAP_TO_SUPERHUMAN.md
-        self.value_head = nn.Sequential(
-            nn.Linear(self.config.hidden_dim, self.config.hidden_dim),
-            nn.GELU(),
-            ResidualBlock(self.config.hidden_dim, self.config.dropout),
-            ResidualBlock(self.config.hidden_dim, self.config.dropout),
-            nn.Linear(self.config.hidden_dim, 1),
-            nn.Tanh(),
-        )
+        # Value head: conditional architecture based on config
+        if getattr(self.config, "deep_value_head", True):
+            # Deep value head with ResidualBlocks (92max.pt architecture)
+            self.value_head = nn.Sequential(
+                nn.Linear(self.config.hidden_dim, self.config.hidden_dim),
+                nn.GELU(),
+                ResidualBlock(self.config.hidden_dim, self.config.dropout),
+                ResidualBlock(self.config.hidden_dim, self.config.dropout),
+                nn.Linear(self.config.hidden_dim, 1),
+                nn.Tanh(),
+            )
+        else:
+            # Simple MLP value head (v4/final.pt architecture)
+            self.value_head = nn.Sequential(
+                nn.Linear(self.config.hidden_dim, self.config.hidden_dim // 2),
+                nn.GELU(),
+                nn.Dropout(self.config.dropout),
+                nn.Linear(self.config.hidden_dim // 2, 1),
+                nn.Tanh(),
+            )
 
         # Initialize weights
         self._init_weights()

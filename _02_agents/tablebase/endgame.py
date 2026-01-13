@@ -871,6 +871,14 @@ class TablebaseAgent:
 
         return None
 
+    def __call__(
+        self,
+        game_state: state.State,
+        legal_actions: Sequence[actions.Action],
+    ) -> actions.Action:
+        """Make agent callable like NeuralAgent."""
+        return self.select_action(game_state, legal_actions)
+
     @property
     def name(self) -> str:
         return "TablebaseAgent"

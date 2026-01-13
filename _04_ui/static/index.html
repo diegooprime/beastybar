@@ -699,6 +699,62 @@
       justify-content: center;
     }
 
+    /* Stats Table */
+    .stats-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.875rem;
+    }
+
+    .stats-table th,
+    .stats-table td {
+      padding: 0.75rem 0.5rem;
+      text-align: center;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .stats-table th {
+      font-weight: 600;
+      color: var(--text-muted);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .stats-table td:first-child {
+      text-align: left;
+      font-weight: 500;
+    }
+
+    .stats-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .stats-table .win-rate {
+      font-weight: 600;
+    }
+
+    .stats-table .win-rate.good {
+      color: var(--success);
+    }
+
+    .stats-table .win-rate.bad {
+      color: var(--danger);
+    }
+
+    .stats-table .win-rate.neutral {
+      color: var(--warning);
+    }
+
+    .stats-total-row {
+      background: var(--bg-elevated);
+      font-weight: 600;
+    }
+
+    .stats-total-row td:first-child {
+      font-weight: 700;
+    }
+
     /* Game Over Overlay */
     .game-over-overlay {
       position: absolute;
@@ -1292,6 +1348,7 @@
       <button id="ai-move-btn" class="btn btn-ai" style="display: none;">
         AI Move
       </button>
+      <button id="stats-btn" class="btn btn-secondary">📊 Stats</button>
       <button id="ai-battle-btn" class="btn btn-secondary">AI Battle</button>
       <button id="new-game-btn" class="btn btn-secondary">New Game</button>
     </div>
@@ -1555,12 +1612,45 @@
     </div>
   </div>
 
+  <!-- Stats Modal -->
+  <div class="modal-overlay" id="stats-modal">
+    <div class="modal" style="max-width: 500px;">
+      <div class="modal-title">📊 Your Stats</div>
+      <div id="stats-content">
+        <table class="stats-table">
+          <thead>
+            <tr>
+              <th>Opponent</th>
+              <th>Wins</th>
+              <th>Losses</th>
+              <th>Draws</th>
+              <th>Win %</th>
+            </tr>
+          </thead>
+          <tbody id="stats-table-body">
+            <!-- Populated by JS -->
+          </tbody>
+        </table>
+        <div id="stats-empty" style="text-align: center; color: var(--text-muted); padding: 2rem; display: none;">
+          No games played yet. Start a game to track your stats!
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="stats-clear-btn">Clear Stats</button>
+        <button class="btn btn-primary" id="stats-close-btn">Close</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     // State
     let gameState = null;
     let pendingSelection = null;
     let isFirstLoad = true;
     let aiMoveTimeout = null;
+    let currentOpponentId = null;
+    let currentOpponentName = null;
+    let gameResultRecorded = false;
 
     // Elements
     const turnBadge = document.getElementById('turn-badge');
@@ -1594,6 +1684,142 @@
     const copyStateBtn = document.getElementById('copy-state-btn');
     const claudeMoveInput = document.getElementById('claude-move-input');
     const submitClaudeMoveBtn = document.getElementById('submit-claude-move');
+
+    // Stats modal elements
+    const statsBtn = document.getElementById('stats-btn');
+    const statsModal = document.getElementById('stats-modal');
+    const statsTableBody = document.getElementById('stats-table-body');
+    const statsEmpty = document.getElementById('stats-empty');
+    const statsClearBtn = document.getElementById('stats-clear-btn');
+    const statsCloseBtn = document.getElementById('stats-close-btn');
+
+    // ===================== Stats Tracking =====================
+    let cachedStats = {};
+
+    async function loadStats() {
+      try {
+        const res = await fetch('/api/stats');
+        if (res.ok) {
+          cachedStats = await res.json();
+        }
+      } catch (err) {
+        console.error('Failed to load stats:', err);
+      }
+      return cachedStats;
+    }
+
+    async function saveStats(stats) {
+      try {
+        await fetch('/api/stats', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(stats)
+        });
+        cachedStats = stats;
+      } catch (err) {
+        console.error('Failed to save stats:', err);
+      }
+    }
+
+    async function recordGameResult(opponentId, opponentName, result) {
+      // result: 'win', 'loss', or 'draw'
+      const stats = await loadStats();
+      if (!stats[opponentId]) {
+        stats[opponentId] = { name: opponentName, wins: 0, losses: 0, draws: 0 };
+      }
+      stats[opponentId].name = opponentName; // Update name in case it changed
+      if (result === 'win') stats[opponentId].wins++;
+      else if (result === 'loss') stats[opponentId].losses++;
+      else stats[opponentId].draws++;
+      await saveStats(stats);
+    }
+
+    async function renderStats() {
+      const stats = await loadStats();
+      const opponents = Object.entries(stats);
+
+      if (opponents.length === 0) {
+        statsTableBody.innerHTML = '';
+        statsEmpty.style.display = 'block';
+        return;
+      }
+
+      statsEmpty.style.display = 'none';
+
+      // Sort by total games played (descending)
+      opponents.sort((a, b) => {
+        const totalA = a[1].wins + a[1].losses + a[1].draws;
+        const totalB = b[1].wins + b[1].losses + b[1].draws;
+        return totalB - totalA;
+      });
+
+      let totalWins = 0, totalLosses = 0, totalDraws = 0;
+
+      let html = '';
+      for (const [id, data] of opponents) {
+        const total = data.wins + data.losses + data.draws;
+        const winRate = total > 0 ? Math.round((data.wins / total) * 100) : 0;
+        const rateClass = winRate >= 50 ? 'good' : winRate >= 30 ? 'neutral' : 'bad';
+
+        totalWins += data.wins;
+        totalLosses += data.losses;
+        totalDraws += data.draws;
+
+        html += `
+          <tr>
+            <td>${data.name}</td>
+            <td>${data.wins}</td>
+            <td>${data.losses}</td>
+            <td>${data.draws}</td>
+            <td class="win-rate ${rateClass}">${winRate}%</td>
+          </tr>
+        `;
+      }
+
+      // Add total row
+      const totalGames = totalWins + totalLosses + totalDraws;
+      const overallWinRate = totalGames > 0 ? Math.round((totalWins / totalGames) * 100) : 0;
+      const overallRateClass = overallWinRate >= 50 ? 'good' : overallWinRate >= 30 ? 'neutral' : 'bad';
+
+      html += `
+        <tr class="stats-total-row">
+          <td>TOTAL</td>
+          <td>${totalWins}</td>
+          <td>${totalLosses}</td>
+          <td>${totalDraws}</td>
+          <td class="win-rate ${overallRateClass}">${overallWinRate}%</td>
+        </tr>
+      `;
+
+      statsTableBody.innerHTML = html;
+    }
+
+    async function openStatsModal() {
+      await renderStats();
+      statsModal.classList.add('visible');
+    }
+
+    function closeStatsModal() {
+      statsModal.classList.remove('visible');
+    }
+
+    // Stats event listeners
+    statsBtn.addEventListener('click', openStatsModal);
+    statsCloseBtn.addEventListener('click', closeStatsModal);
+    statsClearBtn.addEventListener('click', async () => {
+      if (confirm('Are you sure you want to clear all stats? This cannot be undone.')) {
+        try {
+          await fetch('/api/stats', { method: 'DELETE' });
+          cachedStats = {};
+          await renderStats();
+        } catch (err) {
+          console.error('Failed to clear stats:', err);
+        }
+      }
+    });
+    statsModal.addEventListener('click', (e) => {
+      if (e.target === statsModal) closeStatsModal();
+    });
 
     // Card Art
     const CARD_ART_PATH = '/static/cards';
@@ -1688,6 +1914,11 @@
         });
 
         if (res.ok) {
+          // Track current opponent for stats
+          currentOpponentId = aiSelect.value;
+          currentOpponentName = aiSelect.options[aiSelect.selectedIndex].text;
+          gameResultRecorded = false;
+
           hideModal();
           await refreshState();
         }
@@ -2223,18 +2454,28 @@
 
       gameOverTitle.classList.remove('win', 'lose', 'draw');
 
+      let result;
       if (humanScore > aiScore) {
         gameOverTitle.textContent = 'Victory!';
         gameOverTitle.classList.add('win');
+        result = 'win';
       } else if (humanScore < aiScore) {
         gameOverTitle.textContent = 'Defeat';
         gameOverTitle.classList.add('lose');
+        result = 'loss';
       } else {
         gameOverTitle.textContent = 'Draw';
         gameOverTitle.classList.add('draw');
+        result = 'draw';
       }
 
       gameOverScore.textContent = `${humanScore} - ${aiScore}`;
+
+      // Record stats (only once per game)
+      if (!gameResultRecorded && currentOpponentId && currentOpponentName) {
+        recordGameResult(currentOpponentId, currentOpponentName, result);
+        gameResultRecorded = true;
+      }
     }
 
     // ===================== AI Battle Mode =====================
