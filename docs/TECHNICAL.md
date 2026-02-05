@@ -59,10 +59,13 @@ Pure self-play collapses. Mix fixes it:
 
 | Type | Weight |
 |------|--------|
-| Current network | 60% |
+| Current network | 55% |
 | Past checkpoints | 20% |
 | Random | 10% |
 | Heuristic | 10% |
+| MCTS | 5% |
+
+Note: MCTS opponents are only used when `use_mcts_opponents=True` and the MCTS implementation is available.
 
 ## Configuration
 
@@ -78,11 +81,12 @@ games_per_iteration: 128
 batch_size: 512
 total_iterations: 200
 
-opponent_pool:
-  current_weight: 0.6
+  opponent_pool:
+  current_weight: 0.55
   checkpoint_weight: 0.2
   random_weight: 0.1
   heuristic_weight: 0.1
+  mcts_weight: 0.05
 ```
 
 ## Performance

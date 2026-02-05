@@ -1,0 +1,164 @@
+{
+  "model_checkpoint": "checkpoints/iter_949.pt",
+  "evaluation_config": {
+    "games_per_opponent": 500,
+    "opponents": [
+      "random",
+      "heuristic",
+      "aggressive",
+      "defensive",
+      "queue",
+      "skunk",
+      "noisy",
+      "online",
+      "outcome_heuristic",
+      "distilled_outcome"
+    ],
+    "play_both_sides": true,
+    "inference_mode": "greedy",
+    "temperature": 1.0
+  },
+  "results": [
+    {
+      "opponent_name": "random",
+      "games_played": 500,
+      "wins": 467,
+      "losses": 19,
+      "draws": 14,
+      "win_rate": 0.934,
+      "avg_point_margin": 7.58,
+      "avg_game_length": 22.664,
+      "confidence_interval_95": [
+        0.9087600691405885,
+        0.9526217619745876
+      ]
+    },
+    {
+      "opponent_name": "heuristic",
+      "games_played": 500,
+      "wins": 384,
+      "losses": 83,
+      "draws": 33,
+      "win_rate": 0.768,
+      "avg_point_margin": 3.81,
+      "avg_game_length": 22.812,
+      "confidence_interval_95": [
+        0.7290418422345863,
+        0.8028713622328494
+      ]
+    },
+    {
+      "opponent_name": "aggressive",
+      "games_played": 500,
+      "wins": 375,
+      "losses": 86,
+      "draws": 39,
+      "win_rate": 0.75,
+      "avg_point_margin": 3.642,
+      "avg_game_length": 22.782,
+      "confidence_interval_95": [
+        0.7102355648988187,
+        0.7859521258357297
+      ]
+    },
+    {
+      "opponent_name": "defensive",
+      "games_played": 500,
+      "wins": 405,
+      "losses": 63,
+      "draws": 32,
+      "win_rate": 0.81,
+      "avg_point_margin": 4.46,
+      "avg_game_length": 22.86,
+      "confidence_interval_95": [
+        0.7732995724391238,
+        0.8419731640717162
+      ]
+    },
+    {
+      "opponent_name": "queue",
+      "games_played": 500,
+      "wins": 378,
+      "losses": 81,
+      "draws": 41,
+      "win_rate": 0.756,
+      "avg_point_margin": 3.804,
+      "avg_game_length": 22.882,
+      "confidence_interval_95": [
+        0.7164944353121212,
+        0.7916017600000563
+      ]
+    },
+    {
+      "opponent_name": "skunk",
+      "games_played": 500,
+      "wins": 378,
+      "losses": 80,
+      "draws": 42,
+      "win_rate": 0.756,
+      "avg_point_margin": 3.992,
+      "avg_game_length": 22.806,
+      "confidence_interval_95": [
+        0.7164944353121212,
+        0.7916017600000563
+      ]
+    },
+    {
+      "opponent_name": "noisy",
+      "games_played": 500,
+      "wins": 378,
+      "losses": 84,
+      "draws": 38,
+      "win_rate": 0.756,
+      "avg_point_margin": 3.802,
+      "avg_game_length": 22.8,
+      "confidence_interval_95": [
+        0.7164944353121212,
+        0.7916017600000563
+      ]
+    },
+    {
+      "opponent_name": "online",
+      "games_played": 500,
+      "wins": 351,
+      "losses": 92,
+      "draws": 57,
+      "win_rate": 0.702,
+      "avg_point_margin": 3.212,
+      "avg_game_length": 22.818,
+      "confidence_interval_95": [
+        0.6604921922645165,
+        0.7404274618489984
+      ]
+    },
+    {
+      "opponent_name": "outcome_heuristic",
+      "games_played": 500,
+      "wins": 330,
+      "losses": 121,
+      "draws": 49,
+      "win_rate": 0.66,
+      "avg_point_margin": 2.538,
+      "avg_game_length": 22.844,
+      "confidence_interval_95": [
+        0.617398269756609,
+        0.7001618523135019
+      ]
+    },
+    {
+      "opponent_name": "distilled_outcome",
+      "games_played": 500,
+      "wins": 337,
+      "losses": 116,
+      "draws": 47,
+      "win_rate": 0.674,
+      "avg_point_margin": 2.754,
+      "avg_game_length": 22.856,
+      "confidence_interval_95": [
+        0.6317212496204101,
+        0.7136253831308356
+      ]
+    }
+  ],
+  "elo_estimate": 1378.588571826792
+}

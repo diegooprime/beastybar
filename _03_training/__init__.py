@@ -22,6 +22,7 @@ from .exploit_patch_cycle import (
     ExploiterInfo,
     ExploitPatchManager,
 )
+from .exploiter_training import ExploiterConfig
 from .game_generator import GameGenerator
 from .opponent_pool import (
     CheckpointEntry,
@@ -88,6 +89,7 @@ from .trajectory import (
 from .utils import inference_mode, training_mode
 
 __all__ = [
+    "TORCH_AVAILABLE",
     "Batch",
     "CheckpointEntry",
     "CheckpointManager",
@@ -99,6 +101,7 @@ __all__ = [
     "EvaluationResult",
     "ExperimentTracker",
     "ExploitPatchManager",
+    "ExploiterConfig",
     "ExploiterInfo",
     "GameGenerator",
     "GameTrajectory",
@@ -117,7 +120,6 @@ __all__ = [
     "RolloutData",
     "SampledOpponent",
     "SelfPlayStats",
-    "TORCH_AVAILABLE",
     "Tournament",
     "TournamentConfig",
     "Trainer",

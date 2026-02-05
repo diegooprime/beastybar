@@ -7,7 +7,6 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from _01_simulator import actions, engine, state
-from _01_simulator.exceptions import BeastyBarError
 
 from .base import Agent
 
@@ -207,7 +206,7 @@ class HeuristicAgent(Agent):
         # Apply the action and evaluate the resulting state
         try:
             next_state = engine.step(game_state, action)
-        except BeastyBarError:
+        except (ValueError, IndexError):
             return float("-inf")
 
         base_score = self._evaluator(next_state, player)
@@ -568,7 +567,7 @@ class OnlineStrategies(Agent):
             # Simulate the action to get base evaluation
             try:
                 next_state = engine.step(game_state, action)
-            except BeastyBarError:
+            except (ValueError, IndexError):
                 scored_actions.append((float("-inf"), action))
                 continue
 

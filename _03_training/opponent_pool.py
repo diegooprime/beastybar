@@ -101,12 +101,12 @@ class OpponentConfig:
 
     All weights must sum to 1.0.
     """
-    current_weight: float = 0.6
+    current_weight: float = 0.55
     checkpoint_weight: float = 0.2
     random_weight: float = 0.1
     heuristic_weight: float = 0.1
     outcome_heuristic_weight: float = 0.0  # Outcome-based heuristics (separate from basic heuristics)
-    mcts_weight: float = 0.0  # Default 0 for backward compatibility
+    mcts_weight: float = 0.05  # Small default weight when MCTS is enabled
     max_checkpoints: int = 10
     mcts_configs: list[MCTSOpponentConfig] = field(default_factory=list)
 

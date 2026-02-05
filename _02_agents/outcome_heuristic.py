@@ -21,7 +21,6 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from _01_simulator import actions, engine, state
-from _01_simulator.exceptions import BeastyBarError
 
 from .base import Agent
 
@@ -330,7 +329,7 @@ class OutcomeHeuristic(Agent):
         # Try to simulate the action
         try:
             next_state = engine.step(game_state, action)
-        except BeastyBarError:
+        except (ValueError, IndexError):
             return float("-inf")
 
         # Compute outcome metrics
@@ -476,7 +475,7 @@ class OutcomeHeuristicV2(Agent):
             for action in legal:
                 try:
                     next_state = engine.step(game_state, action)
-                except BeastyBarError:
+                except (ValueError, IndexError):
                     continue
                 value = self._minimax(next_state, player, depth - 1, not maximizing)
                 best_value = max(best_value, value)
@@ -486,7 +485,7 @@ class OutcomeHeuristicV2(Agent):
             for action in legal:
                 try:
                     next_state = engine.step(game_state, action)
-                except BeastyBarError:
+                except (ValueError, IndexError):
                     continue
                 value = self._minimax(next_state, player, depth - 1, not maximizing)
                 worst_value = min(worst_value, value)
@@ -511,7 +510,7 @@ class OutcomeHeuristicV2(Agent):
         for action in legal_actions:
             try:
                 next_state = engine.step(game_state, action)
-            except BeastyBarError:
+            except (ValueError, IndexError):
                 continue
 
             # Minimax from opponent's perspective (minimizing for us)

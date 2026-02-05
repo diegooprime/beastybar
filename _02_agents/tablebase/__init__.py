@@ -31,7 +31,6 @@ from .endgame import (
     generate_tablebase,
     load_tablebase,
 )
-
 from .enumerate import (
     CanonicalKey,
     EnumerationConfig,
@@ -39,16 +38,12 @@ from .enumerate import (
     PositionIndexer,
     count_positions_estimate,
 )
-
-from .storage import (
-    MMapTablebase,
-    MMapTablebaseConfig,
-    SharedArrayTablebase,
-    StoredValue,
-    pack_entry,
-    unpack_entry,
+from .parallel import (
+    ParallelConfig,
+    ParallelStats,
+    ParallelTablebaseGenerator,
+    generate_parallel_tablebase,
 )
-
 from .retrograde import (
     CanonicalAction,
     RetrogradeConfig,
@@ -56,12 +51,13 @@ from .retrograde import (
     RetrogradeTablebase,
     generate_retrograde_tablebase,
 )
-
-from .parallel import (
-    ParallelConfig,
-    ParallelStats,
-    ParallelTablebaseGenerator,
-    generate_parallel_tablebase,
+from .storage import (
+    MMapTablebase,
+    MMapTablebaseConfig,
+    SharedArrayTablebase,
+    StoredValue,
+    pack_entry,
+    unpack_entry,
 )
 
 __all__ = [

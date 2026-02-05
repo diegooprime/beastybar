@@ -243,7 +243,7 @@ class TrainingConfig:
     self_play_temperature: float = 1.0
     num_workers: int = 1  # Number of parallel workers for game generation
     shaped_rewards: bool = False  # Use score-margin shaped rewards for better credit assignment
-    async_game_generation: bool = True  # Generate next batch while training (hides latency)
+    async_game_generation: bool = True  # CPU workers pre-generate batches; disabled on GPU for better throughput
     async_prefetch_batches: int = 32  # Number of batches to keep pre-generated in queue
     async_num_workers: int = 16  # Number of parallel worker processes for game generation
 
@@ -705,7 +705,8 @@ class Trainer:
                     f"current={config.opponent_config.current_weight:.0%}, "
                     f"checkpoint={config.opponent_config.checkpoint_weight:.0%}, "
                     f"random={config.opponent_config.random_weight:.0%}, "
-                    f"heuristic={config.opponent_config.heuristic_weight:.0%}"
+                    f"heuristic={config.opponent_config.heuristic_weight:.0%}, "
+                    f"mcts={config.opponent_config.mcts_weight:.0%}"
                 )
             else:
                 self.opponent_pool = OpponentPool(
@@ -717,11 +718,23 @@ class Trainer:
                     f"current={config.opponent_config.current_weight:.0%}, "
                     f"checkpoint={config.opponent_config.checkpoint_weight:.0%}, "
                     f"random={config.opponent_config.random_weight:.0%}, "
-                    f"heuristic={config.opponent_config.heuristic_weight:.0%}"
+                    f"heuristic={config.opponent_config.heuristic_weight:.0%}, "
+                    f"mcts={config.opponent_config.mcts_weight:.0%}"
                 )
 
             # Set up MCTS opponents if enabled
             if config.use_mcts_opponents:
+                # Validate MCTS implementation is available before enabling
+                try:
+                    from _02_agents.mcts import MCTSAgent as _  # type: ignore  # noqa: F401
+                except Exception:
+                    try:
+                        from _02_agents.mcts.agent import MCTSAgent as _  # type: ignore  # noqa: F401
+                    except Exception as exc:
+                        raise RuntimeError(
+                            "use_mcts_opponents=True but MCTS implementation is not available."
+                        ) from exc
+
                 # Auto-populate MCTS configs if not provided but mcts_weight > 0
                 if not config.opponent_config.mcts_configs and config.opponent_config.mcts_weight > 0:
                     config.opponent_config.mcts_configs = create_mcts_100_configs()
@@ -769,6 +782,14 @@ class Trainer:
             temperature=config.self_play_temperature,
             num_workers=config.num_workers,
         )
+
+        # Async workers run self-play on CPU; prefer in-process GPU self-play when available.
+        if config.async_game_generation and self._device.type in {"cuda", "mps"}:
+            logger.warning(
+                "Async game generation uses CPU workers; disabling to keep self-play on %s.",
+                self._device.type,
+            )
+            config.async_game_generation = False
 
         # Async game generation with multiprocessing (generates next batches while training)
         # Use spawn context for CUDA compatibility (fork + CUDA = deadlocks)

@@ -26,8 +26,8 @@ include = ["_01_simulator*", "_02_agents*", "_03_training*", "_04_ui*", "_05_oth
 exclude = ["tests*", "logs*", "scripts*"]
 
 [tool.pytest.ini_options]
-testpaths = ["_05_other/tests"]
-pythonpath = [".."]
+testpaths = ["tests", "_05_other/tests"]
+pythonpath = ["."]
 addopts = "-ra"
 
 [dependency-groups]

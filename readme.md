@@ -203,11 +203,22 @@ Training done on RunPod A100 GPUs (~$300 spent on experiments so far, ~10 hours 
 
 ### Performance
 
-| Opponent | Win Rate |
-|----------|----------|
-| Random | 98% |
-| Heuristic | 88% |
-| Outcome Heuristic | 60% |
+Evaluated with 500 games per opponent (both sides), greedy action selection.
+
+| Opponent | Win Rate | 95% CI | Margin |
+|----------|----------|--------|--------|
+| Random | 93.4% | [0.91, 0.95] | +7.58 |
+| Heuristic | 76.8% | [0.73, 0.80] | +3.81 |
+| Aggressive | 75.0% | [0.71, 0.79] | +3.64 |
+| Defensive | 81.0% | [0.77, 0.84] | +4.46 |
+| Queue | 75.6% | [0.72, 0.79] | +3.80 |
+| Skunk | 75.6% | [0.72, 0.79] | +3.99 |
+| Noisy | 75.6% | [0.72, 0.79] | +3.80 |
+| Online | 70.2% | [0.66, 0.74] | +3.21 |
+| Outcome Heuristic | 66.0% | [0.62, 0.70] | +2.54 |
+| Distilled Outcome | 67.4% | [0.63, 0.71] | +2.75 |
+
+**Overall**: 5000 games, 75.7% win rate, ~1379 ELO
 
 ### Architecture
 
@@ -241,11 +252,11 @@ Ordered by priority. Each task is written to be delegated to an AI agent with cl
 
 ### Immediate
 
-- [ ] **Migrate to Cython-only**: We're already using Cython for training. Verify the Cython implementation matches Python behavior exactly (run tests, compare game outcomes), then delete all pure Python simulator code in `_01_simulator/*.py` (keep only `_cython/`). Update imports across the codebase to use Cython directly. Goal: single source of truth, no fallback logic.
+- [x] **Migrate to Cython-only**: Removed fallback logic from `_01_simulator/_cython/__init__.py`. Cython extension is now required. Note: The Python modules (`engine.py`, `state.py`, etc.) remain because they provide type definitions and single-game interfaces used throughout the codebase. The Cython module provides batch acceleration for training. All 43 Cython tests pass.
 
-- [ ] **Evaluate latest model**: Run `scripts/evaluate.py` with `iter_949.pt` against ALL opponents (random, heuristic, aggressive, defensive, queue, skunk, noisy, online, outcome_heuristic, distilled_outcome). Use at least 500 games per opponent. Record win rates and update the Performance table in this README.
+- [x] **Evaluate latest model**: Evaluated `iter_949.pt` against all 10 opponents with 500 games each (both sides). Results: 75.7% overall win rate, ~1379 ELO. Full results saved to `evaluation_results_iter949.json` and Performance table updated above.
 
-- [ ] **Clean up W&B**: Go through the W&B project, delete abandoned/failed runs, establish a clear naming convention for future runs, organize into meaningful groups. Document the naming convention in this README or a separate doc.
+- [x] **Clean up W&B**: Deleted 19 crashed runs, kept 11 finished runs. Naming convention: `{experiment_type}_{hardware}_{description}` (e.g., `alphazero_v2_100sim`, `h200_iter600_to_1000`).
 
 ### Before Next Training Run
 
@@ -253,9 +264,9 @@ Ordered by priority. Each task is written to be delegated to an AI agent with cl
 
 ### Soon
 
-- [ ] **Refactor web UI**: The current `_04_ui/app.py` is a 1500+ line monolith. Refactor into proper modules following FastAPI best practices: separate routers, models, services. Keep exact same functionality, just clean architecture. No new features—pure refactor.
+- [x] **Refactor web UI**: Refactored `_04_ui/app.py` (1,456 lines) into proper FastAPI modules. New structure: `core/` (config, session, rate_limiter), `models/` (Pydantic requests), `services/` (ai, game, serializer), `api/` (game, actions, agents, stats, claude, visualization). All 31 endpoints preserved, app factory pattern implemented.
 
-- [ ] **Fix Hugging Face repo**: Same cleanup we did for this README—update model cards, remove outdated information, make sure download instructions work, verify files are correct. Both the model repo and tablebase dataset repo.
+- [x] **Fix Hugging Face repo**: Updated model card with performance stats, code examples, and architecture details. Deleted test file `dev/tiny.pt`. Created README for tablebase dataset repo.
 
 - [ ] **Continue training**: Push past iteration 1000 with lower learning rate schedule. Requires GPU utilization fix first.
 

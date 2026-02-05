@@ -9,8 +9,11 @@ This module provides tools for:
 
 from __future__ import annotations
 
+import logging
 import math
+import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from _01_simulator import engine, simulate
@@ -19,6 +22,49 @@ if TYPE_CHECKING:
     from _02_agents.base import Agent
 
     from .tracking import ExperimentTracker
+
+logger = logging.getLogger(__name__)
+
+_ITER_CHECKPOINT_RE = re.compile(r"iter_(\d+)")
+
+
+def _find_latest_checkpoint(checkpoint_dir: Path) -> Path | None:
+    """Find the latest iteration checkpoint under the given directory."""
+    if not checkpoint_dir.exists():
+        return None
+
+    candidates: list[tuple[int, Path]] = []
+    for path in checkpoint_dir.rglob("iter_*.pt"):
+        match = _ITER_CHECKPOINT_RE.search(path.stem)
+        if not match:
+            continue
+        try:
+            iteration = int(match.group(1))
+        except ValueError:
+            continue
+        candidates.append((iteration, path))
+
+    if not candidates:
+        return None
+
+    # Prefer highest iteration; tie-breaker by mtime
+    candidates.sort(
+        key=lambda item: (item[0], item[1].stat().st_mtime if item[1].exists() else 0.0),
+        reverse=True,
+    )
+    return candidates[0][1]
+
+
+def _is_mcts_available() -> bool:
+    """Return True if MCTS agent implementation is importable."""
+    try:
+        from _02_agents.mcts import MCTSAgent as _  # type: ignore  # noqa: F401
+    except Exception:
+        try:
+            from _02_agents.mcts.agent import MCTSAgent as _  # type: ignore  # noqa: F401
+        except Exception:
+            return False
+    return True
 
 
 @dataclass
@@ -92,7 +138,6 @@ def create_opponent(name: str) -> Agent:
         ValueError: If the opponent name is not recognized.
     """
     from _02_agents.heuristic import HeuristicAgent, HeuristicConfig, OnlineStrategies
-    from _02_agents.mcts import MCTSAgent
     from _02_agents.random_agent import RandomAgent
 
     name_lower = name.lower().strip()
@@ -127,6 +172,15 @@ def create_opponent(name: str) -> Agent:
 
         return DistilledOutcomeHeuristic()
     elif name_lower.startswith("mcts-"):
+        if not _is_mcts_available():
+            raise ValueError(
+                "MCTS opponents requested but MCTS implementation is not available in this repo."
+            )
+        try:
+            from _02_agents.mcts import MCTSAgent
+        except ImportError:
+            from _02_agents.mcts.agent import MCTSAgent
+
         from _02_agents.neural.utils import get_device, load_network_from_checkpoint
 
         try:
@@ -134,19 +188,16 @@ def create_opponent(name: str) -> Agent:
         except (IndexError, ValueError) as e:
             raise ValueError(f"Invalid MCTS specification: {name}. Use 'mcts-N' where N is simulations.") from e
 
-        # Load network from PPO checkpoint for meaningful MCTS search
-        from pathlib import Path
+        # Load latest checkpoint for meaningful MCTS search
+        checkpoint_path = _find_latest_checkpoint(Path("checkpoints"))
+        if checkpoint_path is None:
+            raise ValueError(
+                "No PPO checkpoints found for MCTS evaluation. "
+                "Train a model or pass an explicit checkpoint via "
+                "`neural:/path/to/checkpoint.pt`."
+            )
 
-        ppo_checkpoint = Path("checkpoints/v2/iter_000199.pt")
-        if ppo_checkpoint.exists():
-            network, _config, _step = load_network_from_checkpoint(ppo_checkpoint, device=get_device())
-        else:
-            # Fallback to default config with random weights
-            from _02_agents.neural.network import BeastyBarNetwork
-            from _02_agents.neural.utils import default_config
-
-            network = BeastyBarNetwork(default_config())
-            network = network.to(get_device())
+        network, _config, _step = load_network_from_checkpoint(checkpoint_path, device=get_device())
         network.eval()
 
         return MCTSAgent(
@@ -158,8 +209,14 @@ def create_opponent(name: str) -> Agent:
         # Self-play: load the same PPO model as opponent
         from _02_agents.neural.agent import load_neural_agent
 
-        checkpoint = "checkpoints/v2/iter_000199.pt"
-        return load_neural_agent(checkpoint, mode="greedy", device="auto")
+        checkpoint_path = _find_latest_checkpoint(Path("checkpoints"))
+        if checkpoint_path is None:
+            raise ValueError(
+                "No PPO checkpoints found for self-play evaluation. "
+                "Train a model or pass an explicit checkpoint via "
+                "`neural:/path/to/checkpoint.pt`."
+            )
+        return load_neural_agent(str(checkpoint_path), mode="greedy", device="auto")
     elif name_lower.startswith("neural:") or name_lower.startswith("ppo:"):
         # Load neural model from arbitrary path
         # Format: "neural:path/to/checkpoint.pt" or "ppo:path/to/checkpoint.pt"
@@ -625,7 +682,8 @@ def run_evaluation(
         tracker: Experiment tracker for logging metrics.
         step: Training step/iteration number for logging.
         games_per_opponent: Number of games to play against each opponent.
-        opponents: List of opponent names. Defaults to ["random", "heuristic"].
+        opponents: List of opponent names. Defaults to ["random", "heuristic"] and
+            adds "mcts-100" if a checkpoint is available.
         play_both_sides: If True, play as both player 0 and player 1.
         mode: Agent action selection mode ("greedy" or "sample").
 
@@ -644,6 +702,13 @@ def run_evaluation(
 
     if opponents is None:
         opponents = ["random", "heuristic"]
+        checkpoint_path = _find_latest_checkpoint(Path("checkpoints"))
+        if checkpoint_path is None:
+            logger.info("No PPO checkpoints found; skipping MCTS evaluation opponents.")
+        elif not _is_mcts_available():
+            logger.info("MCTS implementation not available; skipping MCTS evaluation opponents.")
+        else:
+            opponents.append("mcts-100")
 
     # Create agent from network
     agent = NeuralAgent(
