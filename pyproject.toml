@@ -9,24 +9,20 @@ description = "Beasty Bar simulator"
 requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.111,<1.0",
-    "uvicorn>=0.30,<0.31",
-    "httpx>=0.27,<0.28",
     "numpy>=2.0,<3.0",
-    "anthropic>=0.40",
 ]
 
 [project.optional-dependencies]
-cython = [
-    "cython>=3.0",
-]
+cython = ["cython>=3.0"]
+torch = ["torch>=2.0"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["_01_simulator*", "_02_agents*", "_03_training*", "_04_ui*", "_05_other*"]
+include = ["_01_simulator*", "_02_agents*", "_03_training*", "_04_ui*"]
 exclude = ["tests*", "logs*", "scripts*"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "_05_other/tests"]
+testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-ra"
 
@@ -70,15 +66,11 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"_05_other/tests/*" = ["N802", "N803"]  # Allow test function naming
 "scripts/*" = ["E402"]  # Scripts need sys.path modification before imports
 "_01_simulator/_cython/test_*.py" = ["E402", "F401"]  # Cython test scripts
 "_01_simulator/_cython/__init__.py" = ["F401"]  # Re-exports for availability checking
-"_05_analysis/*" = ["E402", "N803"]  # Analysis scripts - sys.path and ML conventions
 "_04_ui/app.py" = ["E402"]  # Lazy imports for circular dependency avoidance
 "__init__.py" = ["F401", "F405"]  # Re-exports and star imports in package init
-"_05_other/tests/test_population.py" = ["E402"]  # pytest.importorskip before imports
-"scripts/benchmark_cython.py" = ["F401"]  # Imports for availability checking
 
 [tool.ruff.format]
 quote-style = "double"
@@ -101,10 +93,6 @@ warn_no_return = true
 warn_unreachable = true
 strict_equality = true
 show_error_codes = true
-
-[[tool.mypy.overrides]]
-module = "_05_other.tests.*"
-disallow_untyped_defs = false
 
 [[tool.mypy.overrides]]
 module = "_04_ui.*"

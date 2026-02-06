@@ -59,34 +59,34 @@ Pure self-play collapses. Mix fixes it:
 
 | Type | Weight |
 |------|--------|
-| Current network | 55% |
-| Past checkpoints | 20% |
+| Current network | 50% |
+| Heuristic | 30% |
+| Past checkpoints | 10% |
 | Random | 10% |
-| Heuristic | 10% |
-| MCTS | 5% |
 
-Note: MCTS opponents are only used when `use_mcts_opponents=True` and the MCTS implementation is available.
+Supports adaptive weighting (`use_adaptive_weights: true`) that adjusts opponent mix based on win rates, with a configurable minimum weight floor.
 
 ## Configuration
 
 ```yaml
-# configs/default.yaml
+# configs/iter600_to_1000.yaml
 network_config:
   hidden_dim: 256
   num_heads: 8
   num_layers: 4
 
-learning_rate: 0.00005
-games_per_iteration: 128
-batch_size: 512
-total_iterations: 200
+ppo_config:
+  learning_rate: 0.0001
+  minibatch_size: 2048
 
-  opponent_pool:
-  current_weight: 0.55
-  checkpoint_weight: 0.2
+games_per_iteration: 8192
+total_iterations: 1000
+
+opponent_config:
+  current_weight: 0.5
+  checkpoint_weight: 0.1
   random_weight: 0.1
-  heuristic_weight: 0.1
-  mcts_weight: 0.05
+  heuristic_weight: 0.3
 ```
 
 ## Performance

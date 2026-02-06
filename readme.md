@@ -74,9 +74,9 @@ _01_simulator/
 
 ### Cython Acceleration
 
-The `_cython/` directory contains a complete reimplementation of the game engine in Cython for ~200x faster simulation. Currently the training code auto-detects availability and falls back to pure Python if not compiled.
+The `_cython/` directory contains a complete reimplementation of the game engine in Cython for ~200x faster simulation. Production training uses `force_cython: true`—the Cython extension must be compiled or training will fail (no Python fallback).
 
-**Current state:** We maintain both Python and Cython implementations. The plan is to migrate to Cython-only to simplify the codebase.
+**Current state:** Both Python and Cython implementations exist. The Python modules provide type definitions and single-game interfaces used throughout the codebase, while the Cython module provides batch acceleration required for training.
 
 ```bash
 # Build Cython extension (required for training)

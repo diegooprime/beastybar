@@ -141,13 +141,30 @@ GET /api/ai-agents
 **Response:**
 ```json
 [
-  {"id": "neural", "name": "PPO iter 949 (Strongest)", "description": "Neural network trained for 949 iterations"},
+  {"id": "ppo_iter949_tablebase", "name": "PPO iter 949 + Tablebase (Superhuman)", "description": "Neural network with perfect endgame play via tablebase"},
+  {"id": "neural", "name": "PPO iter 949", "description": "Neural network trained for 949 iterations"},
   {"id": "heuristic", "name": "Heuristic (Default)", "description": "Balanced strategic AI"},
   {"id": "aggressive", "name": "Heuristic (Aggressive)", "description": "High aggression, bar-focused"},
   {"id": "defensive", "name": "Heuristic (Defensive)", "description": "Conservative, low aggression"},
+  {"id": "queue_control", "name": "Heuristic (Queue Control)", "description": "Prioritizes queue front positioning"},
+  {"id": "skunk_specialist", "name": "Heuristic (Skunk Specialist)", "description": "Values skunk plays higher"},
+  {"id": "noisy", "name": "Heuristic (Noisy)", "description": "Human-like with random noise"},
+  {"id": "online", "name": "Online Strategies", "description": "Reactive counter-play"},
   {"id": "random", "name": "Random", "description": "Plays random legal moves"}
 ]
 ```
+
+---
+
+#### List Battle Agents
+
+```http
+GET /api/ai-agents/battle
+```
+
+Returns the same agent list as `/api/ai-agents`, filtered for AI vs AI battles.
+
+**Response:** Same as `/api/ai-agents`
 
 ---
 
@@ -178,6 +195,158 @@ Run multiple games between two AI agents.
   "numGames": 50,
   "wins": [35, 12],
   "games": [...]
+}
+```
+
+---
+
+### Claude Code Integration
+
+#### Get Claude Game State
+
+```http
+GET /api/claude-state
+```
+
+Get game state formatted for Claude Code to read and make a move.
+
+**Response:**
+```json
+{
+  "formatted": "## Beasty Bar - Claude's Turn (Player 1)\n...",
+  "legalActions": [
+    {"index": 1, "handIndex": 0, "label": "Play lion"}
+  ],
+  "isClaudeTurn": true
+}
+```
+
+---
+
+#### Apply Claude Move
+
+```http
+POST /api/claude-move
+```
+
+Apply Claude Code's chosen move.
+
+**Request Body:**
+```json
+{
+  "actionIndex": 1
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `actionIndex` | integer | 1-based index of the legal action to play |
+
+**Response:** Updated game state
+
+---
+
+#### Write State to Bridge File
+
+```http
+POST /api/claude-bridge/write-state
+```
+
+Write game state to a file on disk for Claude Code to read asynchronously.
+
+**Response:**
+```json
+{
+  "written": true,
+  "path": "/path/to/claude_state.json"
+}
+```
+
+If it's not Claude's turn or the game is over:
+```json
+{
+  "written": false,
+  "reason": "Not Claude's turn"
+}
+```
+
+---
+
+#### Check for Claude Move
+
+```http
+GET /api/claude-bridge/check-move
+```
+
+Check if Claude Code has written a move response file.
+
+**Response:**
+```json
+{
+  "hasMove": true,
+  "actionIndex": 2
+}
+```
+
+---
+
+#### Apply Bridge Move
+
+```http
+POST /api/claude-bridge/apply-move
+```
+
+Apply the move from Claude's response file and clean up bridge files.
+
+**Response:** Updated game state
+
+---
+
+### Player Stats
+
+#### Get Stats
+
+```http
+GET /api/stats
+```
+
+Get player stats from server.
+
+**Response:** Stats object (structure depends on client usage)
+
+---
+
+#### Save Stats
+
+```http
+POST /api/stats
+```
+
+Save player stats to server.
+
+**Request Body:** Stats object to persist
+
+**Response:**
+```json
+{
+  "status": "ok"
+}
+```
+
+---
+
+#### Clear Stats
+
+```http
+DELETE /api/stats
+```
+
+Clear all player stats.
+
+**Response:**
+```json
+{
+  "status": "ok"
 }
 ```
 
@@ -279,6 +448,46 @@ GET /api/viz/status
 {
   "connected_clients": 2,
   "neural_agents_available": ["neural", "ppo_iter949"]
+}
+```
+
+---
+
+#### Get Activation History
+
+```http
+GET /api/viz/history
+```
+
+Get activation history for replay mode. Returns snapshots from neural agents that have captured activations.
+
+**Response:**
+```json
+[
+  {
+    "turn": 1,
+    "player": 0,
+    "activations": {...}
+  }
+]
+```
+
+Returns an empty array if no history is available.
+
+---
+
+#### Clear Activation History
+
+```http
+POST /api/viz/clear-history
+```
+
+Clear activation history for all visualizing agents. Call this when starting a new game.
+
+**Response:**
+```json
+{
+  "status": "cleared"
 }
 ```
 

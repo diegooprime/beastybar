@@ -4,6 +4,10 @@ Transformer-based policy-value network for Beasty Bar.
 
 ## Architecture
 
+> **Note:** The values below reflect the **trained model** configuration
+> (see `configs/iter600_to_1000.yaml`). Code defaults in `NetworkConfig`
+> may differ (e.g., `species_embedding_dim` defaults to 32, not 64).
+
 ```
 Input (988) → Zone Encoders → Fusion → Policy (124) + Value (1)
 ```
