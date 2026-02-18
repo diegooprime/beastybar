@@ -1348,7 +1348,7 @@
 
     /* Ability highlight effects */
     .card.event-kill {
-      animation: event-kill 0.5s ease-out;
+      animation: event-kill 0.2s ease-out;
     }
 
     @keyframes event-kill {
@@ -1357,7 +1357,7 @@
     }
 
     .card.event-move {
-      animation: event-move 0.5s ease-out;
+      animation: event-move 0.2s ease-out;
     }
 
     @keyframes event-move {
@@ -1366,7 +1366,7 @@
     }
 
     .card.event-score {
-      animation: event-score 0.5s ease-out;
+      animation: event-score 0.2s ease-out;
     }
 
     @keyframes event-score {
@@ -1376,13 +1376,13 @@
 
     /* ===================== Card Animations ===================== */
 
-    /* Animation timing variables - much slower for clarity */
+    /* Animation timing variables - snappy for demo */
     :root {
-      --anim-fast: 500ms;
-      --anim-normal: 700ms;
-      --anim-slow: 900ms;
-      --anim-very-slow: 1200ms;
-      --anim-easing: cubic-bezier(0.25, 0.1, 0.25, 1);
+      --anim-fast: 150ms;
+      --anim-normal: 250ms;
+      --anim-slow: 350ms;
+      --anim-very-slow: 500ms;
+      --anim-easing: cubic-bezier(0.22, 1, 0.36, 1);
       --anim-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
     }
 
@@ -1545,7 +1545,7 @@
     }
 
     .queue.animating-reverse {
-      animation: queue-reverse-flash 600ms ease-in-out;
+      animation: queue-reverse-flash 250ms ease-in-out;
     }
 
     /* Card appearing in queue (after fly animation completes or AI play) */
@@ -1568,12 +1568,12 @@
     }
 
     .card.animating-appear {
-      animation: card-appear 500ms var(--anim-bounce) forwards;
+      animation: card-appear 200ms var(--anim-bounce) forwards;
     }
 
     /* Card being played - fade out smoothly while clone flies */
     .card.animating-playing {
-      animation: card-playing-out 500ms ease-out forwards;
+      animation: card-playing-out 200ms ease-out forwards;
       pointer-events: none;
       z-index: 500;
     }
@@ -1603,10 +1603,10 @@
     }
 
     /* Stagger animation delays for multiple cards */
-    .card.anim-delay-1 { animation-delay: 100ms; }
-    .card.anim-delay-2 { animation-delay: 200ms; }
-    .card.anim-delay-3 { animation-delay: 300ms; }
-    .card.anim-delay-4 { animation-delay: 400ms; }
+    .card.anim-delay-1 { animation-delay: 40ms; }
+    .card.anim-delay-2 { animation-delay: 80ms; }
+    .card.anim-delay-3 { animation-delay: 120ms; }
+    .card.anim-delay-4 { animation-delay: 160ms; }
 
     /* Animation label that shows what's happening */
     .anim-label {
@@ -1618,7 +1618,7 @@
       pointer-events: none;
       z-index: 2000;
       text-shadow: 0 2px 8px rgba(0,0,0,0.8), 0 0 20px currentColor;
-      animation: anim-label-pop 1s var(--anim-easing) forwards;
+      animation: anim-label-pop 400ms var(--anim-easing) forwards;
     }
 
     .anim-label.kill { color: #ef4444; }
@@ -1664,7 +1664,7 @@
     }
 
     .card.animating-hop {
-      animation: card-hop 500ms var(--anim-bounce);
+      animation: card-hop 250ms var(--anim-bounce);
       z-index: 200;
       box-shadow: 0 20px 40px rgba(0,0,0,0.5);
     }
@@ -1680,7 +1680,7 @@
     }
 
     .card.animating-push {
-      animation: card-push 400ms var(--anim-easing);
+      animation: card-push 200ms var(--anim-easing);
       z-index: 200;
       box-shadow: 0 0 30px rgba(236, 72, 153, 0.5);
     }
@@ -1696,7 +1696,7 @@
     }
 
     .card.animating-roar {
-      animation: card-roar 450ms var(--anim-easing);
+      animation: card-roar 200ms var(--anim-easing);
       z-index: 200;
       box-shadow: 0 0 40px rgba(249, 115, 22, 0.6);
     }
@@ -2029,9 +2029,9 @@
         <div class="battle-controls-row">
           <button class="battle-play-btn" id="battle-play-btn" title="Play/Pause">▶</button>
           <div class="battle-speed-control">
-            <span class="battle-speed-label">Speed: <span id="battle-speed-value">200ms</span></span>
+            <span class="battle-speed-label">Speed: <span id="battle-speed-value">50ms</span></span>
             <input type="range" class="battle-speed-slider" id="battle-speed-slider"
-                   min="50" max="1000" value="200" step="50">
+                   min="50" max="1000" value="50" step="50">
           </div>
         </div>
         <button class="battle-exit-btn" id="battle-exit-btn">Exit Battle Mode</button>
@@ -2060,9 +2060,9 @@
       </div>
 
       <div class="modal-field">
-        <label class="modal-label">Number of Games (1-200)</label>
+        <label class="modal-label">Number of Games (1-20)</label>
         <input type="number" class="modal-input" id="battle-games-input"
-               value="50" min="1" max="200" placeholder="50">
+               value="10" min="1" max="20" placeholder="10">
       </div>
 
       <div class="modal-field" style="display: flex; align-items: center; gap: 8px;">
@@ -2181,13 +2181,13 @@
 
     // Animation timing constants (ms) - much slower for clarity
     const ANIM_TIMING = {
-      CARD_TO_QUEUE: 700,
-      QUEUE_REORDER: 600,
-      KILL_EFFECT: 900,
-      SCORE_ENTRY: 900,
-      HELL_ENTRY: 700,
-      STAGGER_DELAY: 200,
-      PHASE_GAP: 400
+      CARD_TO_QUEUE: 250,
+      QUEUE_REORDER: 200,
+      KILL_EFFECT: 300,
+      SCORE_ENTRY: 300,
+      HELL_ENTRY: 220,
+      STAGGER_DELAY: 60,
+      PHASE_GAP: 120
     };
 
     // Generate unique key for a card
@@ -2406,7 +2406,7 @@
         showLabelNearCard(firstCard, 'KILLED!', 'kill');
       }
 
-      await delay(300); // Let highlight show
+      await delay(100); // Let highlight show
 
       cardKeys.forEach((key, idx) => {
         const cardEl = document.querySelector(`#queue .card[data-card-key="${key}"]`);
@@ -2441,7 +2441,7 @@
         showLabelNearCard(firstCard, 'SCORE!', 'score');
       }
 
-      await delay(400); // Let highlight show longer for score
+      await delay(120); // Let highlight show for score
 
       cardKeys.forEach((key, idx) => {
         const cardEl = document.querySelector(`#queue .card[data-card-key="${key}"]`);
@@ -2530,7 +2530,7 @@
       showAnimLabel('FLIP!', queueRect.left + queueRect.width / 2 - 30, queueRect.top + queueRect.height / 2 - 20, 'reverse');
 
       queue.classList.add('animating-reverse');
-      await delay(600); // Longer for more drama
+      await delay(200); // Reverse flash
       queue.classList.remove('animating-reverse');
     }
 
@@ -2820,20 +2820,20 @@
             // Add specific animation based on reason
             if (reorderAnim.reason === 'hop') {
               movingCardEl.classList.add('animating-hop');
-              await delay(500);
+              await delay(250);
               movingCardEl.classList.remove('animating-hop');
             } else if (reorderAnim.reason === 'push') {
               movingCardEl.classList.add('animating-push');
-              await delay(400);
+              await delay(200);
               movingCardEl.classList.remove('animating-push');
             } else if (reorderAnim.reason === 'roar') {
               movingCardEl.classList.add('animating-roar');
-              await delay(450);
+              await delay(200);
               movingCardEl.classList.remove('animating-roar');
             }
           }
 
-          await delay(300); // Let label show
+          await delay(100); // Let label show
 
           // Step 2: Capture positions before reorder
           const beforePositions = new Map();
@@ -3194,6 +3194,10 @@
     }
 
     async function startNewGame() {
+      // Exit battle mode if active
+      if (document.body.classList.contains('battle-mode')) {
+        exitBattleMode();
+      }
       const payload = {
         humanPlayer: parseInt(playerSelect.value),
         startingPlayer: 0,
@@ -3852,7 +3856,7 @@
     let battleTurnIndex = 0;
     let battleWins = [0, 0];
     let battlePlaybackTimer = null;
-    let battleSpeed = 200; // ms per turn
+    let battleSpeed = 50; // ms per turn
 
     // Battle elements
     const aiBattleBtn = document.getElementById('ai-battle-btn');
@@ -4002,7 +4006,7 @@
       const p2Agent = battleP2Select.value;
       const p1Name = battleP1Select.options[battleP1Select.selectedIndex].text;
       const p2Name = battleP2Select.options[battleP2Select.selectedIndex].text;
-      const numGames = Math.min(200, Math.max(1, parseInt(battleGamesInput.value) || 50));
+      const numGames = Math.min(20, Math.max(1, parseInt(battleGamesInput.value) || 10));
       const useVizMode = document.getElementById('battle-viz-mode').checked;
 
       hideBattleModal();
@@ -4048,21 +4052,30 @@
 
         // If visualizer mode, store data and open visualizer in new window
         if (useVizMode) {
-          // Strip activations to avoid localStorage quota issues
-          const strippedData = {
-            ...battleData,
-            games: battleData.games.map(g => ({
-              ...g,
-              turns: g.turns.map(t => ({ ...t, activations: null }))
-            }))
-          };
+          // Try with full activations first, fall back to stripped if too large
           try {
-            localStorage.setItem('battleData', JSON.stringify(strippedData));
+            localStorage.setItem('battleData', JSON.stringify(battleData));
             localStorage.setItem('battleSync', JSON.stringify({
               gameIndex: 0, turnIndex: 0, wins: [0, 0], speed: battleSpeed
             }));
           } catch (e) {
-            console.warn('Could not store battle data in localStorage:', e);
+            // Full data too large — strip activations and retry
+            console.warn('Full data too large for localStorage, stripping activations:', e);
+            const strippedData = {
+              ...battleData,
+              games: battleData.games.map(g => ({
+                ...g,
+                turns: g.turns.map(t => ({ ...t, activations: null }))
+              }))
+            };
+            try {
+              localStorage.setItem('battleData', JSON.stringify(strippedData));
+              localStorage.setItem('battleSync', JSON.stringify({
+                gameIndex: 0, turnIndex: 0, wins: [0, 0], speed: battleSpeed
+              }));
+            } catch (e2) {
+              console.warn('Could not store battle data in localStorage:', e2);
+            }
           }
           // Small delay to ensure localStorage write completes before popup reads
           setTimeout(() => {
@@ -4370,51 +4383,65 @@
     splashWatch.addEventListener('click', async () => {
       hideSplash();
       hideModal();
-      // Load battle agents, find neural and heuristic
-      try {
-        const res = await fetch('/api/ai-agents/battle');
-        if (res.ok) {
-          const agents = await res.json();
-          // Populate selects so battle code works
-          battleP1Select.innerHTML = '';
-          battleP2Select.innerHTML = '';
-          agents.forEach(agent => {
-            const opt1 = document.createElement('option');
-            opt1.value = agent.id;
-            opt1.textContent = agent.name;
-            battleP1Select.appendChild(opt1);
-            const opt2 = document.createElement('option');
-            opt2.value = agent.id;
-            opt2.textContent = agent.name;
-            battleP2Select.appendChild(opt2);
-          });
 
-          // Pick neural agent (prefer ppo_iter949) and heuristic
-          const neuralAgent = agents.find(a => a.id.includes('neural') || a.id.includes('ppo_iter949'))
-                           || agents.find(a => a.id.includes('ppo'));
-          const heuristicAgent = agents.find(a => a.id === 'heuristic')
-                              || agents.find(a => a.id !== (neuralAgent ? neuralAgent.id : '') && a.id !== 'random');
+      // Use preloaded data if available for instant start
+      const agents = preloadedAgents || await fetch('/api/ai-agents/battle').then(r => r.ok ? r.json() : null);
+      if (!agents) return;
 
-          if (neuralAgent) {
-            battleP1Select.value = neuralAgent.id;
-          }
-          if (heuristicAgent) {
-            battleP2Select.value = heuristicAgent.id;
-          }
+      // Populate selects so battle code works
+      battleP1Select.innerHTML = '';
+      battleP2Select.innerHTML = '';
+      agents.forEach(agent => {
+        const opt1 = document.createElement('option');
+        opt1.value = agent.id;
+        opt1.textContent = agent.name;
+        battleP1Select.appendChild(opt1);
+        const opt2 = document.createElement('option');
+        opt2.value = agent.id;
+        opt2.textContent = agent.name;
+        battleP2Select.appendChild(opt2);
+      });
 
-          // Set 10 games for quick demo
-          battleGamesInput.value = 10;
-          // Start the battle directly (skip modal)
-          await startBattle();
-          // Auto-play after a short delay
-          setTimeout(() => {
-            if (battleState === 'paused') {
-              battlePlayBtn.click();
-            }
-          }, 500);
-        }
-      } catch (err) {
-        console.error('Failed to auto-start battle:', err);
+      const neuralAgent = agents.find(a => a.id.includes('neural') || a.id.includes('ppo_iter949'))
+                       || agents.find(a => a.id.includes('ppo'));
+      const heuristicAgent = agents.find(a => a.id === 'heuristic')
+                          || agents.find(a => a.id !== (neuralAgent ? neuralAgent.id : '') && a.id !== 'random');
+      if (neuralAgent) battleP1Select.value = neuralAgent.id;
+      if (heuristicAgent) battleP2Select.value = heuristicAgent.id;
+      battleGamesInput.value = 10;
+
+      // If preloaded battle data exists, skip API call entirely
+      if (preloadedBattleData) {
+        enterBattleMode();
+        battleData = preloadedBattleData;
+        battleState = 'paused';
+        battleGameIndex = 0;
+        battleTurnIndex = 0;
+        battleWins = [0, 0];
+        preloadedBattleData = null; // consume it
+
+        const p1Name = battleP1Select.options[battleP1Select.selectedIndex]?.text || 'Player 1';
+        const p2Name = battleP2Select.options[battleP2Select.selectedIndex]?.text || 'Player 2';
+        battleMatchup.textContent = `${p1Name} vs ${p2Name}`;
+
+        // Store for visualizer
+        try {
+          localStorage.setItem('battleData', JSON.stringify(battleData));
+          localStorage.setItem('battleSync', JSON.stringify({
+            gameIndex: 0, turnIndex: 0, wins: [0, 0], speed: battleSpeed
+          }));
+        } catch (e) { /* ignore */ }
+
+        renderBattleTurn();
+        battlePlayBtn.disabled = false;
+        // Auto-play immediately
+        setTimeout(() => { if (battleState === 'paused') battlePlayBtn.click(); }, 100);
+      } else {
+        // Fallback: call API
+        await startBattle();
+        setTimeout(() => {
+          if (battleState === 'paused') battlePlayBtn.click();
+        }, 500);
       }
     });
 
@@ -4447,6 +4474,27 @@
       // Start game immediately
       await startNewGame();
     });
+
+    // Preload battle data in background so "Watch AI Battle" is instant
+    let preloadedBattleData = null;
+    let preloadedAgents = null;
+    (async () => {
+      try {
+        const [agentsRes, battleRes] = await Promise.all([
+          fetch('/api/ai-agents/battle'),
+          fetch('/api/ai-battle/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ player1Agent: 'neural', player2Agent: 'heuristic', numGames: 10 })
+          })
+        ]);
+        if (agentsRes.ok) preloadedAgents = await agentsRes.json();
+        if (battleRes.ok) preloadedBattleData = await battleRes.json();
+        console.log('Preloaded battle data:', preloadedBattleData ? 'ready' : 'failed');
+      } catch (e) {
+        console.warn('Preload failed (non-critical):', e);
+      }
+    })();
 
     // URL param support: ?mode=battle or ?mode=play
     const urlParams = new URLSearchParams(window.location.search);
