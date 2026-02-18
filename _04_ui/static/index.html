@@ -617,6 +617,140 @@
       color: var(--text);
     }
 
+    /* Splash / Welcome Screen */
+    .splash-overlay {
+      position: fixed;
+      inset: 0;
+      background: var(--bg-dark);
+      z-index: 200;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: opacity 0.4s, visibility 0.4s;
+    }
+
+    .splash-overlay.hidden {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+
+    .splash-content {
+      text-align: center;
+      max-width: 600px;
+      padding: 2rem;
+    }
+
+    .splash-title {
+      font-size: 3rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--accent), #8b5cf6, #ec4899);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 0.75rem;
+    }
+
+    .splash-subtitle {
+      font-size: 1.1rem;
+      color: var(--text-muted);
+      margin-bottom: 0.5rem;
+      line-height: 1.6;
+    }
+
+    .splash-stats {
+      display: flex;
+      justify-content: center;
+      gap: 2rem;
+      margin: 1.5rem 0 2rem;
+    }
+
+    .splash-stat {
+      text-align: center;
+    }
+
+    .splash-stat-value {
+      font-size: 1.75rem;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .splash-stat-label {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .splash-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      align-items: center;
+    }
+
+    .splash-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.75rem;
+      width: 320px;
+      padding: 1rem 1.5rem;
+      border: none;
+      border-radius: 0.75rem;
+      font-family: inherit;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .splash-btn-primary {
+      background: linear-gradient(135deg, var(--accent), #6366f1);
+      color: white;
+      font-size: 1.1rem;
+    }
+
+    .splash-btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 25px rgba(59, 130, 246, 0.4);
+    }
+
+    .splash-btn-secondary {
+      background: var(--bg-card);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .splash-btn-secondary:hover {
+      background: var(--bg-elevated);
+      transform: translateY(-1px);
+    }
+
+    .splash-btn-ghost {
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 0.875rem;
+      font-weight: 400;
+      width: auto;
+      padding: 0.5rem 1rem;
+    }
+
+    .splash-btn-ghost:hover {
+      color: var(--text);
+    }
+
+    .splash-badge {
+      display: inline-block;
+      padding: 0.25rem 0.75rem;
+      background: rgba(59, 130, 246, 0.15);
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      border-radius: 2rem;
+      font-size: 0.75rem;
+      color: var(--accent);
+      margin-bottom: 1rem;
+    }
+
     /* Modal */
     .modal-overlay {
       position: fixed;
@@ -1661,6 +1795,43 @@
   </style>
 </head>
 <body>
+  <!-- Splash / Welcome Screen -->
+  <div class="splash-overlay" id="splash">
+    <div class="splash-content">
+      <div class="splash-badge">Built with Claude Code</div>
+      <div class="splash-title">Beasty Bar AI</div>
+      <div class="splash-subtitle">
+        A neural network trained through 15 million games of self-play<br>
+        to master the card game Beasty Bar.
+      </div>
+      <div class="splash-stats">
+        <div class="splash-stat">
+          <div class="splash-stat-value">75.7%</div>
+          <div class="splash-stat-label">Win Rate</div>
+        </div>
+        <div class="splash-stat">
+          <div class="splash-stat-value">15M</div>
+          <div class="splash-stat-label">Games Trained</div>
+        </div>
+        <div class="splash-stat">
+          <div class="splash-stat-value">1.3M</div>
+          <div class="splash-stat-label">Parameters</div>
+        </div>
+      </div>
+      <div class="splash-actions">
+        <button class="splash-btn splash-btn-primary" id="splash-watch">
+          Watch AI vs AI Battle
+        </button>
+        <button class="splash-btn splash-btn-secondary" id="splash-play">
+          Play Against the AI
+        </button>
+        <a class="splash-btn splash-btn-ghost" href="https://github.com/diegooprime/beastybar" target="_blank">
+          View on GitHub
+        </a>
+      </div>
+    </div>
+  </div>
+
   <!-- Header -->
   <header class="header">
     <div class="header-left">
@@ -4173,6 +4344,105 @@
       battleSpeed = parseInt(battleSpeedSlider.value);
       battleSpeedValue.textContent = `${battleSpeed}ms`;
     });
+
+    // ===================== Splash Screen =====================
+
+    const splash = document.getElementById('splash');
+    const splashWatch = document.getElementById('splash-watch');
+    const splashPlay = document.getElementById('splash-play');
+
+    function hideSplash() {
+      splash.classList.add('hidden');
+    }
+
+    // "Watch AI vs AI Battle" — auto-start neural vs heuristic battle
+    splashWatch.addEventListener('click', async () => {
+      hideSplash();
+      // Load battle agents, find neural and heuristic
+      try {
+        const res = await fetch('/api/ai-agents/battle');
+        if (res.ok) {
+          const agents = await res.json();
+          // Populate selects so battle code works
+          battleP1Select.innerHTML = '';
+          battleP2Select.innerHTML = '';
+          agents.forEach(agent => {
+            const opt1 = document.createElement('option');
+            opt1.value = agent.id;
+            opt1.textContent = agent.name;
+            battleP1Select.appendChild(opt1);
+            const opt2 = document.createElement('option');
+            opt2.value = agent.id;
+            opt2.textContent = agent.name;
+            battleP2Select.appendChild(opt2);
+          });
+
+          // Pick neural agent (prefer ppo_iter949) and heuristic
+          const neuralAgent = agents.find(a => a.id.includes('neural') || a.id.includes('ppo_iter949'))
+                           || agents.find(a => a.id.includes('ppo'));
+          const heuristicAgent = agents.find(a => a.id === 'heuristic')
+                              || agents.find(a => a.id !== (neuralAgent ? neuralAgent.id : '') && a.id !== 'random');
+
+          if (neuralAgent) {
+            battleP1Select.value = neuralAgent.id;
+          }
+          if (heuristicAgent) {
+            battleP2Select.value = heuristicAgent.id;
+          }
+
+          // Set 10 games for quick demo
+          battleGamesInput.value = 10;
+          // Start the battle directly (skip modal)
+          await startBattle();
+          // Auto-play after a short delay
+          setTimeout(() => {
+            if (battleState === 'paused') {
+              battlePlayBtn.click();
+            }
+          }, 500);
+        }
+      } catch (err) {
+        console.error('Failed to auto-start battle:', err);
+      }
+    });
+
+    // "Play Against the AI" — start a game vs neural agent immediately
+    splashPlay.addEventListener('click', async () => {
+      hideSplash();
+      // Load agents and start game vs best neural agent
+      try {
+        const res = await fetch('/api/ai-agents');
+        if (res.ok) {
+          const agents = await res.json();
+          aiSelect.innerHTML = '';
+          agents.forEach(agent => {
+            const opt = document.createElement('option');
+            opt.value = agent.id;
+            opt.textContent = agent.name;
+            aiSelect.appendChild(opt);
+          });
+          // Pick neural agent
+          const neuralAgent = agents.find(a => a.id.includes('neural') || a.id.includes('ppo_iter949'))
+                           || agents.find(a => a.id.includes('ppo'));
+          if (neuralAgent) {
+            aiSelect.value = neuralAgent.id;
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load agents:', err);
+      }
+      // Start game immediately
+      await startNewGame();
+    });
+
+    // URL param support: ?mode=battle or ?mode=play
+    const urlParams = new URLSearchParams(window.location.search);
+    const autoMode = urlParams.get('mode');
+    if (autoMode === 'battle') {
+      splashWatch.click();
+    } else if (autoMode === 'play') {
+      splashPlay.click();
+    }
 
     // Init
     refreshState();
