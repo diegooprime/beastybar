@@ -28,30 +28,38 @@ def _build_agent_list() -> list[dict]:
     if "ppo_iter949_tablebase" in AI_AGENTS:
         agents.append({
             "id": "ppo_iter949_tablebase",
-            "name": "PPO iter 949 + Tablebase (Superhuman)",
-            "description": "Neural network with perfect endgame play via tablebase"
+            "name": "Neural Network + Tablebase (Strongest)",
+            "description": "Trained neural net with perfect endgame lookup — the strongest agent"
         })
     # Add neural agents sorted by iteration (highest first)
     all_neural = list(_neural_agents_extra)
     if _neural_name and _neural_name in AI_AGENTS:
         all_neural.append((_neural_agent, "neural", _neural_iter))
     all_neural.sort(key=lambda x: x[2], reverse=True)
+    seen_neural = False
     for _agent, name, iteration in all_neural:
-        label = f"PPO iter {iteration}"
+        if not seen_neural:
+            iter_label = f"{iteration} iters" if iteration > 0 else "949 iters"
+            label = f"Trained Neural Network ({iter_label}, 15M games)"
+            desc = "Transformer trained via self-play PPO — 75.7% win rate"
+            seen_neural = True
+        else:
+            label = f"Neural Network (earlier checkpoint, {iteration} iters)"
+            desc = f"Earlier training snapshot at iteration {iteration}"
         agents.append({
             "id": name,
             "name": label,
-            "description": f"Neural network trained for {iteration} iterations"
+            "description": desc,
         })
     agents.extend([
-        {"id": "heuristic", "name": "Heuristic (Default)", "description": "Balanced strategic AI"},
-        {"id": "aggressive", "name": "Heuristic (Aggressive)", "description": "High aggression, bar-focused"},
-        {"id": "defensive", "name": "Heuristic (Defensive)", "description": "Conservative, low aggression"},
-        {"id": "queue_control", "name": "Heuristic (Queue Control)", "description": "Prioritizes queue front positioning"},
-        {"id": "skunk_specialist", "name": "Heuristic (Skunk Specialist)", "description": "Values skunk plays higher"},
-        {"id": "noisy", "name": "Heuristic (Noisy)", "description": "Human-like with random noise"},
-        {"id": "online", "name": "Online Strategies", "description": "Reactive counter-play"},
-        {"id": "random", "name": "Random", "description": "Plays random legal moves"},
+        {"id": "heuristic", "name": "Rule-Based AI (Balanced)", "description": "Hand-coded strategy with balanced play"},
+        {"id": "aggressive", "name": "Rule-Based AI (Aggressive)", "description": "Prioritizes scoring over defense"},
+        {"id": "defensive", "name": "Rule-Based AI (Defensive)", "description": "Conservative, avoids risk"},
+        {"id": "queue_control", "name": "Rule-Based AI (Queue Focus)", "description": "Prioritizes queue front positioning"},
+        {"id": "skunk_specialist", "name": "Rule-Based AI (Skunk Expert)", "description": "Specializes in skunk card plays"},
+        {"id": "noisy", "name": "Rule-Based AI (Human-like)", "description": "Adds random noise to simulate human play"},
+        {"id": "online", "name": "Reactive Counter-Play", "description": "Adapts strategy based on opponent moves"},
+        {"id": "random", "name": "Random (Baseline)", "description": "Plays random legal moves — the baseline"},
     ])
     return agents
 
