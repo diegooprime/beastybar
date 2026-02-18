@@ -1801,8 +1801,8 @@
       <div class="splash-badge">Built with Claude Code</div>
       <div class="splash-title">Beasty Bar AI</div>
       <div class="splash-subtitle">
-        A neural network trained through 15 million games of self-play<br>
-        to master the card game Beasty Bar.
+        A Transformer neural network trained through 15 million games of self-play<br>
+        to master the card game <a href="https://www.zoch-verlag.com/zoch_en/brands/beasty-bar/" target="_blank" style="color: var(--accent); text-decoration: none;">Beasty Bar</a> using reinforcement learning.
       </div>
       <div class="splash-stats">
         <div class="splash-stat">
@@ -1817,6 +1817,14 @@
           <div class="splash-stat-value">1.3M</div>
           <div class="splash-stat-label">Parameters</div>
         </div>
+        <div class="splash-stat">
+          <div class="splash-stat-value">200x</div>
+          <div class="splash-stat-label">Cython Speedup</div>
+        </div>
+      </div>
+      <div style="color: var(--text-dim); font-size: 0.8rem; margin-bottom: 1.5rem; line-height: 1.5;">
+        PPO self-play on A100 GPUs &bull; 988-dim observation space &bull; 124 discrete actions<br>
+        Beats 10 different opponent types &bull; ~1379 ELO
       </div>
       <div class="splash-actions">
         <button class="splash-btn splash-btn-primary" id="splash-watch">
@@ -3174,6 +3182,9 @@
     }
 
     function showModal() {
+      // Don't show new-game modal if splash screen is still visible
+      const splash = document.getElementById('splash-overlay');
+      if (splash && !splash.classList.contains('hidden')) return;
       loadAgents();
       modalOverlay.classList.add('visible');
     }
@@ -4358,6 +4369,7 @@
     // "Watch AI vs AI Battle" — auto-start neural vs heuristic battle
     splashWatch.addEventListener('click', async () => {
       hideSplash();
+      hideModal();
       // Load battle agents, find neural and heuristic
       try {
         const res = await fetch('/api/ai-agents/battle');
@@ -4409,6 +4421,7 @@
     // "Play Against the AI" — start a game vs neural agent immediately
     splashPlay.addEventListener('click', async () => {
       hideSplash();
+      hideModal();
       // Load agents and start game vs best neural agent
       try {
         const res = await fetch('/api/ai-agents');
