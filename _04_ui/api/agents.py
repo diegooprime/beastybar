@@ -28,7 +28,7 @@ def _build_agent_list() -> list[dict]:
     if "ppo_iter949_tablebase" in AI_AGENTS:
         agents.append({
             "id": "ppo_iter949_tablebase",
-            "name": "Neural Network + Tablebase (Strongest)",
+            "name": "Neural + Tablebase",
             "description": "Trained neural net with perfect endgame lookup — the strongest agent"
         })
     # Add neural agents sorted by iteration (highest first)
@@ -39,12 +39,11 @@ def _build_agent_list() -> list[dict]:
     seen_neural = False
     for _agent, name, iteration in all_neural:
         if not seen_neural:
-            iter_label = f"{iteration} iters" if iteration > 0 else "949 iters"
-            label = f"Trained Neural Network ({iter_label}, 15M games)"
-            desc = "Transformer trained via self-play PPO — 75.7% win rate"
+            label = "Neural PPO"
+            desc = "Transformer trained via self-play PPO (949 iters, 15M games) — 75.7% win rate"
             seen_neural = True
         else:
-            label = f"Neural Network (earlier checkpoint, {iteration} iters)"
+            label = f"Neural (iter {iteration})"
             desc = f"Earlier training snapshot at iteration {iteration}"
         agents.append({
             "id": name,
@@ -52,14 +51,14 @@ def _build_agent_list() -> list[dict]:
             "description": desc,
         })
     agents.extend([
-        {"id": "heuristic", "name": "Rule-Based AI (Balanced)", "description": "Hand-coded strategy with balanced play"},
-        {"id": "aggressive", "name": "Rule-Based AI (Aggressive)", "description": "Prioritizes scoring over defense"},
-        {"id": "defensive", "name": "Rule-Based AI (Defensive)", "description": "Conservative, avoids risk"},
-        {"id": "queue_control", "name": "Rule-Based AI (Queue Focus)", "description": "Prioritizes queue front positioning"},
-        {"id": "skunk_specialist", "name": "Rule-Based AI (Skunk Expert)", "description": "Specializes in skunk card plays"},
-        {"id": "noisy", "name": "Rule-Based AI (Human-like)", "description": "Adds random noise to simulate human play"},
-        {"id": "online", "name": "Reactive Counter-Play", "description": "Adapts strategy based on opponent moves"},
-        {"id": "random", "name": "Random (Baseline)", "description": "Plays random legal moves — the baseline"},
+        {"id": "heuristic", "name": "Heuristic", "description": "Hand-coded balanced strategy"},
+        {"id": "aggressive", "name": "Aggressive", "description": "Prioritizes scoring over defense"},
+        {"id": "defensive", "name": "Defensive", "description": "Conservative, avoids risk"},
+        {"id": "queue_control", "name": "Queue Control", "description": "Prioritizes queue front positioning"},
+        {"id": "skunk_specialist", "name": "Skunk Expert", "description": "Specializes in skunk card plays"},
+        {"id": "noisy", "name": "Human-like", "description": "Adds random noise to simulate human play"},
+        {"id": "online", "name": "Counter-Play", "description": "Adapts strategy based on opponent moves"},
+        {"id": "random", "name": "Random", "description": "Plays random legal moves — the baseline"},
     ])
     return agents
 
