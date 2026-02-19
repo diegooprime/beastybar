@@ -20,6 +20,11 @@ _01_simulator/_cython/*.c
 _01_simulator/_cython/*.so
 _01_simulator/_cython/*.html
 
+# Environment and secrets
+.env
+.env.*
+*.env
+
 # OS files
 .DS_Store
 **/.DS_Store
