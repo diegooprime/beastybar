@@ -77,6 +77,8 @@ def _load_neural_agent(ckpt_path: str | Path | None = None) -> tuple:
 
         def load_from_checkpoint(path):
             """Load network from PPO or MCTS checkpoint."""
+            # weights_only=False required (pickle protocol 4 checkpoint)
+            # Safe: checkpoint path is validated to be under allowed directories
             checkpoint = torch.load(path, map_location="cpu", weights_only=False)
             state_dict = checkpoint["model_state_dict"]
 
@@ -114,6 +116,13 @@ def _load_neural_agent(ckpt_path: str | Path | None = None) -> tuple:
 
         # Check for checkpoint path in environment or explicit path
         checkpoint_path = ckpt_path or os.environ.get("NEURAL_CHECKPOINT", None)
+        if checkpoint_path:
+            # Validate path is under allowed directories
+            resolved = Path(checkpoint_path).resolve()
+            allowed_dirs = [Path("checkpoints").resolve(), Path(".").resolve()]
+            if not any(str(resolved).startswith(str(d)) for d in allowed_dirs):
+                logger.warning("Rejected checkpoint path outside allowed dirs: %s", resolved)
+                return None, None, None
         if checkpoint_path and Path(checkpoint_path).exists():
             network, iteration = load_from_checkpoint(checkpoint_path)
             logger.info(f"Loaded neural agent from {checkpoint_path} (iter {iteration})")
@@ -140,11 +149,8 @@ def _load_neural_agent(ckpt_path: str | Path | None = None) -> tuple:
                     logger.info(f"Loaded neural agent from {checkpoints[-1]} (iter {iteration})")
                     return NeuralAgent(network, mode="greedy"), f"ppo_iter{iteration}", iteration
         return None, None, None
-    except Exception as e:
-        logger.warning(f"Failed to load neural agent: {e}")
-        import traceback
-
-        traceback.print_exc()
+    except Exception:
+        logger.exception("Failed to load neural agent")
         return None, None, None
 
 

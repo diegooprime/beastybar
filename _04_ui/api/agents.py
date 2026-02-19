@@ -36,29 +36,18 @@ def _build_agent_list() -> list[dict]:
     if _neural_name and _neural_name in AI_AGENTS:
         all_neural.append((_neural_agent, "neural", _neural_iter))
     all_neural.sort(key=lambda x: x[2], reverse=True)
-    seen_neural = False
-    for _agent, name, iteration in all_neural:
-        if not seen_neural:
-            label = "Neural PPO"
-            desc = "Transformer trained via self-play PPO (949 iters, 15M games) — 75.7% win rate"
-            seen_neural = True
-        else:
-            label = f"Neural (iter {iteration})"
-            desc = f"Earlier training snapshot at iteration {iteration}"
+    # Only show the best neural agent (highest iteration)
+    if all_neural:
+        best = all_neural[0]
         agents.append({
-            "id": name,
-            "name": label,
-            "description": desc,
+            "id": best[1],
+            "name": "Trained Neural Net",
+            "description": "Transformer trained via self-play (15M games) — 75.7% win rate",
         })
     agents.extend([
-        {"id": "heuristic", "name": "Heuristic", "description": "Hand-coded balanced strategy"},
-        {"id": "aggressive", "name": "Aggressive", "description": "Prioritizes scoring over defense"},
-        {"id": "defensive", "name": "Defensive", "description": "Conservative, avoids risk"},
-        {"id": "queue_control", "name": "Queue Control", "description": "Prioritizes queue front positioning"},
-        {"id": "skunk_specialist", "name": "Skunk Expert", "description": "Specializes in skunk card plays"},
-        {"id": "noisy", "name": "Human-like", "description": "Adds random noise to simulate human play"},
-        {"id": "online", "name": "Counter-Play", "description": "Adapts strategy based on opponent moves"},
-        {"id": "random", "name": "Random", "description": "Plays random legal moves — the baseline"},
+        {"id": "heuristic", "name": "Rule-Based Bot", "description": "Hand-coded strategy using game knowledge"},
+        {"id": "aggressive", "name": "Aggressive Bot", "description": "Prioritizes scoring over defense"},
+        {"id": "random", "name": "Random Baseline", "description": "Plays random legal moves"},
     ])
     return agents
 

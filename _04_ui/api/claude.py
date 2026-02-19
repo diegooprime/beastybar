@@ -158,7 +158,7 @@ Reply with JUST the action number (e.g., "1" or "3").""",
     }
 
     CLAUDE_STATE_FILE.write_text(json.dumps(state_data, indent=2))
-    return {"written": True, "path": str(CLAUDE_STATE_FILE)}
+    return {"written": True}
 
 
 @router.get("/claude-bridge/check-move")
@@ -170,14 +170,13 @@ def api_claude_check_move() -> dict:
     try:
         move_data = json.loads(CLAUDE_MOVE_FILE.read_text())
         return {"hasMove": True, "actionIndex": move_data.get("actionIndex")}
-    except json.JSONDecodeError as e:
-        logger.warning(f"Invalid JSON in move file: {e}")
-        return {"hasMove": False, "error": "Invalid JSON in move file"}
+    except json.JSONDecodeError:
+        logger.warning("Invalid JSON in move file")
+        return {"hasMove": False, "error": "Invalid move file"}
     except FileNotFoundError:
-        # File was deleted between exists() check and read
         return {"hasMove": False}
-    except OSError as e:
-        logger.warning(f"Error reading move file: {e}")
+    except OSError:
+        logger.exception("Error reading move file")
         return {"hasMove": False, "error": "Error reading move file"}
 
 

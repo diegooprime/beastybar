@@ -68,20 +68,11 @@ async def api_ai_move() -> dict:
     # Get legal actions
     legal = simulate.legal_actions(game_state, player)
 
-    # Get AI agent or use Claude API
+    # Get AI agent (claude agent disabled in public deployment)
     ai_name = store.ai_opponent or "heuristic"
     if ai_name == "claude":
-        # Use Anthropic API
-        try:
-            get_claude_move = get_claude_move_func()
-            action = get_claude_move(game_state, player, legal)
-        except Exception as e:
-            logger.exception("Claude API error")
-            raise HTTPException(
-                status_code=500,
-                detail="AI service temporarily unavailable. Please try again.",
-            ) from e
-    else:
+        ai_name = "heuristic"  # Fallback — claude agent disabled publicly
+    if True:
         if ai_name not in AI_AGENTS:
             logger.warning("Unknown AI agent '%s', falling back to heuristic", ai_name)
             ai_name = "heuristic"

@@ -69,15 +69,28 @@ def battle_visualizer_page() -> FileResponse:
     return FileResponse(_static_dir / "battle_visualizer.html")
 
 
+_MAX_WS_CONNECTIONS = 50
+_MAX_WS_MESSAGE_SIZE = 4096
+
+
 @router.websocket("/ws/visualizer")
 async def websocket_visualizer(websocket: WebSocket):
     """WebSocket endpoint for real-time activation streaming."""
     viz_manager = _get_viz_manager()
+
+    # Reject if too many connections
+    if viz_manager.connection_count >= _MAX_WS_CONNECTIONS:
+        await websocket.close(code=1013)  # Try Again Later
+        return
+
     await viz_manager.connect(websocket)
 
     try:
         while True:
             data = await websocket.receive_text()
+            if len(data) > _MAX_WS_MESSAGE_SIZE:
+                await websocket.close(code=1009)  # Message Too Big
+                return
             response = await viz_manager.handle_client_message(websocket, data)
             if response:
                 await viz_manager.send_to_client(websocket, response)
@@ -215,10 +228,10 @@ def api_explain_move(payload: dict) -> dict:
         ]
         return result
 
-    except Exception as e:
+    except Exception:
         logger.exception("Error generating explanation")
         return {
-            "error": f"Failed to generate explanation: {e!s}",
+            "error": "Failed to generate explanation",
             "action_index": action_index,
         }
 
@@ -269,6 +282,6 @@ def api_benchmark() -> dict:
             "memory_mb": round(result.memory.model_size_mb, 1) if result.memory else None,
             "throughput_per_sec": round(result.throughput.inferences_per_second, 0) if result.throughput else None,
         }
-    except Exception as e:
+    except Exception:
         logger.exception("Benchmark failed")
-        return {"error": str(e)}
+        return {"error": "Benchmark unavailable"}
