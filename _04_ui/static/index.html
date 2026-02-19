@@ -1240,6 +1240,39 @@
       .queue {
         flex-wrap: wrap;
       }
+
+      /* Battle mode: sidebar-only on mobile, no game board */
+      .battle-wrapper {
+        flex-direction: column;
+      }
+
+      .battle-main {
+        display: none !important;
+      }
+
+      /* Loading overlay becomes fixed full-screen on mobile */
+      .battle-loading-overlay {
+        position: fixed !important;
+        inset: 0 !important;
+        z-index: 1000;
+      }
+
+      .battle-sidebar {
+        width: 100%;
+        border-left: none;
+        flex: 1;
+        overflow-y: auto;
+      }
+
+      /* Hide header score display on mobile in battle mode — sidebar has scores */
+      body.battle-mode .header-center {
+        display: none;
+      }
+
+      body.battle-mode .header {
+        padding: 0.5rem 1rem;
+        min-height: 0;
+      }
     }
 
     @media (max-width: 600px) {
@@ -1277,6 +1310,31 @@
 
       .splash-btn {
         width: 280px;
+      }
+
+      /* Battle sidebar fills screen on small phones */
+      .battle-sidebar-header {
+        padding: 0.75rem;
+      }
+
+      .battle-sidebar-title {
+        font-size: 1.2rem;
+      }
+
+      .battle-scores {
+        padding: 0.75rem;
+      }
+
+      .battle-progress {
+        padding: 0.75rem;
+      }
+
+      .battle-winrate {
+        padding: 0.75rem;
+      }
+
+      .battle-controls {
+        padding: 0.75rem;
       }
     }
 
