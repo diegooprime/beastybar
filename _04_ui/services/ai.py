@@ -77,8 +77,11 @@ def _load_neural_agent(ckpt_path: str | Path | None = None) -> tuple:
 
         def load_from_checkpoint(path):
             """Load network from PPO or MCTS checkpoint."""
-            # weights_only=False required (pickle protocol 4 checkpoint)
-            # Safe: checkpoint path is validated to be under allowed directories
+            # TODO(security): MEDIUM - weights_only=False allows arbitrary code
+            # execution via crafted checkpoint files.  The path-validation above
+            # mitigates remote-file attacks but a local file-swap is still
+            # exploitable.  Migrate to weights_only=True when checkpoint schema
+            # is updated to use only safe built-in types.
             checkpoint = torch.load(path, map_location="cpu", weights_only=False)
             state_dict = checkpoint["model_state_dict"]
 

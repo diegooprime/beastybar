@@ -285,6 +285,10 @@ def load_checkpoint(
         device = torch.device(device)
 
     # Load checkpoint
+    # TODO(security): MEDIUM - weights_only=False allows arbitrary code execution
+    # via crafted checkpoint files.  Migrate to weights_only=True once all
+    # checkpoint schemas use only built-in types, or add an allowlist via
+    # torch.serialization.add_safe_globals().
     checkpoint = torch.load(path, map_location=device, weights_only=False)
 
     # Restore model state

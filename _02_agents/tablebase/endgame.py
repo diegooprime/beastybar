@@ -293,7 +293,11 @@ class EndgameTablebase:
         with open(path, "rb") as f:
             compressed = f.read()
 
-        data = pickle.loads(zlib.decompress(compressed))
+        # TODO(security): HIGH - pickle.loads on file data is vulnerable to arbitrary
+        # code execution if an attacker can replace the tablebase file.  Consider
+        # switching to a safe format (e.g. numpy .npz, msgpack, or JSON) or adding
+        # an HMAC signature check before deserializing.
+        data = pickle.loads(zlib.decompress(compressed))  # noqa: S301
 
         if data.get("version") != 1:
             raise ValueError(f"Unsupported tablebase version: {data.get('version')}")

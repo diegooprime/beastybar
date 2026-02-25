@@ -26,9 +26,30 @@ testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-ra"
 
+[tool.coverage.run]
+source = ["_01_simulator", "_02_agents", "_03_training", "_04_ui"]
+omit = [
+    "_01_simulator/_cython/test_*.py",
+    "_01_simulator/_cython/setup.py",
+]
+
+[tool.coverage.report]
+fail_under = 100
+show_missing = true
+skip_empty = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.",
+    "@abstractmethod",
+    "raise NotImplementedError",
+    "\\.\\.\\.",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",
+    "pytest-cov>=6.0",
     "ruff>=0.8.0",
     "mypy>=1.13.0",
     "pre-commit>=4.0.0",
