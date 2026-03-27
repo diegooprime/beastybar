@@ -17,7 +17,9 @@ Key concepts:
 from __future__ import annotations
 
 import hashlib
+import hmac
 import logging
+import os
 import pickle
 import struct
 import time
@@ -34,6 +36,11 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 logger = logging.getLogger(__name__)
+
+# HMAC integrity verification for tablebase files
+_TABLEBASE_HMAC_KEY: bytes | None = os.environ.get("TABLEBASE_HMAC_KEY", "").encode() or None
+_HMAC_MAGIC = b"BBHM"  # Magic prefix identifying signed tablebase files
+_HMAC_SIZE = 32  # SHA-256 digest size
 
 
 class GameTheoreticValue(IntEnum):
@@ -270,7 +277,12 @@ class EndgameTablebase:
         )
 
         with open(path, "wb") as f:
-            f.write(compressed)
+            if _TABLEBASE_HMAC_KEY:
+                sig = hmac.new(_TABLEBASE_HMAC_KEY, compressed, hashlib.sha256).digest()
+                f.write(_HMAC_MAGIC + sig + compressed)
+            else:
+                logger.warning("TABLEBASE_HMAC_KEY not set; saving unsigned tablebase")
+                f.write(compressed)
 
         logger.info(
             "Saved tablebase: %d positions, %.2f MB",
@@ -291,12 +303,29 @@ class EndgameTablebase:
         path = Path(path)
 
         with open(path, "rb") as f:
-            compressed = f.read()
+            raw = f.read()
 
-        # TODO(security): HIGH - pickle.loads on file data is vulnerable to arbitrary
-        # code execution if an attacker can replace the tablebase file.  Consider
-        # switching to a safe format (e.g. numpy .npz, msgpack, or JSON) or adding
-        # an HMAC signature check before deserializing.
+        # Verify HMAC signature if present (signed files start with magic bytes)
+        if raw[:4] == _HMAC_MAGIC:
+            sig = raw[4 : 4 + _HMAC_SIZE]
+            compressed = raw[4 + _HMAC_SIZE :]
+            if _TABLEBASE_HMAC_KEY:
+                expected = hmac.new(
+                    _TABLEBASE_HMAC_KEY, compressed, hashlib.sha256
+                ).digest()
+                if not hmac.compare_digest(sig, expected):
+                    raise ValueError(
+                        "Tablebase HMAC mismatch — file may be tampered"
+                    )
+            else:
+                logger.warning(
+                    "TABLEBASE_HMAC_KEY not set; cannot verify signature of %s",
+                    path,
+                )
+        else:
+            compressed = raw
+            logger.warning("Loading unsigned legacy tablebase %s", path)
+
         data = pickle.loads(zlib.decompress(compressed))  # noqa: S301
 
         if data.get("version") != 1:

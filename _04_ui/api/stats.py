@@ -39,6 +39,20 @@ async def api_save_stats(request: Request) -> dict:
         stats = json.loads(body)
         if not isinstance(stats, dict):
             raise HTTPException(status_code=400, detail="Expected JSON object")
+        if len(stats) > 100:
+            raise HTTPException(status_code=400, detail="Too many entries")
+        for key, val in stats.items():
+            if not isinstance(key, str) or len(key) > 64:
+                raise HTTPException(status_code=400, detail="Invalid opponent key")
+            if not isinstance(val, dict):
+                raise HTTPException(status_code=400, detail="Invalid stat entry")
+            if not {"name", "wins", "losses", "draws"} <= val.keys():
+                raise HTTPException(status_code=400, detail="Missing stat fields")
+            if not isinstance(val.get("name"), str) or len(val["name"]) > 128:
+                raise HTTPException(status_code=400, detail="Invalid name")
+            for field in ("wins", "losses", "draws"):
+                if not isinstance(val.get(field), int) or val[field] < 0:
+                    raise HTTPException(status_code=400, detail=f"Invalid {field}")
         STATS_FILE.parent.mkdir(parents=True, exist_ok=True)
         STATS_FILE.write_text(json.dumps(stats, indent=2))
         return {"status": "ok"}

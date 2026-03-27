@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable  # noqa: TC003
 from pathlib import Path
 
@@ -70,11 +71,12 @@ def create_app() -> FastAPI:
     # Security headers + rate limiting middleware
     @app.middleware("http")
     async def security_middleware(request: Request, call_next: Callable) -> Response:
-        # Extract real client IP behind proxy (Tailscale Funnel, HF Spaces)
-        client_ip = (
-            request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-            or (request.client.host if request.client else "unknown")
-        )
+        # Client IP — only trust X-Forwarded-For behind a known proxy
+        client_ip = request.client.host if request.client else "unknown"
+        if os.environ.get("BEHIND_PROXY"):
+            forwarded = request.headers.get("X-Forwarded-For", "")
+            if forwarded:
+                client_ip = forwarded.split(",")[0].strip()
 
         path = request.url.path
 

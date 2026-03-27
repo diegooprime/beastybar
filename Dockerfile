@@ -19,4 +19,5 @@ EXPOSE 7860
 
 # Run
 ENV NEURAL_CHECKPOINT=checkpoints/model_inference.pt
+ENV BEHIND_PROXY=true
 CMD ["python", "-m", "uvicorn", "_04_ui.app:app", "--host", "0.0.0.0", "--port", "7860"]

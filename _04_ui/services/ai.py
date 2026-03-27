@@ -77,11 +77,9 @@ def _load_neural_agent(ckpt_path: str | Path | None = None) -> tuple:
 
         def load_from_checkpoint(path):
             """Load network from PPO or MCTS checkpoint."""
-            # TODO(security): MEDIUM - weights_only=False allows arbitrary code
-            # execution via crafted checkpoint files.  The path-validation above
-            # mitigates remote-file attacks but a local file-swap is still
-            # exploitable.  Migrate to weights_only=True when checkpoint schema
-            # is updated to use only safe built-in types.
+            # weights_only=False required: existing checkpoints use pickle protocol 4
+            # which is incompatible with the safe unpickler.  Path validation above
+            # restricts loading to the checkpoints/ directory only.
             checkpoint = torch.load(path, map_location="cpu", weights_only=False)
             state_dict = checkpoint["model_state_dict"]
 
@@ -122,8 +120,8 @@ def _load_neural_agent(ckpt_path: str | Path | None = None) -> tuple:
         if checkpoint_path:
             # Validate path is under allowed directories
             resolved = Path(checkpoint_path).resolve()
-            allowed_dirs = [Path("checkpoints").resolve(), Path(".").resolve()]
-            if not any(str(resolved).startswith(str(d)) for d in allowed_dirs):
+            allowed_dirs = [Path("checkpoints").resolve()]
+            if not any(resolved.is_relative_to(d) for d in allowed_dirs):
                 logger.warning("Rejected checkpoint path outside allowed dirs: %s", resolved)
                 return None, None, None
         if checkpoint_path and Path(checkpoint_path).exists():

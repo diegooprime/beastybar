@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime  # noqa: TC003
+from collections import OrderedDict
 from threading import Lock
 
 from fastapi import HTTPException
@@ -43,26 +44,27 @@ class GameSession:
 
 
 class SessionStore:
-    """Thread-safe session store with per-session isolation."""
+    """Thread-safe session store with LRU eviction."""
 
     def __init__(self, max_sessions: int = 1000):
-        self._sessions: dict[str, GameSession] = {}
+        self._sessions: OrderedDict[str, GameSession] = OrderedDict()
         self._lock = Lock()
         self._max_sessions = max_sessions
 
     def get_or_create(self, session_id: str) -> GameSession:
-        """Get existing session or create new one."""
+        """Get existing session or create new one (LRU eviction)."""
         with self._lock:
-            if session_id not in self._sessions:
-                # Enforce max sessions limit
-                if len(self._sessions) >= self._max_sessions:
-                    # Remove oldest session (simple LRU approximation)
-                    oldest_key = next(iter(self._sessions))
-                    del self._sessions[oldest_key]
-                self._sessions[session_id] = GameSession()
+            if session_id in self._sessions:
+                self._sessions.move_to_end(session_id)
+                return self._sessions[session_id]
+            if len(self._sessions) >= self._max_sessions:
+                self._sessions.popitem(last=False)
+            self._sessions[session_id] = GameSession()
             return self._sessions[session_id]
 
     def get(self, session_id: str) -> GameSession | None:
         """Get session if it exists."""
         with self._lock:
+            if session_id in self._sessions:
+                self._sessions.move_to_end(session_id)
             return self._sessions.get(session_id)

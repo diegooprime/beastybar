@@ -2557,6 +2557,13 @@
     let isAnimating = false;
     let playingCardKey = null;
 
+    // HTML escaping for dynamic content (XSS prevention)
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = String(str);
+      return div.innerHTML;
+    }
+
     // Animation timing constants (ms) - much slower for clarity
     const ANIM_TIMING = {
       CARD_TO_QUEUE: 250,
@@ -2582,10 +2589,10 @@
         this.positions.clear();
         // Capture hand cards
         const handCards = document.querySelectorAll('#hand .card');
-        console.log('[ANIM] Found hand cards:', handCards.length);
+        // console.log('[ANIM] Found hand cards:', handCards.length);
         handCards.forEach((el, idx) => {
           const key = el.dataset.cardKey;
-          console.log('[ANIM] Hand card', idx, 'key:', key);
+          // console.log('[ANIM] Hand card', idx, 'key:', key);
           if (key) {
             this.positions.set(key, {
               rect: el.getBoundingClientRect(),
@@ -2597,7 +2604,7 @@
         });
         // Capture queue cards
         const queueCards = document.querySelectorAll('#queue .card');
-        console.log('[ANIM] Found queue cards:', queueCards.length);
+        // console.log('[ANIM] Found queue cards:', queueCards.length);
         queueCards.forEach((el, idx) => {
           const key = el.dataset.cardKey;
           if (key) {
@@ -2609,7 +2616,7 @@
             });
           }
         });
-        console.log('[ANIM] Total positions captured:', this.positions.size);
+        // console.log('[ANIM] Total positions captured:', this.positions.size);
       },
 
       getPosition(cardKey) {
@@ -2696,9 +2703,9 @@
 
     // Animate card flying from hand to queue
     async function animateCardToQueue(cardKey, sourceRect) {
-      console.log('[ANIM] animateCardToQueue called', cardKey, sourceRect);
+      // console.log('[ANIM] animateCardToQueue called', cardKey, sourceRect);
       if (!sourceRect) {
-        console.log('[ANIM] No sourceRect, returning');
+        // console.log('[ANIM] No sourceRect, returning');
         return;
       }
 
@@ -2744,12 +2751,12 @@
           flyingCard.innerHTML += `
             <div class="card-content">
               <div class="card-top">
-                <span class="card-owner-badge" data-owner="${card.owner}"></span>
-                <span class="card-strength">${card.strength}</span>
+                <span class="card-owner-badge" data-owner="${escapeHtml(card.owner)}"></span>
+                <span class="card-strength">${escapeHtml(card.strength)}</span>
               </div>
               <div class="card-bottom">
-                <div class="card-species">${card.species}</div>
-                <div class="card-points">+${card.points} pts</div>
+                <div class="card-species">${escapeHtml(card.species)}</div>
+                <div class="card-points">+${escapeHtml(card.points)} pts</div>
               </div>
             </div>
           `;
@@ -3015,15 +3022,15 @@
           }
 
           if (orderChanged) {
-            console.log('[ANIM] Detected queue reorder by position comparison');
+            // console.log('[ANIM] Detected queue reorder by position comparison');
             animations.push({ type: 'queue-reorder', reason: 'move', label: 'SHUFFLE!' });
           }
         }
       }
 
-      console.log('[ANIM] Detected killedKeys:', killedKeys);
-      console.log('[ANIM] Detected scoredKeys:', scoredKeys);
-      console.log('[ANIM] All animations:', animations.map(a => a.type));
+      // console.log('[ANIM] Detected killedKeys:', killedKeys);
+      // console.log('[ANIM] Detected scoredKeys:', scoredKeys);
+      // console.log('[ANIM] All animations:', animations.map(a => a.type));
 
       return animations;
     }
@@ -3054,22 +3061,22 @@
 
     // Main animation orchestrator
     async function runAnimations(oldState, newState, turnFlow) {
-      console.log('[ANIM] runAnimations called');
-      console.log('[ANIM] playingCardKey:', playingCardKey);
-      console.log('[ANIM] positionTracker size:', positionTracker.positions.size);
+      // console.log('[ANIM] runAnimations called');
+      // console.log('[ANIM] playingCardKey:', playingCardKey);
+      // console.log('[ANIM] positionTracker size:', positionTracker.positions.size);
 
       if (isAnimating) {
-        console.log('[ANIM] Already animating, skipping');
+        // console.log('[ANIM] Already animating, skipping');
         return;
       }
       isAnimating = true;
 
       try {
         const animations = parseAnimationEvents(oldState, newState, turnFlow);
-        console.log('[ANIM] Parsed animations:', JSON.stringify(animations));
+        // console.log('[ANIM] Parsed animations:', JSON.stringify(animations));
 
         if (animations.length === 0) {
-          console.log('[ANIM] No animations to run');
+          // console.log('[ANIM] No animations to run');
           return;
         }
 
@@ -3077,7 +3084,7 @@
         const cardToQueue = animations.find(a => a.type === 'card-to-queue');
         if (cardToQueue) {
           const sourcePos = positionTracker.getPosition(cardToQueue.cardKey);
-          console.log('[ANIM] Card to queue sourcePos:', sourcePos);
+          // console.log('[ANIM] Card to queue sourcePos:', sourcePos);
           if (sourcePos) {
             await animateCardToQueue(cardToQueue.cardKey, sourcePos.rect);
           }
@@ -3122,7 +3129,7 @@
         // Phase 3: Kill animations
         const killAnim = animations.find(a => a.type === 'kill');
         if (killAnim && killAnim.cardKeys.length > 0) {
-          console.log('[ANIM] Running kill animation for:', killAnim.cardKeys);
+          // console.log('[ANIM] Running kill animation for:', killAnim.cardKeys);
           await animateKillCards(killAnim.cardKeys);
           await delay(ANIM_TIMING.PHASE_GAP);
         }
@@ -3130,7 +3137,7 @@
         // Phase 4: Score animations
         const scoreAnim = animations.find(a => a.type === 'score');
         if (scoreAnim && scoreAnim.cardKeys.length > 0) {
-          console.log('[ANIM] Running score animation for:', scoreAnim.cardKeys);
+          // console.log('[ANIM] Running score animation for:', scoreAnim.cardKeys);
           await animateScoreCards(scoreAnim.cardKeys);
           await delay(ANIM_TIMING.PHASE_GAP);
         }
@@ -3138,7 +3145,7 @@
         // Phase 5: Queue reorder (FLIP animation)
         const reorderAnim = animations.find(a => a.type === 'queue-reorder');
         if (reorderAnim) {
-          console.log('[ANIM] Running queue reorder animation', reorderAnim.reason);
+          // console.log('[ANIM] Running queue reorder animation', reorderAnim.reason);
 
           // Step 1: Show intermediate state (card at end of queue before hop)
           // Build intermediate queue: new cards at end, old order preserved
@@ -3276,14 +3283,14 @@
         // Phase 6: Queue reversal
         const reverseAnim = animations.find(a => a.type === 'queue-reverse');
         if (reverseAnim) {
-          console.log('[ANIM] Running queue reverse animation');
+          // console.log('[ANIM] Running queue reverse animation');
           await animateQueueReversal();
         }
 
         // Phase 7: AI card appear animation
         const appearAnim = animations.find(a => a.type === 'card-appear-in-queue');
         if (appearAnim) {
-          console.log('[ANIM] Running card appear animation');
+          // console.log('[ANIM] Running card appear animation');
           gameState = newState;
           render();
           await delay(50);
@@ -3441,10 +3448,10 @@
 
         html += `
           <tr>
-            <td>${data.name}</td>
-            <td>${data.wins}</td>
-            <td>${data.losses}</td>
-            <td>${data.draws}</td>
+            <td>${escapeHtml(data.name)}</td>
+            <td>${escapeHtml(data.wins)}</td>
+            <td>${escapeHtml(data.losses)}</td>
+            <td>${escapeHtml(data.draws)}</td>
             <td class="win-rate ${rateClass}">${winRate}%</td>
           </tr>
         `;
@@ -3850,9 +3857,9 @@
         const el = document.createElement('div');
         el.className = 'pile-card';
         el.innerHTML = `
-          <span class="pile-card-owner" data-owner="${card.owner}"></span>
-          <span class="pile-card-name">${card.species}</span>
-          <span class="pile-card-pts">+${card.points}</span>
+          <span class="pile-card-owner" data-owner="${escapeHtml(card.owner)}"></span>
+          <span class="pile-card-name">${escapeHtml(card.species)}</span>
+          <span class="pile-card-pts">+${escapeHtml(card.points)}</span>
         `;
         container.appendChild(el);
       });
@@ -3963,12 +3970,12 @@
       content.className = 'card-content';
       content.innerHTML = `
         <div class="card-top">
-          <span class="card-owner-badge" data-owner="${card.owner}"></span>
-          <span class="card-strength">${card.strength}</span>
+          <span class="card-owner-badge" data-owner="${escapeHtml(card.owner)}"></span>
+          <span class="card-strength">${escapeHtml(card.strength)}</span>
         </div>
         <div class="card-bottom">
-          <div class="card-species">${card.species}</div>
-          <div class="card-points">+${card.points} pts</div>
+          <div class="card-species">${escapeHtml(card.species)}</div>
+          <div class="card-points">+${escapeHtml(card.points)} pts</div>
         </div>
       `;
       el.appendChild(content);
@@ -4094,7 +4101,7 @@
         const playedCard = hand.find(c => c.species === playedSpecies);
         if (playedCard) {
           playingCardKey = getCardKey(playedCard);
-          console.log('[ANIM] Set playingCardKey:', playingCardKey);
+          // console.log('[ANIM] Set playingCardKey:', playingCardKey);
         }
       }
 
@@ -4723,9 +4730,9 @@
         const el = document.createElement('div');
         el.className = 'pile-card';
         el.innerHTML = `
-          <span class="pile-card-owner" data-owner="${card.owner}"></span>
-          <span class="pile-card-name">${card.species}</span>
-          <span class="pile-card-pts">+${card.points}</span>
+          <span class="pile-card-owner" data-owner="${escapeHtml(card.owner)}"></span>
+          <span class="pile-card-name">${escapeHtml(card.species)}</span>
+          <span class="pile-card-pts">+${escapeHtml(card.points)}</span>
         `;
         container.appendChild(el);
       });

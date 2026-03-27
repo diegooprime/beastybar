@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # Allowlist of valid AI opponents (excludes "claude" to prevent API credit burn)
 VALID_AI_OPPONENTS = frozenset({
@@ -18,6 +18,13 @@ class NewGameRequest(BaseModel):
     starting_player: int = Field(default=0, ge=0, le=1, alias="startingPlayer")
     human_player: int = Field(default=0, ge=0, le=1, alias="humanPlayer")
     ai_opponent: str | None = Field(default="heuristic", alias="aiOpponent")
+
+    @field_validator("ai_opponent")
+    @classmethod
+    def check_ai_opponent(cls, v: str | None) -> str | None:
+        if v is not None and v not in VALID_AI_OPPONENTS:
+            raise ValueError(f"Unknown AI opponent: {v}")
+        return v
 
 
 class ActionPayload(BaseModel):

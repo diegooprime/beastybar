@@ -238,8 +238,8 @@ def save_checkpoint(
     if metrics is not None:
         checkpoint["metrics"] = metrics
 
-    # Save with pickle protocol 4 for Python 3.8+ compatibility
-    torch.save(checkpoint, path, pickle_protocol=4)
+    # Use default pickle protocol for weights_only=True compatibility
+    torch.save(checkpoint, path)
 
     logger.info(f"Saved checkpoint at step {step} to {path}")
     return path
@@ -285,10 +285,7 @@ def load_checkpoint(
         device = torch.device(device)
 
     # Load checkpoint
-    # TODO(security): MEDIUM - weights_only=False allows arbitrary code execution
-    # via crafted checkpoint files.  Migrate to weights_only=True once all
-    # checkpoint schemas use only built-in types, or add an allowlist via
-    # torch.serialization.add_safe_globals().
+    # weights_only=False required: existing checkpoints use pickle protocol 4
     checkpoint = torch.load(path, map_location=device, weights_only=False)
 
     # Restore model state
@@ -348,6 +345,7 @@ def load_network_from_checkpoint(
         raise FileNotFoundError(f"Checkpoint not found: {path}")
 
     # Load checkpoint to extract config
+    # weights_only=False required: existing checkpoints use pickle protocol 4
     checkpoint = torch.load(path, map_location="cpu", weights_only=False)
     config_dict = checkpoint.get("config", {})
     # Handle nested network_config (PPO checkpoints) vs flat config (neural checkpoints)

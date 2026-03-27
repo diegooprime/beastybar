@@ -185,27 +185,30 @@ def api_claude_apply_move() -> dict:
     """Apply the move from Claude's response file."""
     store = get_store()
 
-    if not CLAUDE_MOVE_FILE.exists():
-        raise HTTPException(status_code=400, detail="No move file found")
+    # Read and immediately delete to prevent TOCTOU race
+    try:
+        move_text = CLAUDE_MOVE_FILE.read_text()
+    except FileNotFoundError:
+        raise HTTPException(status_code=400, detail="No move file found") from None
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail="Cannot read move file") from exc
+
+    # Clean up bridge files immediately after reading
+    CLAUDE_MOVE_FILE.unlink(missing_ok=True)
+    CLAUDE_STATE_FILE.unlink(missing_ok=True)
 
     try:
-        move_data = json.loads(CLAUDE_MOVE_FILE.read_text())
+        move_data = json.loads(move_text)
         action_index = move_data.get("actionIndex")
-    except Exception as exc:
+    except (json.JSONDecodeError, AttributeError) as exc:
         raise HTTPException(status_code=400, detail="Invalid move file") from exc
-
-    # Clean up bridge files
-    if CLAUDE_STATE_FILE.exists():
-        CLAUDE_STATE_FILE.unlink()
-    if CLAUDE_MOVE_FILE.exists():
-        CLAUDE_MOVE_FILE.unlink()
 
     # Apply the move
     game_state = store.require_state()
     ai_player = 1 - store.human_player
     legal = simulate.legal_actions(game_state, ai_player)
 
-    if action_index < 1 or action_index > len(legal):
+    if action_index is None or action_index < 1 or action_index > len(legal):
         raise HTTPException(status_code=400, detail=f"Invalid action index: {action_index}")
 
     action = legal[action_index - 1]

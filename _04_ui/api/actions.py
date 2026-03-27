@@ -72,31 +72,31 @@ async def api_ai_move() -> dict:
     ai_name = store.ai_opponent or "heuristic"
     if ai_name == "claude":
         ai_name = "heuristic"  # Fallback — claude agent disabled publicly
-    if True:
-        if ai_name not in AI_AGENTS:
-            logger.warning("Unknown AI agent '%s', falling back to heuristic", ai_name)
-            ai_name = "heuristic"
-        agent = AI_AGENTS[ai_name]
-        masked_state = state.mask_state_for_player(game_state, player)
 
-        # Try to use visualizing wrapper for neural agents
-        viz_agent = get_visualizing_agent(agent, ai_name)
-        if viz_agent is not None:
-            # Build game context for visualization
-            game_context = {
-                "queue_cards": [c.species for c in game_state.zones.queue],
-                "hand_cards": [c.species for c in game_state.players[player].hand],
-                "bar_cards": [c.species for c in game_state.zones.beasty_bar],
-                "scores": [
-                    sum(c.points for c in game_state.zones.beasty_bar if c.owner == p)
-                    for p in range(2)
-                ],
-            }
-            action, _ = await viz_agent.select_action_with_viz(
-                masked_state, legal, game_state.turn, player, game_context
-            )
-        else:
-            action = agent(masked_state, legal)
+    if ai_name not in AI_AGENTS:
+        logger.warning("Unknown AI agent '%s', falling back to heuristic", ai_name)
+        ai_name = "heuristic"
+    agent = AI_AGENTS[ai_name]
+    masked_state = state.mask_state_for_player(game_state, player)
+
+    # Try to use visualizing wrapper for neural agents
+    viz_agent = get_visualizing_agent(agent, ai_name)
+    if viz_agent is not None:
+        # Build game context for visualization
+        game_context = {
+            "queue_cards": [c.species for c in game_state.zones.queue],
+            "hand_cards": [c.species for c in game_state.players[player].hand],
+            "bar_cards": [c.species for c in game_state.zones.beasty_bar],
+            "scores": [
+                sum(c.points for c in game_state.zones.beasty_bar if c.owner == p)
+                for p in range(2)
+            ],
+        }
+        action, _ = await viz_agent.select_action_with_viz(
+            masked_state, legal, game_state.turn, player, game_context
+        )
+    else:
+        action = agent(masked_state, legal)
 
     # Apply the action
     apply_action(store, action)
