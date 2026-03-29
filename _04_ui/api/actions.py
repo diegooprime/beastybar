@@ -80,23 +80,27 @@ async def api_ai_move() -> dict:
     masked_state = state.mask_state_for_player(game_state, player)
 
     # Try to use visualizing wrapper for neural agents
-    viz_agent = get_visualizing_agent(agent, ai_name)
-    if viz_agent is not None:
-        # Build game context for visualization
-        game_context = {
-            "queue_cards": [c.species for c in game_state.zones.queue],
-            "hand_cards": [c.species for c in game_state.players[player].hand],
-            "bar_cards": [c.species for c in game_state.zones.beasty_bar],
-            "scores": [
-                sum(c.points for c in game_state.zones.beasty_bar if c.owner == p)
-                for p in range(2)
-            ],
-        }
-        action, _ = await viz_agent.select_action_with_viz(
-            masked_state, legal, game_state.turn, player, game_context
-        )
-    else:
-        action = agent(masked_state, legal)
+    try:
+        viz_agent = get_visualizing_agent(agent, ai_name)
+        if viz_agent is not None:
+            # Build game context for visualization
+            game_context = {
+                "queue_cards": [c.species for c in game_state.zones.queue],
+                "hand_cards": [c.species for c in game_state.players[player].hand],
+                "bar_cards": [c.species for c in game_state.zones.beasty_bar],
+                "scores": [
+                    sum(c.points for c in game_state.zones.beasty_bar if c.owner == p)
+                    for p in range(2)
+                ],
+            }
+            action, _ = await viz_agent.select_action_with_viz(
+                masked_state, legal, game_state.turn, player, game_context
+            )
+        else:
+            action = agent(masked_state, legal)
+    except Exception:
+        logger.exception("AI agent error")
+        raise HTTPException(status_code=500, detail="AI move generation failed")
 
     # Apply the action
     apply_action(store, action)

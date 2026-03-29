@@ -14,6 +14,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
 import torch
 import torch.nn.functional as functional
 
@@ -21,6 +22,30 @@ if TYPE_CHECKING:
     from torch import nn
 
 logger = logging.getLogger(__name__)
+
+
+def _register_numpy_safe_globals() -> None:
+    """Register numpy types needed for checkpoint loading with weights_only=True."""
+    safe_globals = [np.ndarray, np.dtype, np.float64, np.uint32]
+    # Register all numpy dtype classes that checkpoints may contain
+    for dtype_cls in [np.dtypes.Float64DType, np.dtypes.UInt32DType, np.dtypes.Float32DType,
+                      np.dtypes.Int64DType, np.dtypes.Int32DType, np.dtypes.UInt64DType]:
+        try:
+            safe_globals.append(dtype_cls)
+        except AttributeError:
+            pass
+    try:
+        safe_globals.append(np._core.multiarray._reconstruct)
+    except AttributeError:
+        pass  # Older numpy versions
+    try:
+        safe_globals.append(np._core.multiarray.scalar)
+    except AttributeError:
+        pass
+    torch.serialization.add_safe_globals(safe_globals)
+
+
+_register_numpy_safe_globals()
 
 # Constants from action_space and observations modules
 ACTION_DIM = 124  # From _01_simulator/action_space.py
@@ -285,8 +310,7 @@ def load_checkpoint(
         device = torch.device(device)
 
     # Load checkpoint
-    # weights_only=False required: existing checkpoints use pickle protocol 4
-    checkpoint = torch.load(path, map_location=device, weights_only=False)
+    checkpoint = torch.load(path, map_location=device, weights_only=True)
 
     # Restore model state
     model.load_state_dict(checkpoint["model_state_dict"], strict=strict)
@@ -345,8 +369,7 @@ def load_network_from_checkpoint(
         raise FileNotFoundError(f"Checkpoint not found: {path}")
 
     # Load checkpoint to extract config
-    # weights_only=False required: existing checkpoints use pickle protocol 4
-    checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+    checkpoint = torch.load(path, map_location="cpu", weights_only=True)
     config_dict = checkpoint.get("config", {})
     # Handle nested network_config (PPO checkpoints) vs flat config (neural checkpoints)
     if "network_config" in config_dict:

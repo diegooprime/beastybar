@@ -14,10 +14,14 @@ COPY checkpoints/ checkpoints/
 COPY __init__.py .
 COPY pyproject.toml .
 
+# Create non-root user
+RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+
 # Expose port (HuggingFace Spaces uses 7860)
 EXPOSE 7860
 
-# Run
+# Run as non-root
+USER appuser
 ENV NEURAL_CHECKPOINT=checkpoints/model_inference.pt
 ENV BEHIND_PROXY=true
 CMD ["python", "-m", "uvicorn", "_04_ui.app:app", "--host", "0.0.0.0", "--port", "7860"]

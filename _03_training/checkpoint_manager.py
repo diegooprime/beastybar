@@ -127,6 +127,11 @@ class CheckpointManager:
         checkpoint_path = Path(path)
         if not checkpoint_path.is_absolute():
             checkpoint_path = self.checkpoint_dir / checkpoint_path
+        checkpoint_path = checkpoint_path.resolve()
+
+        # Prevent path traversal outside checkpoint directory
+        if not checkpoint_path.is_relative_to(self.checkpoint_dir.resolve()):
+            raise ValueError(f"Checkpoint path escapes checkpoint directory: {path}")
 
         checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -152,7 +157,7 @@ class CheckpointManager:
             checkpoint["opponent_pool"] = self._serialize_opponent_pool(opponent_pool)
 
         # Save checkpoint
-        torch.save(checkpoint, checkpoint_path, pickle_protocol=4)
+        torch.save(checkpoint, checkpoint_path)
         logger.info(f"Saved training checkpoint to {checkpoint_path}")
 
         # Also save config as JSON for easy inspection
@@ -188,11 +193,16 @@ class CheckpointManager:
         checkpoint_path = Path(path)
         if not checkpoint_path.is_absolute():
             checkpoint_path = self.checkpoint_dir / checkpoint_path
+        checkpoint_path = checkpoint_path.resolve()
+
+        # Prevent path traversal outside checkpoint directory
+        if not checkpoint_path.is_relative_to(self.checkpoint_dir.resolve()):
+            raise ValueError(f"Checkpoint path escapes checkpoint directory: {path}")
 
         if not checkpoint_path.exists():
             raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
 
-        checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+        checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=True)
         logger.info(f"Loaded checkpoint from {checkpoint_path}")
 
         return checkpoint
@@ -388,7 +398,7 @@ class CheckpointManager:
             inference_checkpoint["network_config"] = config
 
         # Save with compression
-        torch.save(inference_checkpoint, inference_path, pickle_protocol=4)
+        torch.save(inference_checkpoint, inference_path)
 
         # Log size for user awareness
         size_mb = inference_path.stat().st_size / (1024 * 1024)
@@ -439,7 +449,7 @@ def export_for_inference(
         raise FileNotFoundError(f"Source checkpoint not found: {source_path}")
 
     # Load full checkpoint
-    checkpoint = torch.load(source_path, map_location=device, weights_only=False)
+    checkpoint = torch.load(source_path, map_location=device, weights_only=True)
 
     # Extract only what's needed for inference
     inference_checkpoint: dict[str, Any] = {
@@ -455,7 +465,7 @@ def export_for_inference(
 
     # Save minimal checkpoint
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(inference_checkpoint, output_path, pickle_protocol=4)
+    torch.save(inference_checkpoint, output_path)
 
     # Log sizes for comparison
     source_mb = source_path.stat().st_size / (1024 * 1024)
@@ -495,7 +505,7 @@ def load_for_inference(
     if not checkpoint_path.exists():
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
 
-    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=True)
 
     # Extract state dict
     state_dict = checkpoint.get("model_state_dict", checkpoint)

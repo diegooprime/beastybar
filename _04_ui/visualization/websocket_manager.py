@@ -92,6 +92,9 @@ class VisualizerWebSocketManager:
             return
 
         data = json.dumps(message)
+        if len(data) > 1_000_000:  # 1MB broadcast limit
+            logger.warning("Broadcast message too large: %d bytes, dropping", len(data))
+            return
 
         async with self._lock:
             dead_connections: list[WebSocket] = []
@@ -126,6 +129,9 @@ class VisualizerWebSocketManager:
             return
 
         data = json.dumps(message)
+        if len(data) > 1_000_000:  # 1MB broadcast limit
+            logger.warning("Session broadcast message too large: %d bytes, dropping", len(data))
+            return
 
         async with self._lock:
             dead_connections: list[WebSocket] = []

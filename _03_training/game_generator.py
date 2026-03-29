@@ -405,9 +405,10 @@ def generate_games_batched_by_opponent(
             # Standard self-play
             pass
         elif opp_type == OpponentType.CHECKPOINT:
-            # Sample a checkpoint and use it for all games in this batch
-            cp = opponent_pool.checkpoints[
-                opponent_pool._rng.randrange(len(opponent_pool.checkpoints))
+            # Sample a checkpoint — snapshot the list to avoid race conditions
+            checkpoints_snapshot = list(opponent_pool.checkpoints)
+            cp = checkpoints_snapshot[
+                opponent_pool._rng.randrange(len(checkpoints_snapshot))
             ]
             sampled = SampledOpponent(
                 OpponentType.CHECKPOINT,

@@ -72,9 +72,9 @@ def api_ai_battle_start(request: AIBattleRequest) -> dict:
     p2_agent_id = request.player2_agent
 
     if p1_agent_id not in AI_AGENTS:
-        raise HTTPException(status_code=400, detail=f"Unknown agent: {p1_agent_id}")
+        raise HTTPException(status_code=400, detail="Invalid agent selection")
     if p2_agent_id not in AI_AGENTS:
-        raise HTTPException(status_code=400, detail=f"Unknown agent: {p2_agent_id}")
+        raise HTTPException(status_code=400, detail="Invalid agent selection")
 
     p1_agent = AI_AGENTS[p1_agent_id]
     p2_agent = AI_AGENTS[p2_agent_id]

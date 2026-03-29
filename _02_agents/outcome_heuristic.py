@@ -16,11 +16,14 @@ logistic regression on action choices.
 
 from __future__ import annotations
 
+import logging
 import random
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from _01_simulator import actions, engine, state
+
+logger = logging.getLogger(__name__)
 
 from .base import Agent
 
@@ -728,7 +731,8 @@ def extract_weights_from_ppo(
             next_state = engine.step(game_state, chosen_action)
             chosen_metrics = compute_outcome_metrics(game_state, next_state, chosen_action, player)
             chosen_features = metrics_to_features(chosen_metrics, game_state, chosen_action, player)
-        except Exception:
+        except Exception as e:
+            logger.debug("Failed to compute features for action: %s", e)
             continue
 
         # Compare against random alternative actions
@@ -742,11 +746,12 @@ def extract_weights_from_ppo(
                 alt_next_state = engine.step(game_state, alt_action)
                 alt_metrics = compute_outcome_metrics(game_state, alt_next_state, alt_action, player)
                 alt_features = metrics_to_features(alt_metrics, game_state, alt_action, player)
-            except Exception:
+            except Exception as e:
+                logger.debug("Failed to compute alt features: %s", e)
                 continue
 
             # Pairwise difference: chosen - alternative
-            diff = [c - a for c, a in zip(chosen_features, alt_features, strict=False)]
+            diff = [c - a for c, a in zip(chosen_features, alt_features, strict=True)]
             X_pairs.append(diff)
             y_pairs.append(1)  # Label: chosen is better
 
@@ -800,7 +805,7 @@ def extract_weights_from_ppo(
 
     # Map coefficients to OutcomeWeights
     # The coefficients represent the importance of each feature difference
-    feature_importances = dict(zip(FEATURE_NAMES, coef.tolist(), strict=False))
+    feature_importances = dict(zip(FEATURE_NAMES, coef.tolist(), strict=True))
 
     if verbose:
         print("\nLearned feature weights:")

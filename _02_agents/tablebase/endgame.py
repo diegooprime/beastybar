@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import io
 import logging
 import os
 import pickle
@@ -32,13 +33,40 @@ from typing import TYPE_CHECKING, TypeAlias
 
 from _01_simulator import actions, engine, rules, state
 
+
+class _RestrictedUnpickler(pickle.Unpickler):
+    """Unpickler that only allows known-safe types for tablebase data."""
+
+    _SAFE_MODULES: dict[str, set[str]] = {
+        "builtins": {"dict", "list", "tuple", "set", "frozenset", "bytes", "int", "float", "str", "bool", "complex"},
+        "collections": {"defaultdict", "OrderedDict"},
+        "_01_simulator.actions": {"Action"},
+        "_02_agents.tablebase.endgame": {"GameTheoreticValue", "TablebaseEntry", "TablebaseConfig"},
+    }
+
+    def find_class(self, module: str, name: str) -> type:
+        allowed = self._SAFE_MODULES.get(module)
+        if allowed and name in allowed:
+            return super().find_class(module, name)
+        raise pickle.UnpicklingError(
+            f"Forbidden unpickle: {module}.{name}"
+        )
+
+
+def _safe_pickle_loads(data: bytes) -> object:
+    """Deserialize pickle data using restricted unpickler."""
+    return _RestrictedUnpickler(io.BytesIO(data)).load()
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
 logger = logging.getLogger(__name__)
 
 # HMAC integrity verification for tablebase files
-_TABLEBASE_HMAC_KEY: bytes | None = os.environ.get("TABLEBASE_HMAC_KEY", "").encode() or None
+_raw_hmac_key = os.environ.get("TABLEBASE_HMAC_KEY", "")
+if _raw_hmac_key and len(_raw_hmac_key) < 32:
+    raise ValueError("TABLEBASE_HMAC_KEY must be at least 32 characters if set")
+_TABLEBASE_HMAC_KEY: bytes | None = _raw_hmac_key.encode() if _raw_hmac_key else None
 _HMAC_MAGIC = b"BBHM"  # Magic prefix identifying signed tablebase files
 _HMAC_SIZE = 32  # SHA-256 digest size
 
@@ -326,7 +354,7 @@ class EndgameTablebase:
             compressed = raw
             logger.warning("Loading unsigned legacy tablebase %s", path)
 
-        data = pickle.loads(zlib.decompress(compressed))  # noqa: S301
+        data = _safe_pickle_loads(zlib.decompress(compressed))
 
         if data.get("version") != 1:
             raise ValueError(f"Unsupported tablebase version: {data.get('version')}")

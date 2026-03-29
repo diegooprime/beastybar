@@ -167,6 +167,8 @@ def api_explain_move(payload: dict) -> dict:
         raise HTTPException(status_code=400, detail="No legal actions available")
 
     action_index = payload.get("actionIndex", 1)
+    if not isinstance(action_index, int):
+        raise HTTPException(status_code=400, detail="actionIndex must be an integer")
     agent_name = payload.get("agentName", "neural")
 
     if action_index < 1 or action_index > len(legal):

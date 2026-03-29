@@ -973,11 +973,12 @@ class Trainer:
 
         # Drain the queue
         if self._game_queue is not None:
-            try:
-                while True:
+            import queue as _queue_mod
+            while not self._game_queue.empty():
+                try:
                     self._game_queue.get_nowait()
-            except Exception:
-                pass
+                except _queue_mod.Empty:
+                    break
 
         logger.info("All game generation workers stopped")
 
@@ -990,10 +991,11 @@ class Trainer:
             Tuple of (transitions, trajectory_list, opponent_name, win_rate).
         """
         if self._game_queue is not None:
+            import queue as _queue_mod
             try:
                 # Try to get from queue - use longer timeout since workers are async
                 return self._game_queue.get(timeout=5.0)
-            except Exception:
+            except _queue_mod.Empty:
                 # Queue empty - generate synchronously (shouldn't happen with workers)
                 logger.warning("Game queue empty, generating synchronously (workers may be slow)")
                 return self._generate_self_play_games()
@@ -1603,7 +1605,7 @@ class Trainer:
             exploiter_state = torch.load(
                 exploiter_info.checkpoint_path,
                 map_location=self._device,
-                weights_only=False,
+                weights_only=True,
             )
             self.opponent_pool.add_checkpoint(
                 state_dict=exploiter_state["model_state_dict"],
@@ -1691,7 +1693,7 @@ def save_training_checkpoint(trainer: Trainer, path: str) -> None:
     if trainer.exploit_patch_manager is not None:
         checkpoint["exploit_patch_manager"] = trainer.exploit_patch_manager.to_dict()
 
-    torch.save(checkpoint, checkpoint_path, pickle_protocol=4)
+    torch.save(checkpoint, checkpoint_path)
     logger.info(f"Saved training checkpoint to {checkpoint_path}")
 
     # Also save config as JSON for easy inspection
@@ -1727,7 +1729,7 @@ def load_training_checkpoint(path: str, trainer: Trainer) -> None:
     if not checkpoint_path.exists():
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
 
-    checkpoint = torch.load(checkpoint_path, map_location=trainer.device, weights_only=False)
+    checkpoint = torch.load(checkpoint_path, map_location=trainer.device, weights_only=True)
 
     # Restore model state
     trainer.network.load_state_dict(checkpoint["model_state_dict"])
@@ -1823,7 +1825,7 @@ def create_trainer_from_checkpoint(
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
 
     # Load checkpoint to extract config
-    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
     config_dict = checkpoint.get("config", {})
 
     # Apply overrides

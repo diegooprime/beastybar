@@ -285,7 +285,7 @@ def _measure_throughput(
         torch.cuda.synchronize()
     elapsed = time.perf_counter() - start
 
-    inferences_per_sec = config.num_iterations / elapsed
+    inferences_per_sec = config.num_iterations / elapsed if elapsed > 0 else 0.0
 
     # Batched throughput
     batched = {}
@@ -311,7 +311,7 @@ def _measure_throughput(
             torch.cuda.synchronize()
         elapsed = time.perf_counter() - start
 
-        batched[batch_size] = (iterations * batch_size) / elapsed
+        batched[batch_size] = (iterations * batch_size) / elapsed if elapsed > 0 else 0.0
 
     # Games per second (if enabled)
     games_per_sec = None

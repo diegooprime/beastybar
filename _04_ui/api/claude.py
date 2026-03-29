@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
+import tempfile
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
@@ -94,8 +96,8 @@ def api_claude_move(payload: dict) -> dict:
         raise HTTPException(status_code=400, detail="It's not Claude's turn")
 
     action_index = payload.get("actionIndex")
-    if action_index is None:
-        raise HTTPException(status_code=400, detail="Missing actionIndex")
+    if not isinstance(action_index, int):
+        raise HTTPException(status_code=400, detail="actionIndex must be an integer")
 
     legal = simulate.legal_actions(game_state, ai_player)
     if action_index < 1 or action_index > len(legal):
@@ -185,17 +187,22 @@ def api_claude_apply_move() -> dict:
     """Apply the move from Claude's response file."""
     store = get_store()
 
-    # Read and immediately delete to prevent TOCTOU race
+    # Atomically claim the move file via rename to prevent TOCTOU race.
+    # os.rename is atomic on the same filesystem, so concurrent requests
+    # will see FileNotFoundError on the original path.
+    tmp_path = CLAUDE_MOVE_FILE.with_suffix(".claimed")
     try:
-        move_text = CLAUDE_MOVE_FILE.read_text()
+        CLAUDE_MOVE_FILE.rename(tmp_path)
     except FileNotFoundError:
         raise HTTPException(status_code=400, detail="No move file found") from None
     except OSError as exc:
         raise HTTPException(status_code=400, detail="Cannot read move file") from exc
 
-    # Clean up bridge files immediately after reading
-    CLAUDE_MOVE_FILE.unlink(missing_ok=True)
-    CLAUDE_STATE_FILE.unlink(missing_ok=True)
+    try:
+        move_text = tmp_path.read_text()
+    finally:
+        tmp_path.unlink(missing_ok=True)
+        CLAUDE_STATE_FILE.unlink(missing_ok=True)
 
     try:
         move_data = json.loads(move_text)
@@ -208,8 +215,8 @@ def api_claude_apply_move() -> dict:
     ai_player = 1 - store.human_player
     legal = simulate.legal_actions(game_state, ai_player)
 
-    if action_index is None or action_index < 1 or action_index > len(legal):
-        raise HTTPException(status_code=400, detail=f"Invalid action index: {action_index}")
+    if not isinstance(action_index, int) or action_index < 1 or action_index > len(legal):
+        raise HTTPException(status_code=400, detail="Invalid action index")
 
     action = legal[action_index - 1]
     apply_action(store, action)

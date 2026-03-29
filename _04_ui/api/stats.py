@@ -51,7 +51,7 @@ async def api_save_stats(request: Request) -> dict:
             if not isinstance(val.get("name"), str) or len(val["name"]) > 128:
                 raise HTTPException(status_code=400, detail="Invalid name")
             for field in ("wins", "losses", "draws"):
-                if not isinstance(val.get(field), int) or val[field] < 0:
+                if not isinstance(val.get(field), int) or val[field] < 0 or val[field] > 1_000_000:
                     raise HTTPException(status_code=400, detail=f"Invalid {field}")
         STATS_FILE.parent.mkdir(parents=True, exist_ok=True)
         STATS_FILE.write_text(json.dumps(stats, indent=2))

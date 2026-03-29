@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import os
 from collections.abc import Callable  # noqa: TC003
 from pathlib import Path
@@ -76,7 +77,13 @@ def create_app() -> FastAPI:
         if os.environ.get("BEHIND_PROXY"):
             forwarded = request.headers.get("X-Forwarded-For", "")
             if forwarded:
-                client_ip = forwarded.split(",")[0].strip()
+                first_ip = forwarded.split(",")[0].strip()
+                # Validate IP format to prevent header injection
+                try:
+                    ipaddress.IPv4Address(first_ip)
+                    client_ip = first_ip
+                except ipaddress.AddressValueError:
+                    pass  # Invalid IP, keep original client_ip
 
         path = request.url.path
 
@@ -86,19 +93,23 @@ def create_app() -> FastAPI:
         if not is_static:
             # Per-endpoint rate limiting for expensive operations
             if path in expensive_limiters and not expensive_limiters[path].is_allowed(client_ip):
-                return Response(
+                resp = Response(
                     content='{"detail": "Rate limit exceeded for this endpoint"}',
                     status_code=429,
                     media_type="application/json",
                 )
+                resp.headers["Retry-After"] = "60"
+                return resp
 
             # Global rate limit (API endpoints only)
             if not rate_limiter.is_allowed(client_ip):
-                return Response(
+                resp = Response(
                     content='{"detail": "Rate limit exceeded"}',
                     status_code=429,
                     media_type="application/json",
                 )
+                resp.headers["Retry-After"] = "10"
+                return resp
 
         response = await call_next(request)
 
@@ -114,7 +125,9 @@ def create_app() -> FastAPI:
             "font-src 'self' https://fonts.gstatic.com; "
             "img-src 'self' data:; "
             "connect-src 'self' wss: ws:; "
-            "frame-ancestors 'none'"
+            "frame-ancestors 'none'; "
+            "base-uri 'self'; "
+            "form-action 'self'"
         )
         # Remove server header
         if "server" in response.headers:

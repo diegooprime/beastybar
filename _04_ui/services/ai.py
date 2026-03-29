@@ -77,10 +77,7 @@ def _load_neural_agent(ckpt_path: str | Path | None = None) -> tuple:
 
         def load_from_checkpoint(path):
             """Load network from PPO or MCTS checkpoint."""
-            # weights_only=False required: existing checkpoints use pickle protocol 4
-            # which is incompatible with the safe unpickler.  Path validation above
-            # restricts loading to the checkpoints/ directory only.
-            checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+            checkpoint = torch.load(path, map_location="cpu", weights_only=True)
             state_dict = checkpoint["model_state_dict"]
 
             # Extract network config (nested in training config)
